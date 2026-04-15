@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: archived
-stopped_at: Milestone v1.0 archived
-last_updated: "2026-04-16T08:30:00+08:00"
-last_activity: 2026-04-16
+status: Defining requirements
+stopped_at: Milestone v1.1 started
+last_updated: "2026-04-16T09:00:00+08:00"
+last_activity: 2026-04-16 -- Milestone v1.1 started
 progress:
-  total_phases: 7
+  total_phases: 10
   completed_phases: 7
-  total_plans: 21
+  total_plans: 29
   completed_plans: 21
-  percent: 100
+  percent: 72
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-16)
 
 **Core value:** 当 agent 需要回忆历史决策、证据、模式或当前认知状态时，系统必须能快速给出带出处、带时间性、带状态约束的正确记忆。
-**Current focus:** Planning next milestone
+**Current focus:** v1.1 Embedding Second-Channel Retrieval
 
 ## Current Position
 
-Phase: Milestone complete
-Plan: Archived
-Status: Milestone v1.0 archived — ready for next milestone
-Last activity: 2026-04-16
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-16 -- Milestone v1.1 started
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 72%
 
 ## Performance Metrics
 
