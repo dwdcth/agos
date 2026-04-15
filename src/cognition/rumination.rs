@@ -8,10 +8,18 @@ use thiserror::Error;
 use crate::{
     agent::orchestration::AgentSearchReport,
     cognition::{metacog::GateDecision, report::DecisionReport},
-    memory::repository::{
-        LocalAdaptationEntry, LocalAdaptationPayload, LocalAdaptationTargetKind,
-        MemoryRepository, PersistedRuminationQueueItem, PersistedRuminationTriggerState,
-        RepositoryError, RuminationCandidate, RuminationCandidateStatus, RuminationQueueStatus,
+    memory::{
+        governance::{
+            AttachPromotionEvidenceRequest, CreateOntologyCandidateRequest,
+            CreatePromotionReviewRequest, TruthGovernanceError, TruthGovernanceService,
+        },
+        repository::{
+            LocalAdaptationEntry, LocalAdaptationPayload, LocalAdaptationTargetKind,
+            MemoryRepository, PersistedRuminationQueueItem, PersistedRuminationTriggerState,
+            RepositoryError, RuminationCandidate, RuminationCandidateStatus,
+            RuminationQueueStatus,
+        },
+        truth::{EvidenceRole, TruthRecord},
     },
 };
 
@@ -412,9 +420,17 @@ pub enum RuminationServiceError {
     MissingLongCycleSourceReport { trigger: RuminationTriggerKind },
     #[error("long-cycle write-back requires at least one evidence ref for {trigger:?}")]
     MissingLongCycleEvidence { trigger: RuminationTriggerKind },
+    #[error("long-cycle candidate {candidate_id} is missing required field {field}")]
+    MissingLongCycleCandidateField {
+        candidate_id: String,
+        field: &'static str,
+    },
+    #[error("long-cycle governance bridge failed")]
+    Governance(#[from] TruthGovernanceError),
 }
 
 pub struct RuminationService<'db> {
+    conn: &'db Connection,
     repository: MemoryRepository<'db>,
     spq_budget_limit: u32,
     lpq_budget_limit: u32,
@@ -431,6 +447,7 @@ impl<'db> RuminationService<'db> {
         lpq_budget_limit: u32,
     ) -> Self {
         Self {
+            conn,
             repository: MemoryRepository::new(conn),
             spq_budget_limit: spq_budget_limit.max(1),
             lpq_budget_limit: lpq_budget_limit.max(1),
@@ -675,7 +692,8 @@ impl<'db> RuminationService<'db> {
         item: &RuminationQueueItem,
         processed_at: &str,
     ) -> Result<LongCycleCandidateReport, RuminationServiceError> {
-        let candidates = derive_long_cycle_candidates(item, processed_at)?;
+        let mut candidates = derive_long_cycle_candidates(item, processed_at)?;
+        self.bridge_long_cycle_candidates(&mut candidates, processed_at)?;
         for candidate in &candidates {
             self.repository.insert_rumination_candidate(candidate)?;
         }
@@ -693,6 +711,121 @@ impl<'db> RuminationService<'db> {
             evidence_refs: item.evidence_refs.clone(),
             completed_at: processed_at.to_string(),
         })
+    }
+
+    fn bridge_long_cycle_candidates(
+        &self,
+        candidates: &mut [RuminationCandidate],
+        processed_at: &str,
+    ) -> Result<(), RuminationServiceError> {
+        let governance = TruthGovernanceService::new(self.conn);
+
+        for candidate in candidates {
+            if candidate.candidate_kind != RuminationCandidateKind::PromotionCandidate {
+                continue;
+            }
+
+            let source_record_id = candidate
+                .payload
+                .get("source_record_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RuminationServiceError::MissingLongCycleCandidateField {
+                    candidate_id: candidate.candidate_id.clone(),
+                    field: "source_record_id",
+                })?
+                .to_string();
+            let basis_record_ids = candidate
+                .payload
+                .get("basis_record_ids")
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|values| !values.is_empty())
+                .ok_or_else(|| RuminationServiceError::MissingLongCycleCandidateField {
+                    candidate_id: candidate.candidate_id.clone(),
+                    field: "basis_record_ids",
+                })?;
+
+            let truth_record = self
+                .repository
+                .get_truth_record(&source_record_id)?
+                .ok_or_else(|| TruthGovernanceError::SourceRecordNotFound {
+                    record_id: source_record_id.clone(),
+                })?;
+
+            match truth_record {
+                TruthRecord::T3 { .. } => {
+                    let review = governance.create_promotion_review(CreatePromotionReviewRequest {
+                        review_id: format!("review:{}", candidate.candidate_id),
+                        source_record_id,
+                        created_at: processed_at.to_string(),
+                        review_notes: Some(json!({
+                            "origin": "lpq",
+                            "candidate_id": candidate.candidate_id,
+                        })),
+                    })?;
+
+                    for evidence_record_id in &basis_record_ids {
+                        governance.attach_evidence(AttachPromotionEvidenceRequest {
+                            review_id: review.review.review_id.clone(),
+                            evidence_record_id: evidence_record_id.clone(),
+                            evidence_role: EvidenceRole::Supporting,
+                            evidence_note: Some(json!({
+                                "origin": "lpq",
+                                "candidate_id": candidate.candidate_id,
+                            })),
+                        })?;
+                    }
+
+                    candidate.governance_ref_id = Some(review.review.review_id.clone());
+                    if let Some(payload) = candidate.payload.as_object_mut() {
+                        payload.insert(
+                            "promotion_path".to_string(),
+                            Value::String("t3_to_t2_review".to_string()),
+                        );
+                    }
+                }
+                TruthRecord::T2 { .. } => {
+                    let ontology = governance.create_ontology_candidate(
+                        CreateOntologyCandidateRequest {
+                            candidate_id: format!("ontology:{}", candidate.candidate_id),
+                            source_record_id,
+                            basis_record_ids,
+                            proposed_structure: json!({
+                                "origin": "lpq",
+                                "candidate_id": candidate.candidate_id,
+                                "subject_ref": candidate.subject_ref,
+                            }),
+                            created_at: processed_at.to_string(),
+                        },
+                    )?;
+
+                    candidate.governance_ref_id = Some(ontology.candidate_id.clone());
+                    if let Some(payload) = candidate.payload.as_object_mut() {
+                        payload.insert(
+                            "promotion_path".to_string(),
+                            Value::String("t2_to_t1_candidate".to_string()),
+                        );
+                    }
+                }
+                other => {
+                    return Err(TruthGovernanceError::SourceRecordNotT3 {
+                        record_id: source_record_id,
+                        truth_layer: other.truth_layer().as_str(),
+                    }
+                    .into());
+                }
+            }
+
+            candidate.updated_at = processed_at.to_string();
+        }
+
+        Ok(())
     }
 }
 
