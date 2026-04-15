@@ -87,6 +87,15 @@ fn table_indexes(path: &Path, table: &str) -> Vec<String> {
         .expect("index names should decode")
 }
 
+fn lexical_match_count(conn: &rusqlite::Connection, query: &str) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(*) FROM memory_records_fts WHERE memory_records_fts MATCH ?1",
+        [query],
+        |row| row.get(0),
+    )
+    .expect("fts match count should load")
+}
+
 fn sample_record() -> MemoryRecord {
     MemoryRecord {
         id: "rec-001".to_string(),
@@ -219,29 +228,23 @@ fn lexical_sidecar_rebuilds_from_authority_rows() {
     repo.insert_record(&record)
         .expect("record should insert cleanly");
 
-    let initial_count: i64 = db
-        .conn()
-        .query_row("SELECT COUNT(*) FROM memory_records_fts", [], |row| row.get(0))
-        .expect("fts row count should load");
+    let initial_count = lexical_match_count(db.conn(), "local");
     assert_eq!(initial_count, 1, "triggers should index inserted authority rows");
 
     db.conn()
-        .execute("DELETE FROM memory_records_fts", [])
+        .execute(
+            "INSERT INTO memory_records_fts(memory_records_fts) VALUES('delete-all')",
+            [],
+        )
         .expect("fts rows should be clearable for rebuild");
-    let cleared_count: i64 = db
-        .conn()
-        .query_row("SELECT COUNT(*) FROM memory_records_fts", [], |row| row.get(0))
-        .expect("cleared fts row count should load");
+    let cleared_count = lexical_match_count(db.conn(), "local");
     assert_eq!(cleared_count, 0, "fts rows should be cleared before rebuild");
 
     db.conn()
         .execute("INSERT INTO memory_records_fts(memory_records_fts) VALUES('rebuild')", [])
         .expect("fts rebuild helper should succeed");
 
-    let rebuilt_count: i64 = db
-        .conn()
-        .query_row("SELECT COUNT(*) FROM memory_records_fts", [], |row| row.get(0))
-        .expect("rebuilt fts row count should load");
+    let rebuilt_count = lexical_match_count(db.conn(), "local");
     assert_eq!(rebuilt_count, 1, "rebuild should repopulate from authority rows");
 }
 
