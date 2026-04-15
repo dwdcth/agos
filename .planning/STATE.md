@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-04-15T14:44:03.295Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-04-15T15:00:10.106Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 11
-  completed_plans: 9
-  percent: 82
+  completed_plans: 10
+  percent: 91
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 ## Current Position
 
 Phase: 03 (truth-layer-governance) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-15
 
-Progress: [████████░░] 82%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
@@ -49,7 +49,7 @@ Progress: [████████░░] 82%
 
 **Recent Trend:**
 
-- Last 5 plans: 01-03, 01-04, 02-01, 02-02, 02-03
+- Last 5 plans: 02-01, 02-02, 02-03, 03-01, 03-02
 - Trend: Stable
 
 | Phase 01 P01 | 4min | 2 tasks | 9 files |
@@ -61,6 +61,7 @@ Progress: [████████░░] 82%
 | Phase 02 P03 | 9min | 2 tasks | 12 files |
 | Phase 02 P04 | 2min | 2 tasks | 2 files |
 | Phase 03 P01 | 10min | 2 tasks | 10 files |
+| Phase 03 P02 | 8min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -97,6 +98,8 @@ Recent decisions affecting current work:
 - [Phase 03]: Kept memory_records and memory_records_fts as the single authority backbone, and layered truth governance into additive side tables instead of splitting T1/T2/T3 into separate content stores.
 - [Phase 03]: Inserted default T3 governance rows at repository write time so T3 records cannot silently exist without confidence and revocation state.
 - [Phase 03]: Exposed typed TruthRecord projections from MemoryRepository while leaving the Phase 2 lexical retrieval path on the existing authority-table contract.
+- [Phase 03]: Kept truth governance library-first and synchronous, routing review/evidence persistence through MemoryRepository instead of embedding SQL in the service.
+- [Phase 03]: T3 promotion approval creates a derived T2 authority row and preserves the source T3 record plus review timestamps for auditability.
 
 ### Pending Todos
 
@@ -117,6 +120,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T14:44:03.290Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-04-15T15:00:10.102Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None

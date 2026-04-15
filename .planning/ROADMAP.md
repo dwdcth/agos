@@ -65,7 +65,7 @@ Plans:
 
 Plans:
 - [x] 03-01: Add truth-layer metadata, repositories, and query semantics
-- [ ] 03-02: Implement T3 provenance/revocability rules and promotion gate models
+- [x] 03-02: Implement T3 provenance/revocability rules and promotion gate models
 - [ ] 03-03: Add T2-to-T1 candidate handling and governance-oriented service APIs
 
 ### Phase 4: Working Memory And Agent Search
@@ -112,6 +112,6 @@ Embedding retrieval is planned as a later optional extension that can coexist wi
 |-------|----------------|--------|-----------|
 | 1. Foundation Kernel | 4/4 | Complete | 2026-04-15 |
 | 2. Ingest And Lightweight Retrieval | 3/3 | Complete | 2026-04-15 |
-| 3. Truth Layer Governance | 0/3 | Not started | - |
+| 3. Truth Layer Governance | 2/3 | In Progress | - |
 | 4. Working Memory And Agent Search | 0/3 | Not started | - |
 | 5. Rumination And Adaptive Write-back | 0/3 | Not started | - |
