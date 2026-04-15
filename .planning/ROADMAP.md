@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: Bootstrap the Rust project structure and shared `core` module
+- [x] 01-01: Bootstrap the Rust project structure and shared `core` module
 - [ ] 01-02: Implement SQLite schema, migrations, and typed memory base entities
 - [ ] 01-03: Add startup checks, status reporting, and developer inspection commands
 
@@ -109,7 +109,7 @@ Embedding retrieval is planned as a later optional extension that can coexist wi
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation Kernel | 0/3 | Not started | - |
+| 1. Foundation Kernel | 1/3 | In Progress|  |
 | 2. Ingest And Lightweight Retrieval | 0/3 | Not started | - |
 | 3. Truth Layer Governance | 0/3 | Not started | - |
 | 4. Working Memory And Agent Search | 0/3 | Not started | - |
