@@ -625,3 +625,81 @@ fn t2_to_t1_creates_candidate_without_t1_mutation() {
         TruthGovernanceError::SourceRecordNotT2 { record_id, .. } if record_id == "existing-t1"
     ));
 }
+
+#[test]
+fn governance_service_lists_pending_reviews_and_candidates_as_distinct_queues() {
+    let path = fresh_db_path("governance-queues");
+    let db = Database::open(&path).expect("database should open");
+    let service = TruthGovernanceService::new(db.conn());
+
+    MemoryRepository::new(db.conn())
+        .insert_record(&sample_record("t3-source", TruthLayer::T3))
+        .expect("t3 record should insert");
+    MemoryRepository::new(db.conn())
+        .insert_record(&sample_record("t2-source", TruthLayer::T2))
+        .expect("t2 record should insert");
+    MemoryRepository::new(db.conn())
+        .insert_record(&sample_record("basis-1", TruthLayer::T2))
+        .expect("basis record should insert");
+
+    service
+        .create_promotion_review(CreatePromotionReviewRequest {
+            review_id: "pending-review".to_string(),
+            source_record_id: "t3-source".to_string(),
+            created_at: "2026-04-15T15:10:00Z".to_string(),
+            review_notes: Some(json!({
+                "summary": "still pending"
+            })),
+        })
+        .expect("review should create");
+    service
+        .create_ontology_candidate(CreateOntologyCandidateRequest {
+            candidate_id: "pending-candidate".to_string(),
+            source_record_id: "t2-source".to_string(),
+            basis_record_ids: vec!["t2-source".to_string(), "basis-1".to_string()],
+            proposed_structure: json!({
+                "kind": "ontology_node",
+                "label": "candidate queue item"
+            }),
+            created_at: "2026-04-15T15:11:00Z".to_string(),
+        })
+        .expect("candidate should create");
+
+    let pending_reviews = service
+        .list_pending_reviews()
+        .expect("pending reviews should load");
+    assert_eq!(pending_reviews.len(), 1);
+    assert_eq!(pending_reviews[0].review_id, "pending-review");
+    assert_eq!(
+        pending_reviews[0].decision_state,
+        PromotionDecisionState::Pending
+    );
+
+    let pending_candidates = service
+        .list_pending_candidates()
+        .expect("pending candidates should load");
+    assert_eq!(pending_candidates.len(), 1);
+    assert_eq!(pending_candidates[0].candidate_id, "pending-candidate");
+    assert_eq!(
+        pending_candidates[0].candidate_state,
+        OntologyCandidateState::Pending
+    );
+
+    let t3_truth = service
+        .get_truth_record("t3-source")
+        .expect("typed truth lookup should succeed")
+        .expect("t3 truth record should exist");
+    assert!(matches!(t3_truth, TruthRecord::T3 { .. }));
+
+    let t2_truth = service
+        .get_truth_record("t2-source")
+        .expect("typed truth lookup should succeed")
+        .expect("t2 truth record should exist");
+    assert!(matches!(t2_truth, TruthRecord::T2 { .. }));
+
+    let t1_truth = service
+        .get_truth_record("basis-1")
+        .expect("typed truth lookup should succeed")
+        .expect("basis truth record should exist");
+    assert!(matches!(t1_truth, TruthRecord::T2 { .. }));
+}
