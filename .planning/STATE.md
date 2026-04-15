@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-04-15T18:30:44.948Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-04-15T18:47:17.329Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 17
-  completed_plans: 15
-  percent: 88
+  completed_plans: 16
+  percent: 94
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 ## Current Position
 
 Phase: 05 (rumination-and-adaptive-write-back) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-15
 
@@ -70,6 +70,7 @@ Progress: [█████████░] 86%
 | Phase 04 P02 | 5min | 2 tasks | 5 files |
 | Phase 04 P03 | 10min | 2 tasks | 8 files |
 | Phase 05 P01 | 12min | 2 tasks | 7 files |
+| Phase 05 P02 | 9min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Persisted SPQ and LPQ as separate mirrored queue tables to keep short-cycle and long-cycle work explicit and auditable.
 - [Phase 05]: Stored dedupe, cooldown, and budget outcomes in rumination_trigger_state instead of inferring them from queue history.
 - [Phase 05]: Normalized DecisionReport and AgentSearchReport into queue payloads while keeping scheduling synchronous and local-first.
+- [Phase 05]: Local adaptive write-back persists typed ledger rows with trigger kind and evidence refs inside payload envelopes instead of touching shared truth tables.
+- [Phase 05]: Self-state overlays load through a base-plus-adaptive SelfStateProvider composition fed by subject-scoped repository reads during assembly.
+- [Phase 05]: Short-cycle processing claims SPQ only and translates user correction, action failure, and metacognitive veto into local self_state, risk_boundary, and private_t3 entries.
 
 ### Pending Todos
 
@@ -143,6 +147,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T18:30:44.942Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-04-15T18:47:17.325Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
