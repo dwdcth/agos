@@ -161,6 +161,8 @@ impl<'db> TruthGovernanceService<'db> {
         };
 
         self.repository.insert_promotion_review(&review)?;
+        self.repository
+            .update_t3_last_reviewed_at(&review.source_record_id, &review.updated_at)?;
         self.review_report(&review.review_id)
     }
 
@@ -181,6 +183,8 @@ impl<'db> TruthGovernanceService<'db> {
         };
 
         self.repository.insert_promotion_evidence(&evidence)?;
+        self.repository
+            .update_t3_last_reviewed_at(&review.source_record_id, &review.updated_at)?;
         self.review_report(&review.review_id)
     }
 
@@ -198,6 +202,8 @@ impl<'db> TruthGovernanceService<'db> {
         review.updated_at = request.updated_at;
 
         self.repository.update_promotion_review(&review)?;
+        self.repository
+            .update_t3_last_reviewed_at(&review.source_record_id, &review.updated_at)?;
         self.review_report(&review.review_id)
     }
 
@@ -219,6 +225,8 @@ impl<'db> TruthGovernanceService<'db> {
         review.updated_at = request.rejected_at;
 
         self.repository.update_promotion_review(&review)?;
+        self.repository
+            .update_t3_last_reviewed_at(&review.source_record_id, &review.updated_at)?;
         self.review_report(&review.review_id)
     }
 
@@ -270,6 +278,8 @@ impl<'db> TruthGovernanceService<'db> {
         review.approved_at = Some(request.approved_at.clone());
         review.updated_at = request.approved_at;
         self.repository.update_promotion_review(&review)?;
+        self.repository
+            .update_t3_last_reviewed_at(&review.source_record_id, &review.updated_at)?;
 
         Ok(PromotionApprovalReport {
             review,

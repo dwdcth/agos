@@ -220,6 +220,24 @@ impl<'db> MemoryRepository<'db> {
             .map_err(Into::into)
     }
 
+    pub fn update_t3_last_reviewed_at(
+        &self,
+        record_id: &str,
+        reviewed_at: &str,
+    ) -> Result<(), RepositoryError> {
+        self.conn.execute(
+            r#"
+            UPDATE truth_t3_state
+            SET last_reviewed_at = ?2,
+                updated_at = ?2
+            WHERE record_id = ?1
+            "#,
+            params![record_id, reviewed_at],
+        )?;
+
+        Ok(())
+    }
+
     pub fn insert_promotion_review(
         &self,
         review: &PromotionReview,
