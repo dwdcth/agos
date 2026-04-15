@@ -117,6 +117,16 @@ pub struct LexicalSearch<'db> {
     conn: &'db Connection,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RecallFilters<'a> {
+    scope: Option<&'a str>,
+    record_type: Option<&'a str>,
+    truth_layer: Option<&'a str>,
+    valid_at: Option<&'a str>,
+    recorded_from: Option<&'a str>,
+    recorded_to: Option<&'a str>,
+}
+
 impl<'db> LexicalSearch<'db> {
     pub fn new(conn: &'db Connection) -> Self {
         Self { conn }
@@ -131,24 +141,21 @@ impl<'db> LexicalSearch<'db> {
         let limit = request.bounded_limit();
         let limit = i64::try_from(limit).expect("bounded recall limit should fit in i64");
         let mut candidates = Vec::new();
-        let scope = request.filters.scope_value();
-        let record_type = request.filters.record_type_value();
-        let truth_layer = request.filters.truth_layer_value();
-        let valid_at = request.filters.valid_at.as_deref();
-        let recorded_from = request.filters.recorded_from.as_deref();
-        let recorded_to = request.filters.recorded_to.as_deref();
+        let filters = RecallFilters {
+            scope: request.filters.scope_value(),
+            record_type: request.filters.record_type_value(),
+            truth_layer: request.filters.truth_layer_value(),
+            valid_at: request.filters.valid_at.as_deref(),
+            recorded_from: request.filters.recorded_from.as_deref(),
+            recorded_to: request.filters.recorded_to.as_deref(),
+        };
 
         self.collect_candidates(
             query,
             limit,
             QueryStrategy::Jieba,
             JIEBA_SQL,
-            scope,
-            record_type,
-            truth_layer,
-            valid_at,
-            recorded_from,
-            recorded_to,
+            filters,
             &mut candidates,
         )?;
         self.collect_candidates(
@@ -156,12 +163,7 @@ impl<'db> LexicalSearch<'db> {
             limit,
             QueryStrategy::Simple,
             SIMPLE_SQL,
-            scope,
-            record_type,
-            truth_layer,
-            valid_at,
-            recorded_from,
-            recorded_to,
+            filters,
             &mut candidates,
         )?;
 
@@ -181,24 +183,19 @@ impl<'db> LexicalSearch<'db> {
         limit: i64,
         strategy: QueryStrategy,
         sql: &str,
-        scope: Option<&str>,
-        record_type: Option<&str>,
-        truth_layer: Option<&str>,
-        valid_at: Option<&str>,
-        recorded_from: Option<&str>,
-        recorded_to: Option<&str>,
+        filters: RecallFilters<'_>,
         candidates: &mut Vec<LexicalCandidate>,
     ) -> Result<(), LexicalSearchError> {
         let mut statement = self.conn.prepare(sql)?;
         let mut rows = statement.query(params![
             query,
             limit,
-            scope,
-            record_type,
-            truth_layer,
-            valid_at,
-            recorded_from,
-            recorded_to
+            filters.scope,
+            filters.record_type,
+            filters.truth_layer,
+            filters.valid_at,
+            filters.recorded_from,
+            filters.recorded_to
         ])?;
 
         while let Some(row) = rows.next()? {

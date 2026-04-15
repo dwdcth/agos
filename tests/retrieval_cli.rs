@@ -73,30 +73,31 @@ fn stderr(output: &std::process::Output) -> String {
     String::from_utf8(output.stderr.clone()).expect("stderr should be utf-8")
 }
 
-fn ingest_record(
-    service: &IngestService<'_>,
-    source_uri: &str,
-    source_label: &str,
-    content: &str,
+struct FixtureRecord<'a> {
+    source_uri: &'a str,
+    source_label: &'a str,
+    content: &'a str,
     scope: Scope,
     record_type: RecordType,
     truth_layer: TruthLayer,
-    recorded_at: &str,
-    valid_from: Option<&str>,
-    valid_to: Option<&str>,
-) {
+    recorded_at: &'a str,
+    valid_from: Option<&'a str>,
+    valid_to: Option<&'a str>,
+}
+
+fn ingest_record(service: &IngestService<'_>, record: FixtureRecord<'_>) {
     service
         .ingest(IngestRequest {
-            source_uri: source_uri.to_string(),
-            source_label: Some(source_label.to_string()),
+            source_uri: record.source_uri.to_string(),
+            source_label: Some(record.source_label.to_string()),
             source_kind: None,
-            content: content.to_string(),
-            scope,
-            record_type,
-            truth_layer,
-            recorded_at: recorded_at.to_string(),
-            valid_from: valid_from.map(ToOwned::to_owned),
-            valid_to: valid_to.map(ToOwned::to_owned),
+            content: record.content.to_string(),
+            scope: record.scope,
+            record_type: record.record_type,
+            truth_layer: record.truth_layer,
+            recorded_at: record.recorded_at.to_string(),
+            valid_from: record.valid_from.map(ToOwned::to_owned),
+            valid_to: record.valid_to.map(ToOwned::to_owned),
         })
         .expect("ingest should succeed");
 }
@@ -109,39 +110,46 @@ fn library_search_returns_citations_and_filter_trace() {
 
     ingest_record(
         &ingest,
-        "memo://project/search-decision",
-        "search decision memo",
-        "lexical retrieval must stay explainable and preserve citations for the project team",
-        Scope::Project,
-        RecordType::Decision,
-        TruthLayer::T2,
-        "2026-04-15T10:00:00Z",
-        Some("2026-04-10T00:00:00Z"),
-        Some("2026-04-20T00:00:00Z"),
+        FixtureRecord {
+            source_uri: "memo://project/search-decision",
+            source_label: "search decision memo",
+            content:
+                "lexical retrieval must stay explainable and preserve citations for the project team",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-15T10:00:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
     );
     ingest_record(
         &ingest,
-        "memo://session/search-note",
-        "search session note",
-        "lexical retrieval notes from a session should be filtered out by scope",
-        Scope::Session,
-        RecordType::Decision,
-        TruthLayer::T2,
-        "2026-04-15T09:00:00Z",
-        Some("2026-04-10T00:00:00Z"),
-        Some("2026-04-20T00:00:00Z"),
+        FixtureRecord {
+            source_uri: "memo://session/search-note",
+            source_label: "search session note",
+            content: "lexical retrieval notes from a session should be filtered out by scope",
+            scope: Scope::Session,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-15T09:00:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
     );
     ingest_record(
         &ingest,
-        "memo://project/expired-fact",
-        "expired fact memo",
-        "lexical retrieval fact has expired and should be filtered by validity",
-        Scope::Project,
-        RecordType::Fact,
-        TruthLayer::T2,
-        "2026-04-01T09:00:00Z",
-        Some("2026-03-01T00:00:00Z"),
-        Some("2026-04-05T00:00:00Z"),
+        FixtureRecord {
+            source_uri: "memo://project/expired-fact",
+            source_label: "expired fact memo",
+            content: "lexical retrieval fact has expired and should be filtered by validity",
+            scope: Scope::Project,
+            record_type: RecordType::Fact,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-01T09:00:00Z",
+            valid_from: Some("2026-03-01T00:00:00Z"),
+            valid_to: Some("2026-04-05T00:00:00Z"),
+        },
     );
 
     let search = SearchService::new(db.conn());
