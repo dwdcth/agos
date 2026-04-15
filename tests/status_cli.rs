@@ -135,3 +135,87 @@ fn doctor_blocks_invalid_mode_backend_combinations() {
         );
     }
 }
+
+#[test]
+fn init_creates_database_and_inspect_schema_reports_foundation_state() {
+    let dir = unique_temp_dir("init-inspect");
+    let db_path = dir.join("data").join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config(&config_path, &db_path, "lexical_only", "disabled");
+
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "init should succeed for a valid lexical_only setup: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+    assert!(
+        db_path.exists(),
+        "init should create the sqlite database at {}",
+        db_path.display()
+    );
+
+    let inspect_output = run_cli(&config_path, &["inspect", "schema"]);
+    let inspect_text = stdout(&inspect_output);
+    assert!(
+        inspect_output.status.success(),
+        "inspect schema should succeed after init: stdout={inspect_text} stderr={}",
+        stderr(&inspect_output)
+    );
+    assert!(
+        inspect_text.contains("schema_version: 1"),
+        "inspect schema should report schema_version: {inspect_text}"
+    );
+    assert!(
+        inspect_text.contains("base_table_state: ready"),
+        "inspect schema should report base table readiness: {inspect_text}"
+    );
+    assert!(
+        inspect_text.contains("index_readiness: not_built_in_phase_1"),
+        "inspect schema should stay honest about deferred indexes: {inspect_text}"
+    );
+}
+
+#[test]
+fn init_allows_reserved_modes_but_rejects_invalid_runtime_requests() {
+    let reserved_dir = unique_temp_dir("init-reserved");
+    let reserved_db_path = reserved_dir.join("data").join("agent-memos.sqlite");
+    let reserved_config_path = reserved_dir.join("config.toml");
+    write_config(
+        &reserved_config_path,
+        &reserved_db_path,
+        "embedding_only",
+        "reserved",
+    );
+
+    let reserved_output = run_cli(&reserved_config_path, &["init"]);
+    assert!(
+        reserved_output.status.success(),
+        "init should stay informational for reserved embedding_only mode: stdout={} stderr={}",
+        stdout(&reserved_output),
+        stderr(&reserved_output)
+    );
+
+    let invalid_dir = unique_temp_dir("init-invalid");
+    let invalid_db_path = invalid_dir.join("data").join("agent-memos.sqlite");
+    let invalid_config_path = invalid_dir.join("config.toml");
+    write_config(
+        &invalid_config_path,
+        &invalid_db_path,
+        "embedding_only",
+        "disabled",
+    );
+
+    let invalid_output = run_cli(&invalid_config_path, &["init"]);
+    assert!(
+        !invalid_output.status.success(),
+        "init should reject impossible embedding_only/disabled runtime requests"
+    );
+    assert!(
+        stdout(&invalid_output)
+            .contains("embedding_only requires a non-disabled embedding backend"),
+        "init should explain invalid runtime requests: {}",
+        stdout(&invalid_output)
+    );
+}
