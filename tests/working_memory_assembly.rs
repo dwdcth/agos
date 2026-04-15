@@ -142,8 +142,9 @@ fn assembler_preserves_citations_truth_context_and_in_memory_runtime_only() {
             source_uri: "memo://project/risk".to_string(),
             source_label: Some("risk".to_string()),
             source_kind: None,
-            content: "under-supported action branches should trigger a cited risk reminder"
-                .to_string(),
+            content:
+                "working memory risk reminder keeps citations attached to under-supported branches"
+                    .to_string(),
             scope: Scope::Project,
             record_type: RecordType::Observation,
             truth_layer: TruthLayer::T3,
@@ -157,7 +158,7 @@ fn assembler_preserves_citations_truth_context_and_in_memory_runtime_only() {
     let risk_id = risk.record_ids[0].clone();
 
     let assembler = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider);
-    let request = WorkingMemoryRequest::new("working memory citations")
+    let request = WorkingMemoryRequest::new("working memory")
         .with_limit(5)
         .with_task_context("assemble a cited working-memory frame")
         .with_active_goal("decide how to proceed from retrieved evidence")
@@ -231,7 +232,7 @@ fn assembler_preserves_citations_truth_context_and_in_memory_runtime_only() {
         decision_fragment.citation.validity.valid_from.as_deref(),
         Some("2026-04-16T00:00:00Z")
     );
-    assert_eq!(decision_fragment.trace.matched_query, "working memory citations");
+    assert_eq!(decision_fragment.trace.matched_query, "working memory");
 
     let risk_fragment = first
         .present
