@@ -6,10 +6,10 @@ use std::{
 use agent_memos::{
     core::db::Database,
     ingest::{
+        IngestRequest, IngestService,
         chunk::{ChunkConfig, chunk_source},
         detect::{Format, detect_format},
         normalize::{NormalizedSource, normalize_source},
-        IngestRequest, IngestService,
     },
     memory::{
         record::{ChunkAnchor, RecordType, Scope, SourceKind, TruthLayer},
@@ -73,8 +73,8 @@ fn ingest_normalizes_supported_sources() {
     let note_format = detect_format(&note_request.content);
     assert_eq!(note_format, Format::PlainText);
 
-    let normalized_note = normalize_source(&note_request, note_format)
-        .expect("plain note should normalize");
+    let normalized_note =
+        normalize_source(&note_request, note_format).expect("plain note should normalize");
     assert_eq!(normalized_note.source_kind, SourceKind::Note);
     assert_eq!(normalized_note.canonical_uri, note_request.source_uri);
     assert_eq!(
@@ -86,8 +86,8 @@ fn ingest_normalizes_supported_sources() {
     let chat_format = detect_format(&chat_request.content);
     assert_eq!(chat_format, Format::ChatGptJson);
 
-    let normalized_chat = normalize_source(&chat_request, chat_format)
-        .expect("conversation export should normalize");
+    let normalized_chat =
+        normalize_source(&chat_request, chat_format).expect("conversation export should normalize");
     assert_eq!(normalized_chat.source_kind, SourceKind::Conversation);
     assert_eq!(
         normalized_chat.text,
@@ -97,8 +97,8 @@ fn ingest_normalizes_supported_sources() {
 
 #[test]
 fn chunking_preserves_order_and_line_or_turn_anchors() {
-    let note = normalize_source(&plain_note_request(), Format::PlainText)
-        .expect("note should normalize");
+    let note =
+        normalize_source(&plain_note_request(), Format::PlainText).expect("note should normalize");
     let text_chunks = chunk_source(
         &note,
         ChunkConfig {
@@ -164,21 +164,54 @@ fn ingest_persists_chunk_provenance_and_validity_metadata() {
     assert_eq!(report.detected_format, Format::ChatGptJson);
     assert_eq!(report.chunk_count, 2);
     assert_eq!(report.record_ids.len(), 2);
-    assert_eq!(report.normalized_source.source_kind, SourceKind::Conversation);
+    assert_eq!(
+        report.normalized_source.source_kind,
+        SourceKind::Conversation
+    );
 
     let repo = MemoryRepository::new(db.conn());
     let stored = repo.list_records().expect("records should load");
     assert_eq!(stored.len(), 2);
     assert_eq!(stored[0].source.uri, "file:///tmp/agent-chat.json");
     assert_eq!(stored[0].source.label.as_deref(), Some("agent-chat"));
-    assert_eq!(stored[0].validity.valid_from.as_deref(), Some("2026-04-15T11:00:00Z"));
-    assert_eq!(stored[0].validity.valid_to.as_deref(), Some("2026-04-16T11:00:00Z"));
+    assert_eq!(
+        stored[0].validity.valid_from.as_deref(),
+        Some("2026-04-15T11:00:00Z")
+    );
+    assert_eq!(
+        stored[0].validity.valid_to.as_deref(),
+        Some("2026-04-16T11:00:00Z")
+    );
     assert_eq!(stored[0].provenance.origin, "ingest");
-    assert_eq!(stored[0].provenance.imported_via.as_deref(), Some("ingest_service"));
+    assert_eq!(
+        stored[0].provenance.imported_via.as_deref(),
+        Some("ingest_service")
+    );
     assert!(stored[0].provenance.derived_from[0].contains("#turn-1-2"));
-    assert_eq!(stored[0].chunk.as_ref().expect("chunk metadata").chunk_index, 0);
-    assert_eq!(stored[1].chunk.as_ref().expect("chunk metadata").chunk_index, 1);
-    assert_eq!(stored[0].chunk.as_ref().expect("chunk metadata").chunk_count, 2);
+    assert_eq!(
+        stored[0]
+            .chunk
+            .as_ref()
+            .expect("chunk metadata")
+            .chunk_index,
+        0
+    );
+    assert_eq!(
+        stored[1]
+            .chunk
+            .as_ref()
+            .expect("chunk metadata")
+            .chunk_index,
+        1
+    );
+    assert_eq!(
+        stored[0]
+            .chunk
+            .as_ref()
+            .expect("chunk metadata")
+            .chunk_count,
+        2
+    );
     assert!(matches!(
         stored[0].chunk.as_ref().expect("chunk metadata").anchor,
         ChunkAnchor::TurnRange {
@@ -186,12 +219,14 @@ fn ingest_persists_chunk_provenance_and_validity_metadata() {
             end_turn: 2
         }
     ));
-    assert!(!stored[0]
-        .chunk
-        .as_ref()
-        .expect("chunk metadata")
-        .content_hash
-        .is_empty());
+    assert!(
+        !stored[0]
+            .chunk
+            .as_ref()
+            .expect("chunk metadata")
+            .content_hash
+            .is_empty()
+    );
     assert_eq!(stored[0].id, report.record_ids[0]);
     assert_eq!(stored[1].id, report.record_ids[1]);
 }
