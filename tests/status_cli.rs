@@ -226,6 +226,35 @@ fn status_reports_non_sqlite_db_as_not_ready() {
 }
 
 #[test]
+fn init_output_is_truthful_after_successful_bootstrap() {
+    let dir = unique_temp_dir("init-truthful-output");
+    let db_path = dir.join("data").join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config(&config_path, &db_path, "lexical_only", "disabled");
+
+    let output = run_cli(&config_path, &["init"]);
+    let text = stdout(&output);
+
+    assert!(
+        output.status.success(),
+        "init should succeed for a valid lexical_only setup: stdout={text} stderr={}",
+        stderr(&output)
+    );
+    assert!(
+        text.contains("initialized: true"),
+        "init should confirm initialization: {text}"
+    );
+    assert!(
+        text.contains("schema_version: 1"),
+        "init should report the post-bootstrap schema version: {text}"
+    );
+    assert!(
+        !text.contains("database schema is not initialized yet"),
+        "init output should not include stale pre-init schema warnings: {text}"
+    );
+}
+
+#[test]
 fn init_allows_reserved_modes_but_rejects_invalid_runtime_requests() {
     let reserved_dir = unique_temp_dir("init-reserved");
     let reserved_db_path = reserved_dir.join("data").join("agent-memos.sqlite");
