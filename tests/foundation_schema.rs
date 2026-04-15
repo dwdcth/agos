@@ -7,7 +7,10 @@ use std::{
 use agent_memos::{
     core::db::Database,
     memory::{
-        record::{MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceRef, TruthLayer},
+        record::{
+            MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceKind, SourceRef,
+            TruthLayer,
+        },
         repository::MemoryRepository,
     },
 };
@@ -45,7 +48,7 @@ fn sample_record() -> MemoryRecord {
         id: "rec-001".to_string(),
         source: SourceRef {
             uri: "file:///tmp/meeting-notes.md".to_string(),
-            kind: "document".to_string(),
+            kind: SourceKind::Document,
             label: Some("meeting-notes".to_string()),
         },
         timestamp: RecordTimestamp {
