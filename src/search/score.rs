@@ -1,9 +1,11 @@
+use serde::Serialize;
+
 use crate::{
     memory::record::RecordType,
-    search::{LexicalCandidate, QueryStrategy, SearchRequest, SearchResult},
+    search::{LexicalCandidate, QueryStrategy, SearchRequest},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ScoreBreakdown {
     pub lexical_raw: f32,
     pub lexical_base: f32,
@@ -14,17 +16,25 @@ pub struct ScoreBreakdown {
     pub final_score: f32,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScoredCandidate {
+    pub record: crate::memory::record::MemoryRecord,
+    pub snippet: String,
+    pub query_strategies: Vec<QueryStrategy>,
+    pub score: ScoreBreakdown,
+}
+
 pub fn score_candidates(
     request: &SearchRequest,
     candidates: Vec<LexicalCandidate>,
-) -> Vec<SearchResult> {
+) -> Vec<ScoredCandidate> {
     if candidates.is_empty() {
         return Vec::new();
     }
 
     let recency_order = recency_order(&candidates);
     let query_terms = query_terms(&request.query);
-    let mut results = candidates
+    candidates
         .into_iter()
         .map(|candidate| {
             let lexical_base = 1.0 / (1.0 + candidate.lexical_raw.abs());
@@ -41,7 +51,7 @@ pub fn score_candidates(
             let final_score =
                 lexical_base + keyword_bonus + importance_bonus + recency_bonus + emotion_bonus;
 
-            SearchResult {
+            ScoredCandidate {
                 record: candidate.record,
                 snippet: candidate.snippet,
                 query_strategies: sorted_strategies(candidate.query_strategies),
@@ -56,18 +66,7 @@ pub fn score_candidates(
                 },
             }
         })
-        .collect::<Vec<_>>();
-
-    results.sort_by(|left, right| {
-        right
-            .score
-            .final_score
-            .total_cmp(&left.score.final_score)
-            .then_with(|| left.score.lexical_raw.total_cmp(&right.score.lexical_raw))
-            .then_with(|| left.record.id.cmp(&right.record.id))
-    });
-
-    results
+        .collect::<Vec<_>>()
 }
 
 fn query_terms(query: &str) -> Vec<String> {

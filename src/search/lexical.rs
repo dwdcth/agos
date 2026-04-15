@@ -1,4 +1,5 @@
 use rusqlite::{Connection, params};
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
@@ -36,6 +37,13 @@ const JIEBA_SQL: &str = r#"
     FROM memory_records_fts
     JOIN memory_records AS mr ON mr.rowid = memory_records_fts.rowid
     WHERE memory_records_fts MATCH jieba_query(?1)
+      AND (?3 IS NULL OR mr.scope = ?3)
+      AND (?4 IS NULL OR mr.record_type = ?4)
+      AND (?5 IS NULL OR mr.truth_layer = ?5)
+      AND (?6 IS NULL OR mr.valid_from IS NULL OR mr.valid_from <= ?6)
+      AND (?6 IS NULL OR mr.valid_to IS NULL OR mr.valid_to >= ?6)
+      AND (?7 IS NULL OR mr.recorded_at >= ?7)
+      AND (?8 IS NULL OR mr.recorded_at <= ?8)
     ORDER BY bm25(memory_records_fts), mr.recorded_at DESC, mr.id ASC
     LIMIT ?2
 "#;
@@ -65,11 +73,18 @@ const SIMPLE_SQL: &str = r#"
     FROM memory_records_fts
     JOIN memory_records AS mr ON mr.rowid = memory_records_fts.rowid
     WHERE memory_records_fts MATCH simple_query(?1)
+      AND (?3 IS NULL OR mr.scope = ?3)
+      AND (?4 IS NULL OR mr.record_type = ?4)
+      AND (?5 IS NULL OR mr.truth_layer = ?5)
+      AND (?6 IS NULL OR mr.valid_from IS NULL OR mr.valid_from <= ?6)
+      AND (?6 IS NULL OR mr.valid_to IS NULL OR mr.valid_to >= ?6)
+      AND (?7 IS NULL OR mr.recorded_at >= ?7)
+      AND (?8 IS NULL OR mr.recorded_at <= ?8)
     ORDER BY bm25(memory_records_fts), mr.recorded_at DESC, mr.id ASC
     LIMIT ?2
 "#;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum QueryStrategy {
     Jieba,
     Simple,
@@ -116,9 +131,39 @@ impl<'db> LexicalSearch<'db> {
         let limit = request.bounded_limit();
         let limit = i64::try_from(limit).expect("bounded recall limit should fit in i64");
         let mut candidates = Vec::new();
+        let scope = request.filters.scope_value();
+        let record_type = request.filters.record_type_value();
+        let truth_layer = request.filters.truth_layer_value();
+        let valid_at = request.filters.valid_at.as_deref();
+        let recorded_from = request.filters.recorded_from.as_deref();
+        let recorded_to = request.filters.recorded_to.as_deref();
 
-        self.collect_candidates(query, limit, QueryStrategy::Jieba, JIEBA_SQL, &mut candidates)?;
-        self.collect_candidates(query, limit, QueryStrategy::Simple, SIMPLE_SQL, &mut candidates)?;
+        self.collect_candidates(
+            query,
+            limit,
+            QueryStrategy::Jieba,
+            JIEBA_SQL,
+            scope,
+            record_type,
+            truth_layer,
+            valid_at,
+            recorded_from,
+            recorded_to,
+            &mut candidates,
+        )?;
+        self.collect_candidates(
+            query,
+            limit,
+            QueryStrategy::Simple,
+            SIMPLE_SQL,
+            scope,
+            record_type,
+            truth_layer,
+            valid_at,
+            recorded_from,
+            recorded_to,
+            &mut candidates,
+        )?;
 
         candidates.sort_by(|left, right| {
             left.lexical_raw
@@ -136,10 +181,25 @@ impl<'db> LexicalSearch<'db> {
         limit: i64,
         strategy: QueryStrategy,
         sql: &str,
+        scope: Option<&str>,
+        record_type: Option<&str>,
+        truth_layer: Option<&str>,
+        valid_at: Option<&str>,
+        recorded_from: Option<&str>,
+        recorded_to: Option<&str>,
         candidates: &mut Vec<LexicalCandidate>,
     ) -> Result<(), LexicalSearchError> {
         let mut statement = self.conn.prepare(sql)?;
-        let mut rows = statement.query(params![query, limit])?;
+        let mut rows = statement.query(params![
+            query,
+            limit,
+            scope,
+            record_type,
+            truth_layer,
+            valid_at,
+            recorded_from,
+            recorded_to
+        ])?;
 
         while let Some(row) = rows.next()? {
             let record = map_record_row(row)?;

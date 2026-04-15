@@ -74,37 +74,42 @@ fn lexical_search_recalls_chinese_and_pinyin_queries() {
         .search(&SearchRequest::new("检索 路线"))
         .expect("chinese lexical search should succeed");
     assert!(
-        !chinese_results.is_empty(),
+        !chinese_results.results.is_empty(),
         "chinese query should recall lexical candidate"
     );
     assert_eq!(
-        chinese_results[0].record.source.uri,
+        chinese_results.results[0].record.source.uri,
         "memo://project/briefing",
         "chinese query should recall the authority-backed chunk"
     );
     assert!(
-        chinese_results[0]
+        chinese_results.results[0]
+            .trace
             .query_strategies
             .contains(&QueryStrategy::Jieba),
         "chinese query should record jieba-based matching"
     );
     assert!(
-        chinese_results[0].snippet.contains("lexical")
-            || chinese_results[0].snippet.contains("检索"),
+        chinese_results.results[0].snippet.contains("lexical")
+            || chinese_results.results[0].snippet.contains("检索"),
         "snippet should explain the match: {:?}",
-        chinese_results[0].snippet
+        chinese_results.results[0].snippet
     );
 
     let pinyin_results = search
         .search(&SearchRequest::new("beiwanglu"))
         .expect("pinyin lexical search should succeed");
     assert!(
-        !pinyin_results.is_empty(),
+        !pinyin_results.results.is_empty(),
         "pinyin query should recall indexed chinese content"
     );
-    assert_eq!(pinyin_results[0].record.source.uri, "memo://project/briefing");
+    assert_eq!(
+        pinyin_results.results[0].record.source.uri,
+        "memo://project/briefing"
+    );
     assert!(
-        pinyin_results[0]
+        pinyin_results.results[0]
+            .trace
             .query_strategies
             .contains(&QueryStrategy::Simple),
         "pinyin query should record simple-query matching"
@@ -139,31 +144,36 @@ fn lexical_search_score_breakdown_is_deterministic() {
         .search(&SearchRequest::new("lexical ranking decision"))
         .expect("lexical scoring should succeed");
 
-    assert_eq!(results.len(), 2, "both comparable candidates should be recalled");
     assert_eq!(
-        results[0].record.source.uri,
+        results.results.len(),
+        2,
+        "both comparable candidates should be recalled"
+    );
+    assert_eq!(
+        results.results[0].record.source.uri,
         "memo://project/search-decision",
         "importance and keyword bonus should perturb the final ranking deterministically"
     );
     assert!(
-        results[0].score.lexical_base >= results[0].score.keyword_bonus,
+        results.results[0].score.lexical_base >= results.results[0].score.keyword_bonus,
         "lexical score should remain the dominant term: {:?}",
-        results[0].score
+        results.results[0].score
     );
     assert!(
-        results[0].score.keyword_bonus > results[1].score.keyword_bonus,
+        results.results[0].score.keyword_bonus > results.results[1].score.keyword_bonus,
         "the decision memo should get the stronger keyword overlap bonus"
     );
     assert!(
-        results[0].score.importance_bonus > results[1].score.importance_bonus,
+        results.results[0].score.importance_bonus
+            > results.results[1].score.importance_bonus,
         "record-type defaults should contribute a deterministic importance bonus"
     );
     assert_eq!(
-        results[0].score.emotion_bonus, 0.0,
+        results.results[0].score.emotion_bonus, 0.0,
         "emotion defaults should stay explicit when no signal exists"
     );
     assert!(
-        results[0].score.final_score > results[1].score.final_score,
+        results.results[0].score.final_score > results.results[1].score.final_score,
         "bonus composition should produce a stable final ranking"
     );
 }
