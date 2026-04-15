@@ -10,7 +10,9 @@ use crate::{
         },
     },
     memory::{
-        repository::{MemoryRepository, RepositoryError},
+        repository::{
+            LocalAdaptationEntry, LocalAdaptationTargetKind, MemoryRepository, RepositoryError,
+        },
         truth::TruthRecord,
     },
     search::{SearchError, SearchFilters, SearchRequest, SearchService},
@@ -43,11 +45,12 @@ impl ActionSeed {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WorkingMemoryRequest {
     pub query: String,
     pub limit: usize,
     pub filters: SearchFilters,
+    pub subject_ref: Option<String>,
     pub task_context: Option<String>,
     pub active_goal: Option<String>,
     pub active_risks: Vec<String>,
@@ -55,6 +58,7 @@ pub struct WorkingMemoryRequest {
     pub capability_flags: Vec<String>,
     pub readiness_flags: Vec<String>,
     pub action_seeds: Vec<ActionSeed>,
+    pub local_adaptation_entries: Vec<LocalAdaptationEntry>,
 }
 
 impl WorkingMemoryRequest {
@@ -65,6 +69,7 @@ impl WorkingMemoryRequest {
             query: query.into(),
             limit: Self::DEFAULT_LIMIT,
             filters: SearchFilters::default(),
+            subject_ref: None,
             task_context: None,
             active_goal: None,
             active_risks: Vec::new(),
@@ -72,6 +77,7 @@ impl WorkingMemoryRequest {
             capability_flags: Vec::new(),
             readiness_flags: Vec::new(),
             action_seeds: Vec::new(),
+            local_adaptation_entries: Vec::new(),
         }
     }
 
@@ -82,6 +88,11 @@ impl WorkingMemoryRequest {
 
     pub fn with_filters(mut self, filters: SearchFilters) -> Self {
         self.filters = filters;
+        self
+    }
+
+    pub fn with_subject_ref(mut self, subject_ref: impl Into<String>) -> Self {
+        self.subject_ref = Some(subject_ref.into());
         self
     }
 
@@ -120,6 +131,14 @@ impl WorkingMemoryRequest {
         self
     }
 
+    pub fn with_local_adaptation_entries(
+        mut self,
+        local_adaptation_entries: Vec<LocalAdaptationEntry>,
+    ) -> Self {
+        self.local_adaptation_entries = local_adaptation_entries;
+        self
+    }
+
     pub fn bounded_limit(&self) -> usize {
         self.limit.clamp(1, SearchRequest::DEFAULT_LIMIT.max(self.limit))
     }
@@ -151,6 +170,33 @@ impl SelfStateProvider for MinimalSelfStateProvider {
             readiness_flags: request.readiness_flags.clone(),
             facts: request.selected_truth_facts(truths),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AdaptiveSelfStateProvider<P> {
+    base: P,
+}
+
+impl<P> AdaptiveSelfStateProvider<P> {
+    pub fn new(base: P) -> Self {
+        Self { base }
+    }
+}
+
+impl<P> SelfStateProvider for AdaptiveSelfStateProvider<P>
+where
+    P: SelfStateProvider,
+{
+    fn snapshot(&self, request: &WorkingMemoryRequest, truths: &[TruthRecord]) -> SelfStateSnapshot {
+        let mut snapshot = self.base.snapshot(request, truths);
+        snapshot.facts.extend(
+            request
+                .local_adaptation_entries
+                .iter()
+                .map(local_adaptation_fact),
+        );
+        snapshot
     }
 }
 
@@ -190,9 +236,16 @@ where
         &self,
         request: &WorkingMemoryRequest,
     ) -> Result<WorkingMemory, WorkingMemoryAssemblyError> {
-        let search_request = SearchRequest::new(request.query.clone())
-            .with_limit(request.limit)
-            .with_filters(request.filters.clone());
+        let overlay_request = if let Some(subject_ref) = request.subject_ref.as_deref() {
+            request.clone().with_local_adaptation_entries(
+                self.repository.list_local_adaptation_entries(subject_ref)?,
+            )
+        } else {
+            request.clone()
+        };
+        let search_request = SearchRequest::new(overlay_request.query.clone())
+            .with_limit(overlay_request.limit)
+            .with_filters(overlay_request.filters.clone());
         let search_response = self.search.search(&search_request)?;
 
         let mut truths = Vec::with_capacity(search_response.results.len());
@@ -216,19 +269,19 @@ where
             world_fragments.push(fragment);
         }
 
-        let self_state = self.self_state_provider.snapshot(request, &truths);
+        let self_state = self.self_state_provider.snapshot(&overlay_request, &truths);
         let present = PresentFrame {
             world_fragments: world_fragments.clone(),
             self_state,
-            active_goal: request
+            active_goal: overlay_request
                 .active_goal
                 .clone()
                 .map(|summary| ActiveGoal { summary }),
-            active_risks: request.active_risks.clone(),
-            metacog_flags: request.metacog_flags.clone(),
+            active_risks: overlay_request.active_risks.clone(),
+            metacog_flags: overlay_request.metacog_flags.clone(),
         };
 
-        let branches = request
+        let branches = overlay_request
             .action_seeds
             .iter()
             .map(|seed| materialize_branch(seed, &world_fragments))
@@ -238,6 +291,20 @@ where
             .present(present)
             .extend_branches(branches)
             .build()?)
+    }
+}
+
+fn local_adaptation_fact(entry: &LocalAdaptationEntry) -> SelfStateFact {
+    let key = match entry.target_kind {
+        LocalAdaptationTargetKind::SelfState => format!("self_state:{}", entry.key),
+        LocalAdaptationTargetKind::RiskBoundary => format!("risk_boundary:{}", entry.key),
+        LocalAdaptationTargetKind::PrivateT3 => format!("private_t3:{}", entry.key),
+    };
+
+    SelfStateFact {
+        key,
+        value: entry.payload.display_value(),
+        source_record_id: None,
     }
 }
 

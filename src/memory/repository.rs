@@ -1,5 +1,5 @@
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -90,6 +90,61 @@ pub struct PersistedRuminationTriggerState {
     pub last_seen_at: String,
     pub last_decision: String,
     pub last_item_id: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalAdaptationTargetKind {
+    SelfState,
+    RiskBoundary,
+    PrivateT3,
+}
+
+impl LocalAdaptationTargetKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SelfState => "self_state",
+            Self::RiskBoundary => "risk_boundary",
+            Self::PrivateT3 => "private_t3",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "self_state" => Some(Self::SelfState),
+            "risk_boundary" => Some(Self::RiskBoundary),
+            "private_t3" => Some(Self::PrivateT3),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LocalAdaptationPayload {
+    pub value: Value,
+    pub trigger_kind: String,
+    pub evidence_refs: Vec<String>,
+}
+
+impl LocalAdaptationPayload {
+    pub fn display_value(&self) -> String {
+        match &self.value {
+            Value::String(value) => value.clone(),
+            other => other.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalAdaptationEntry {
+    pub entry_id: String,
+    pub subject_ref: String,
+    pub target_kind: LocalAdaptationTargetKind,
+    pub key: String,
+    pub payload: LocalAdaptationPayload,
+    pub source_queue_item_id: Option<String>,
+    pub created_at: String,
     pub updated_at: String,
 }
 
@@ -1011,6 +1066,66 @@ impl<'db> MemoryRepository<'db> {
         Ok(())
     }
 
+    pub fn insert_local_adaptation_entry(
+        &self,
+        entry: &LocalAdaptationEntry,
+    ) -> Result<(), RepositoryError> {
+        let value_json = serde_json::to_string(&entry.payload)?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO local_adaptation_entries (
+                entry_id,
+                subject_ref,
+                target_kind,
+                key,
+                value_json,
+                source_queue_item_id,
+                created_at,
+                updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                &entry.entry_id,
+                &entry.subject_ref,
+                entry.target_kind.as_str(),
+                &entry.key,
+                value_json,
+                &entry.source_queue_item_id,
+                &entry.created_at,
+                &entry.updated_at,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn list_local_adaptation_entries(
+        &self,
+        subject_ref: &str,
+    ) -> Result<Vec<LocalAdaptationEntry>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                entry_id,
+                subject_ref,
+                target_kind,
+                key,
+                value_json,
+                source_queue_item_id,
+                created_at,
+                updated_at
+            FROM local_adaptation_entries
+            WHERE subject_ref = ?1
+            ORDER BY updated_at DESC, entry_id DESC
+            "#,
+        )?;
+        let rows = statement.query_map([subject_ref], map_local_adaptation_row)?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
     fn claim_next_rumination_item_for_tier(
         &self,
         queue_tier: &str,
@@ -1508,6 +1623,37 @@ fn map_rumination_trigger_state_row(
         last_decision: row.get(10)?,
         last_item_id: row.get(11)?,
         updated_at: row.get(12)?,
+    })
+}
+
+fn map_local_adaptation_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<LocalAdaptationEntry, rusqlite::Error> {
+    let target_kind = row.get::<_, String>(2)?;
+    let payload_json = row.get::<_, String>(4)?;
+    let payload = serde_json::from_str(&payload_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            4,
+            rusqlite::types::Type::Text,
+            Box::new(error),
+        )
+    })?;
+
+    Ok(LocalAdaptationEntry {
+        entry_id: row.get(0)?,
+        subject_ref: row.get(1)?,
+        target_kind: LocalAdaptationTargetKind::parse(&target_kind).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                2,
+                rusqlite::types::Type::Text,
+                "invalid local adaptation target kind".into(),
+            )
+        })?,
+        key: row.get(3)?,
+        payload,
+        source_queue_item_id: row.get(5)?,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
     })
 }
 
