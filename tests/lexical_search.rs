@@ -129,7 +129,7 @@ fn lexical_search_score_breakdown_is_deterministic() {
         &ingest,
         "memo://project/search-observation",
         "search note",
-        "lexical ranking should stay inspectable and deterministic for ordinary retrieval",
+        "lexical ranking decision logs should stay inspectable and deterministic for ordinary retrieval",
         RecordType::Observation,
         "2026-04-10T10:00:00Z",
     );

@@ -16,6 +16,7 @@ struct DatabaseInspection {
     schema_version: Option<u32>,
     schema_state: CapabilityState,
     base_table_state: CapabilityState,
+    lexical_index_state: CapabilityState,
     note: Option<String>,
 }
 
@@ -73,6 +74,7 @@ impl StatusReport {
                 schema_version: None,
                 schema_state: CapabilityState::Missing,
                 base_table_state: CapabilityState::Missing,
+                lexical_index_state: CapabilityState::Missing,
                 note: Some(format!(
                     "schema inspection failed for existing database file: {error:#}"
                 )),
@@ -82,24 +84,25 @@ impl StatusReport {
                 schema_version: None,
                 schema_state: CapabilityState::Missing,
                 base_table_state: CapabilityState::Missing,
+                lexical_index_state: CapabilityState::Missing,
                 note: None,
             }
         };
 
         let lexical_dependency_state = match app.config.retrieval.mode {
-            RetrievalMode::LexicalOnly | RetrievalMode::Hybrid => {
-                CapabilityState::NotBuiltInPhase1
-            }
+            RetrievalMode::LexicalOnly | RetrievalMode::Hybrid => inspection.lexical_index_state,
             RetrievalMode::EmbeddingOnly => CapabilityState::NotApplicable,
         };
 
         let embedding_dependency_state =
             embedding_dependency_state(app.config.retrieval.mode, app.config.embedding.backend);
         let index_readiness = match app.config.retrieval.mode {
-            RetrievalMode::LexicalOnly | RetrievalMode::Hybrid => {
-                CapabilityState::NotBuiltInPhase1
-            }
+            RetrievalMode::LexicalOnly => inspection.lexical_index_state,
             RetrievalMode::EmbeddingOnly => CapabilityState::NotApplicable,
+            RetrievalMode::Hybrid => match inspection.lexical_index_state {
+                CapabilityState::Ready => CapabilityState::Deferred,
+                other => other,
+            },
         };
 
         let mut readiness_notes = app.readiness.notes.clone();
@@ -114,11 +117,22 @@ impl StatusReport {
         } else if !matches!(inspection.base_table_state, CapabilityState::Ready) {
             readiness_notes
                 .push("foundation base tables are incomplete or missing".to_string());
+        } else if matches!(inspection.lexical_index_state, CapabilityState::Missing)
+            && matches!(
+                app.config.retrieval.mode,
+                RetrievalMode::LexicalOnly | RetrievalMode::Hybrid
+            )
+        {
+            readiness_notes.push("lexical sidecar indexes are missing or incomplete".to_string());
         }
 
         let ready = app.readiness.ready
             && matches!(inspection.schema_state, CapabilityState::Ready)
-            && matches!(inspection.base_table_state, CapabilityState::Ready);
+            && matches!(inspection.base_table_state, CapabilityState::Ready)
+            && match app.config.retrieval.mode {
+                RetrievalMode::LexicalOnly => matches!(index_readiness, CapabilityState::Ready),
+                RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid => false,
+            };
 
         Ok(Self {
             db_path,
@@ -202,6 +216,21 @@ fn inspect_database(path: &Path) -> Result<DatabaseInspection> {
         )
         .context("failed to inspect base table readiness")?
         != 0;
+    let lexical_table_exists = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_records_fts')",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .context("failed to inspect lexical table readiness")?
+        != 0;
+    let lexical_trigger_count = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('memory_records_ai', 'memory_records_ad', 'memory_records_au')",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .context("failed to inspect lexical trigger readiness")?;
 
     let schema_state = if schema_version > 0 {
         CapabilityState::Ready
@@ -213,11 +242,17 @@ fn inspect_database(path: &Path) -> Result<DatabaseInspection> {
     } else {
         CapabilityState::Missing
     };
+    let lexical_index_state = if lexical_table_exists && lexical_trigger_count == 3 {
+        CapabilityState::Ready
+    } else {
+        CapabilityState::Missing
+    };
 
     Ok(DatabaseInspection {
         schema_version: Some(schema_version),
         schema_state,
         base_table_state,
+        lexical_index_state,
         note: None,
     })
 }

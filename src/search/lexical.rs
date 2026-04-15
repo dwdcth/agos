@@ -1,0 +1,260 @@
+use rusqlite::{Connection, params};
+use thiserror::Error;
+
+use crate::{
+    memory::record::{
+        ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope,
+        SourceKind, SourceRef, TruthLayer, ValidityWindow,
+    },
+    search::SearchRequest,
+};
+
+pub const MAX_RECALL_LIMIT: usize = 25;
+
+const JIEBA_SQL: &str = r#"
+    SELECT
+        mr.id,
+        mr.source_uri,
+        mr.source_kind,
+        mr.source_label,
+        mr.recorded_at,
+        mr.scope,
+        mr.record_type,
+        mr.truth_layer,
+        mr.provenance_json,
+        mr.content_text,
+        mr.chunk_index,
+        mr.chunk_count,
+        mr.chunk_anchor_json,
+        mr.content_hash,
+        mr.valid_from,
+        mr.valid_to,
+        mr.created_at,
+        mr.updated_at,
+        bm25(memory_records_fts) AS lexical_raw,
+        snippet(memory_records_fts, 1, '[', ']', '...', 12) AS snippet
+    FROM memory_records_fts
+    JOIN memory_records AS mr ON mr.rowid = memory_records_fts.rowid
+    WHERE memory_records_fts MATCH jieba_query(?1)
+    ORDER BY bm25(memory_records_fts), mr.recorded_at DESC, mr.id ASC
+    LIMIT ?2
+"#;
+
+const SIMPLE_SQL: &str = r#"
+    SELECT
+        mr.id,
+        mr.source_uri,
+        mr.source_kind,
+        mr.source_label,
+        mr.recorded_at,
+        mr.scope,
+        mr.record_type,
+        mr.truth_layer,
+        mr.provenance_json,
+        mr.content_text,
+        mr.chunk_index,
+        mr.chunk_count,
+        mr.chunk_anchor_json,
+        mr.content_hash,
+        mr.valid_from,
+        mr.valid_to,
+        mr.created_at,
+        mr.updated_at,
+        bm25(memory_records_fts) AS lexical_raw,
+        snippet(memory_records_fts, 1, '[', ']', '...', 12) AS snippet
+    FROM memory_records_fts
+    JOIN memory_records AS mr ON mr.rowid = memory_records_fts.rowid
+    WHERE memory_records_fts MATCH simple_query(?1)
+    ORDER BY bm25(memory_records_fts), mr.recorded_at DESC, mr.id ASC
+    LIMIT ?2
+"#;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum QueryStrategy {
+    Jieba,
+    Simple,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LexicalCandidate {
+    pub record: MemoryRecord,
+    pub lexical_raw: f32,
+    pub snippet: String,
+    pub query_strategies: Vec<QueryStrategy>,
+}
+
+#[derive(Debug, Error)]
+pub enum LexicalSearchError {
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("invalid {field} stored in database: {value}")]
+    InvalidEnum {
+        field: &'static str,
+        value: String,
+    },
+    #[error("incomplete chunk metadata stored for record {record_id}")]
+    IncompleteChunkMetadata { record_id: String },
+}
+
+pub struct LexicalSearch<'db> {
+    conn: &'db Connection,
+}
+
+impl<'db> LexicalSearch<'db> {
+    pub fn new(conn: &'db Connection) -> Self {
+        Self { conn }
+    }
+
+    pub fn recall(&self, request: &SearchRequest) -> Result<Vec<LexicalCandidate>, LexicalSearchError> {
+        let query = request.query.trim();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let limit = request.bounded_limit();
+        let limit = i64::try_from(limit).expect("bounded recall limit should fit in i64");
+        let mut candidates = Vec::new();
+
+        self.collect_candidates(query, limit, QueryStrategy::Jieba, JIEBA_SQL, &mut candidates)?;
+        self.collect_candidates(query, limit, QueryStrategy::Simple, SIMPLE_SQL, &mut candidates)?;
+
+        candidates.sort_by(|left, right| {
+            left.lexical_raw
+                .total_cmp(&right.lexical_raw)
+                .then_with(|| left.record.id.cmp(&right.record.id))
+        });
+        candidates.truncate(request.bounded_limit());
+
+        Ok(candidates)
+    }
+
+    fn collect_candidates(
+        &self,
+        query: &str,
+        limit: i64,
+        strategy: QueryStrategy,
+        sql: &str,
+        candidates: &mut Vec<LexicalCandidate>,
+    ) -> Result<(), LexicalSearchError> {
+        let mut statement = self.conn.prepare(sql)?;
+        let mut rows = statement.query(params![query, limit])?;
+
+        while let Some(row) = rows.next()? {
+            let record = map_record_row(row)?;
+            let lexical_raw = row.get::<_, f32>(18)?;
+            let snippet = row.get::<_, String>(19)?;
+
+            if let Some(existing) = candidates.iter_mut().find(|candidate| candidate.record.id == record.id) {
+                if lexical_raw < existing.lexical_raw {
+                    existing.lexical_raw = lexical_raw;
+                }
+                if existing.snippet.is_empty() && !snippet.is_empty() {
+                    existing.snippet = snippet;
+                }
+                if !existing.query_strategies.contains(&strategy) {
+                    existing.query_strategies.push(strategy);
+                }
+                continue;
+            }
+
+            candidates.push(LexicalCandidate {
+                record,
+                lexical_raw,
+                snippet,
+                query_strategies: vec![strategy],
+            });
+        }
+
+        Ok(())
+    }
+}
+
+fn map_record_row(row: &rusqlite::Row<'_>) -> Result<MemoryRecord, LexicalSearchError> {
+    let source_kind = row.get::<_, String>(2)?;
+    let scope = row.get::<_, String>(5)?;
+    let record_type = row.get::<_, String>(6)?;
+    let truth_layer = row.get::<_, String>(7)?;
+    let provenance_json = row.get::<_, String>(8)?;
+    let record_id = row.get::<_, String>(0)?;
+    let chunk = map_chunk_metadata(row, &record_id)?;
+
+    Ok(MemoryRecord {
+        id: record_id,
+        source: SourceRef {
+            uri: row.get(1)?,
+            kind: parse_source_kind(&source_kind)?,
+            label: row.get(3)?,
+        },
+        timestamp: RecordTimestamp {
+            recorded_at: row.get(4)?,
+            created_at: row.get(16)?,
+            updated_at: row.get(17)?,
+        },
+        scope: parse_scope(&scope)?,
+        record_type: parse_record_type(&record_type)?,
+        truth_layer: parse_truth_layer(&truth_layer)?,
+        provenance: serde_json::from_str::<Provenance>(&provenance_json)?,
+        content_text: row.get(9)?,
+        chunk,
+        validity: ValidityWindow {
+            valid_from: row.get(14)?,
+            valid_to: row.get(15)?,
+        },
+    })
+}
+
+fn map_chunk_metadata(
+    row: &rusqlite::Row<'_>,
+    record_id: &str,
+) -> Result<Option<ChunkMetadata>, LexicalSearchError> {
+    let chunk_index = row.get::<_, Option<u32>>(10)?;
+    let chunk_count = row.get::<_, Option<u32>>(11)?;
+    let anchor_json = row.get::<_, Option<String>>(12)?;
+    let content_hash = row.get::<_, Option<String>>(13)?;
+
+    match (chunk_index, chunk_count, anchor_json, content_hash) {
+        (None, None, None, None) => Ok(None),
+        (Some(chunk_index), Some(chunk_count), Some(anchor_json), Some(content_hash)) => {
+            let anchor = serde_json::from_str::<ChunkAnchor>(&anchor_json)?;
+            Ok(Some(ChunkMetadata {
+                chunk_index,
+                chunk_count,
+                anchor,
+                content_hash,
+            }))
+        }
+        _ => Err(LexicalSearchError::IncompleteChunkMetadata {
+            record_id: record_id.to_string(),
+        }),
+    }
+}
+
+fn parse_source_kind(value: &str) -> Result<SourceKind, LexicalSearchError> {
+    SourceKind::parse(value).ok_or_else(|| LexicalSearchError::InvalidEnum {
+        field: "source_kind",
+        value: value.to_string(),
+    })
+}
+
+fn parse_scope(value: &str) -> Result<Scope, LexicalSearchError> {
+    Scope::parse(value).ok_or_else(|| LexicalSearchError::InvalidEnum {
+        field: "scope",
+        value: value.to_string(),
+    })
+}
+
+fn parse_record_type(value: &str) -> Result<RecordType, LexicalSearchError> {
+    RecordType::parse(value).ok_or_else(|| LexicalSearchError::InvalidEnum {
+        field: "record_type",
+        value: value.to_string(),
+    })
+}
+
+fn parse_truth_layer(value: &str) -> Result<TruthLayer, LexicalSearchError> {
+    TruthLayer::parse(value).ok_or_else(|| LexicalSearchError::InvalidEnum {
+        field: "truth_layer",
+        value: value.to_string(),
+    })
+}
