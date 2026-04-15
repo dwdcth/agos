@@ -148,6 +148,77 @@ pub struct LocalAdaptationEntry {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuminationCandidateKind {
+    PromotionCandidate,
+    SkillTemplate,
+    ValueAdjustmentCandidate,
+}
+
+impl RuminationCandidateKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PromotionCandidate => "promotion_candidate",
+            Self::SkillTemplate => "skill_template",
+            Self::ValueAdjustmentCandidate => "value_adjustment_candidate",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "promotion_candidate" => Some(Self::PromotionCandidate),
+            "skill_template" => Some(Self::SkillTemplate),
+            "value_adjustment_candidate" => Some(Self::ValueAdjustmentCandidate),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuminationCandidateStatus {
+    Pending,
+    Consumed,
+    Rejected,
+    Archived,
+}
+
+impl RuminationCandidateStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Consumed => "consumed",
+            Self::Rejected => "rejected",
+            Self::Archived => "archived",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "consumed" => Some(Self::Consumed),
+            "rejected" => Some(Self::Rejected),
+            "archived" => Some(Self::Archived),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RuminationCandidate {
+    pub candidate_id: String,
+    pub source_queue_item_id: Option<String>,
+    pub candidate_kind: RuminationCandidateKind,
+    pub subject_ref: String,
+    pub payload: Value,
+    pub evidence_refs: Vec<String>,
+    pub governance_ref_id: Option<String>,
+    pub status: RuminationCandidateStatus,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Error)]
 pub enum RepositoryError {
     #[error(transparent)]
@@ -1134,6 +1205,129 @@ impl<'db> MemoryRepository<'db> {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    pub fn insert_rumination_candidate(
+        &self,
+        candidate: &RuminationCandidate,
+    ) -> Result<(), RepositoryError> {
+        let payload_json = serialize_rumination_candidate_payload(candidate)?;
+        let evidence_refs_json = serde_json::to_string(&candidate.evidence_refs)?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO rumination_candidates (
+                candidate_id,
+                source_queue_item_id,
+                candidate_kind,
+                subject_ref,
+                payload_json,
+                evidence_refs_json,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "#,
+            params![
+                &candidate.candidate_id,
+                &candidate.source_queue_item_id,
+                candidate.candidate_kind.as_str(),
+                &candidate.subject_ref,
+                payload_json,
+                evidence_refs_json,
+                candidate.status.as_str(),
+                &candidate.created_at,
+                &candidate.updated_at,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn update_rumination_candidate(
+        &self,
+        candidate: &RuminationCandidate,
+    ) -> Result<(), RepositoryError> {
+        let payload_json = serialize_rumination_candidate_payload(candidate)?;
+        let evidence_refs_json = serde_json::to_string(&candidate.evidence_refs)?;
+
+        self.conn.execute(
+            r#"
+            UPDATE rumination_candidates
+            SET source_queue_item_id = ?2,
+                candidate_kind = ?3,
+                subject_ref = ?4,
+                payload_json = ?5,
+                evidence_refs_json = ?6,
+                status = ?7,
+                created_at = ?8,
+                updated_at = ?9
+            WHERE candidate_id = ?1
+            "#,
+            params![
+                &candidate.candidate_id,
+                &candidate.source_queue_item_id,
+                candidate.candidate_kind.as_str(),
+                &candidate.subject_ref,
+                payload_json,
+                evidence_refs_json,
+                candidate.status.as_str(),
+                &candidate.created_at,
+                &candidate.updated_at,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn list_rumination_candidates(&self) -> Result<Vec<RuminationCandidate>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                candidate_id,
+                source_queue_item_id,
+                candidate_kind,
+                subject_ref,
+                payload_json,
+                evidence_refs_json,
+                status,
+                created_at,
+                updated_at
+            FROM rumination_candidates
+            ORDER BY created_at ASC, candidate_kind ASC, candidate_id ASC
+            "#,
+        )?;
+        let rows = statement.query_map([], map_rumination_candidate_row)?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn get_rumination_candidate(
+        &self,
+        candidate_id: &str,
+    ) -> Result<Option<RuminationCandidate>, RepositoryError> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT
+                    candidate_id,
+                    source_queue_item_id,
+                    candidate_kind,
+                    subject_ref,
+                    payload_json,
+                    evidence_refs_json,
+                    status,
+                    created_at,
+                    updated_at
+                FROM rumination_candidates
+                WHERE candidate_id = ?1
+                "#,
+                [candidate_id],
+                map_rumination_candidate_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     fn claim_next_rumination_item_for_tier_impl(
         &self,
         queue_tier: &str,
@@ -1665,6 +1859,61 @@ fn map_local_adaptation_row(
     })
 }
 
+fn map_rumination_candidate_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<RuminationCandidate, rusqlite::Error> {
+    let candidate_kind = row.get::<_, String>(2)?;
+    let status = row.get::<_, String>(6)?;
+    let payload_json = row.get::<_, String>(4)?;
+    let evidence_refs_json = row.get::<_, String>(5)?;
+    let mut payload: Value = serde_json::from_str(&payload_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            4,
+            rusqlite::types::Type::Text,
+            Box::new(error),
+        )
+    })?;
+    let governance_ref_id = payload
+        .get("governance_ref_id")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+
+    if let Some(object) = payload.as_object_mut() {
+        object.remove("governance_ref_id");
+    }
+
+    Ok(RuminationCandidate {
+        candidate_id: row.get(0)?,
+        source_queue_item_id: row.get(1)?,
+        candidate_kind: RuminationCandidateKind::parse(&candidate_kind).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                2,
+                rusqlite::types::Type::Text,
+                "invalid rumination candidate kind".into(),
+            )
+        })?,
+        subject_ref: row.get(3)?,
+        payload,
+        evidence_refs: serde_json::from_str(&evidence_refs_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                5,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
+        governance_ref_id,
+        status: RuminationCandidateStatus::parse(&status).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                6,
+                rusqlite::types::Type::Text,
+                "invalid rumination candidate status".into(),
+            )
+        })?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
+    })
+}
+
 fn queue_table(queue_tier: &str) -> Result<&'static str, RepositoryError> {
     match queue_tier {
         "spq" => Ok("spq_queue_items"),
@@ -1702,4 +1951,28 @@ fn parse_truth_layer(value: &str) -> Result<TruthLayer, RepositoryError> {
         field: "truth_layer",
         value: value.to_string(),
     })
+}
+
+fn serialize_rumination_candidate_payload(
+    candidate: &RuminationCandidate,
+) -> Result<String, RepositoryError> {
+    let mut payload = candidate.payload.clone();
+    if let Some(governance_ref_id) = &candidate.governance_ref_id {
+        match payload.as_object_mut() {
+            Some(object) => {
+                object.insert(
+                    "governance_ref_id".to_string(),
+                    Value::String(governance_ref_id.clone()),
+                );
+            }
+            None => {
+                payload = serde_json::json!({
+                    "value": payload,
+                    "governance_ref_id": governance_ref_id,
+                });
+            }
+        }
+    }
+
+    serde_json::to_string(&payload).map_err(Into::into)
 }

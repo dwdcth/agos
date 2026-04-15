@@ -11,9 +11,11 @@ use crate::{
     memory::repository::{
         LocalAdaptationEntry, LocalAdaptationPayload, LocalAdaptationTargetKind,
         MemoryRepository, PersistedRuminationQueueItem, PersistedRuminationTriggerState,
-        RepositoryError, RuminationQueueStatus,
+        RepositoryError, RuminationCandidate, RuminationCandidateStatus, RuminationQueueStatus,
     },
 };
+
+pub use crate::memory::repository::RuminationCandidateKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -348,6 +350,16 @@ pub struct ShortCycleWritebackReport {
     pub completed_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LongCycleCandidateReport {
+    pub item_id: String,
+    pub subject_ref: String,
+    pub trigger_kind: RuminationTriggerKind,
+    pub candidates: Vec<RuminationCandidate>,
+    pub evidence_refs: Vec<String>,
+    pub completed_at: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuminationTriggerDecision {
     Enqueued {
@@ -396,6 +408,10 @@ pub enum RuminationServiceError {
         trigger: RuminationTriggerKind,
         field: &'static str,
     },
+    #[error("long-cycle write-back requires a source report for {trigger:?}")]
+    MissingLongCycleSourceReport { trigger: RuminationTriggerKind },
+    #[error("long-cycle write-back requires at least one evidence ref for {trigger:?}")]
+    MissingLongCycleEvidence { trigger: RuminationTriggerKind },
 }
 
 pub struct RuminationService<'db> {
@@ -531,6 +547,34 @@ impl<'db> RuminationService<'db> {
         }
     }
 
+    pub fn drain_long_cycle(
+        &self,
+        now: &str,
+    ) -> Result<Option<LongCycleCandidateReport>, RuminationServiceError> {
+        let Some(item) = self
+            .repository
+            .claim_next_rumination_item_for_tier("lpq", now)?
+            .map(from_persisted_item)
+            .transpose()?
+        else {
+            return Ok(None);
+        };
+
+        match self.process_long_cycle_item(&item, now) {
+            Ok(report) => Ok(Some(report)),
+            Err(error) => {
+                self.repository.retry_rumination_queue_item(
+                    item.queue_tier.as_str(),
+                    &item.item_id,
+                    now,
+                    &error.to_string(),
+                    now,
+                )?;
+                Err(error)
+            }
+        }
+    }
+
     pub fn complete(
         &self,
         item: &RuminationQueueItem,
@@ -621,6 +665,31 @@ impl<'db> RuminationService<'db> {
             trigger_kind: item.trigger_kind,
             entry_count: entries.len(),
             target_kinds: unique_target_kinds(&entries),
+            evidence_refs: item.evidence_refs.clone(),
+            completed_at: processed_at.to_string(),
+        })
+    }
+
+    fn process_long_cycle_item(
+        &self,
+        item: &RuminationQueueItem,
+        processed_at: &str,
+    ) -> Result<LongCycleCandidateReport, RuminationServiceError> {
+        let candidates = derive_long_cycle_candidates(item, processed_at)?;
+        for candidate in &candidates {
+            self.repository.insert_rumination_candidate(candidate)?;
+        }
+        self.repository.complete_rumination_queue_item(
+            item.queue_tier.as_str(),
+            &item.item_id,
+            processed_at,
+        )?;
+
+        Ok(LongCycleCandidateReport {
+            item_id: item.item_id.clone(),
+            subject_ref: item.subject_ref.clone(),
+            trigger_kind: item.trigger_kind,
+            candidates,
             evidence_refs: item.evidence_refs.clone(),
             completed_at: processed_at.to_string(),
         })
@@ -882,6 +951,64 @@ fn derive_short_cycle_entries(
     Ok(entries)
 }
 
+fn derive_long_cycle_candidates(
+    item: &RuminationQueueItem,
+    processed_at: &str,
+) -> Result<Vec<RuminationCandidate>, RuminationServiceError> {
+    let source_report = item
+        .source_report
+        .clone()
+        .ok_or(RuminationServiceError::MissingLongCycleSourceReport {
+            trigger: item.trigger_kind,
+        })?;
+    let primary_evidence = item
+        .evidence_refs
+        .first()
+        .cloned()
+        .ok_or(RuminationServiceError::MissingLongCycleEvidence {
+            trigger: item.trigger_kind,
+        })?;
+    let skill_payload = json!({
+        "template_summary": format!("candidate derived from {}", item.subject_ref),
+        "trigger_kind": item.trigger_kind.as_str(),
+        "source_report": source_report.clone(),
+        "evidence_count": item.evidence_refs.len(),
+    });
+    let promotion_payload = json!({
+        "promotion_path": "pending_governance_bridge",
+        "source_record_id": primary_evidence,
+        "basis_record_ids": item.evidence_refs,
+        "source_report": source_report.clone(),
+    });
+    let value_payload = json!({
+        "gate_decision": item.payload.get("gate_decision").cloned(),
+        "active_risks": item.payload.get("active_risks").cloned().unwrap_or_else(|| json!([])),
+        "metacog_flags": item.payload.get("metacog_flags").cloned().unwrap_or_else(|| json!([])),
+        "source_report": source_report,
+    });
+
+    Ok(vec![
+        build_rumination_candidate(
+            item,
+            RuminationCandidateKind::PromotionCandidate,
+            promotion_payload,
+            processed_at,
+        ),
+        build_rumination_candidate(
+            item,
+            RuminationCandidateKind::SkillTemplate,
+            skill_payload,
+            processed_at,
+        ),
+        build_rumination_candidate(
+            item,
+            RuminationCandidateKind::ValueAdjustmentCandidate,
+            value_payload,
+            processed_at,
+        ),
+    ])
+}
+
 fn append_entries_from_object(
     entries: &mut Vec<LocalAdaptationEntry>,
     item: &RuminationQueueItem,
@@ -923,6 +1050,26 @@ fn build_local_adaptation_entry(
             evidence_refs: item.evidence_refs.clone(),
         },
         source_queue_item_id: Some(item.item_id.clone()),
+        created_at: processed_at.to_string(),
+        updated_at: processed_at.to_string(),
+    }
+}
+
+fn build_rumination_candidate(
+    item: &RuminationQueueItem,
+    candidate_kind: RuminationCandidateKind,
+    payload: Value,
+    processed_at: &str,
+) -> RuminationCandidate {
+    RuminationCandidate {
+        candidate_id: format!("{}:{}", item.item_id, candidate_kind.as_str()),
+        source_queue_item_id: Some(item.item_id.clone()),
+        candidate_kind,
+        subject_ref: item.subject_ref.clone(),
+        payload,
+        evidence_refs: item.evidence_refs.clone(),
+        governance_ref_id: None,
+        status: RuminationCandidateStatus::Pending,
         created_at: processed_at.to_string(),
         updated_at: processed_at.to_string(),
     }
