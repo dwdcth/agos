@@ -35,11 +35,11 @@ pub struct ValueConfig {
 impl Default for ValueConfig {
     fn default() -> Self {
         Self {
-            goal_progress: 0.25,
-            information_gain: 0.20,
-            risk_avoidance: 0.20,
-            resource_efficiency: 0.15,
-            agent_robustness: 0.20,
+            goal_progress: 0.35,
+            information_gain: 0.15,
+            risk_avoidance: 0.15,
+            resource_efficiency: 0.20,
+            agent_robustness: 0.15,
         }
     }
 }
