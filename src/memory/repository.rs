@@ -1,4 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::Serialize;
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::memory::record::{
@@ -15,6 +17,80 @@ use crate::memory::truth::{
 pub struct ScopeCount {
     pub scope: Scope,
     pub count: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuminationQueueStatus {
+    Queued,
+    Claimed,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl RuminationQueueStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Claimed => "claimed",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "queued" => Some(Self::Queued),
+            "claimed" => Some(Self::Claimed),
+            "completed" => Some(Self::Completed),
+            "failed" => Some(Self::Failed),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedRuminationQueueItem {
+    pub queue_tier: String,
+    pub item_id: String,
+    pub trigger_kind: String,
+    pub status: RuminationQueueStatus,
+    pub subject_ref: String,
+    pub dedupe_key: String,
+    pub cooldown_key: String,
+    pub budget_bucket: String,
+    pub priority: i64,
+    pub budget_cost: u32,
+    pub attempt_count: u32,
+    pub cooldown_until: Option<String>,
+    pub next_eligible_at: String,
+    pub payload_json: Value,
+    pub evidence_refs_json: Option<Vec<String>>,
+    pub source_report_json: Option<Value>,
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub processed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistedRuminationTriggerState {
+    pub queue_tier: String,
+    pub trigger_kind: String,
+    pub dedupe_key: String,
+    pub cooldown_key: String,
+    pub budget_bucket: String,
+    pub budget_window_started_at: Option<String>,
+    pub budget_spent: u32,
+    pub cooldown_until: Option<String>,
+    pub last_enqueued_at: Option<String>,
+    pub last_seen_at: String,
+    pub last_decision: String,
+    pub last_item_id: Option<String>,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Error)]
@@ -575,6 +651,453 @@ impl<'db> MemoryRepository<'db> {
         Ok(())
     }
 
+    pub fn insert_rumination_queue_item(
+        &self,
+        item: &PersistedRuminationQueueItem,
+    ) -> Result<(), RepositoryError> {
+        let table = queue_table(&item.queue_tier)?;
+        let evidence_refs_json = item
+            .evidence_refs_json
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        let source_report_json = item
+            .source_report_json
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        let payload_json = serde_json::to_string(&item.payload_json)?;
+
+        let sql = format!(
+            r#"
+            INSERT INTO {table} (
+                item_id,
+                trigger_kind,
+                status,
+                subject_ref,
+                dedupe_key,
+                cooldown_key,
+                budget_bucket,
+                priority,
+                budget_cost,
+                attempt_count,
+                cooldown_until,
+                next_eligible_at,
+                payload_json,
+                evidence_refs_json,
+                source_report_json,
+                last_error,
+                created_at,
+                updated_at,
+                processed_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+            "#
+        );
+
+        self.conn.execute(
+            &sql,
+            params![
+                &item.item_id,
+                &item.trigger_kind,
+                item.status.as_str(),
+                &item.subject_ref,
+                &item.dedupe_key,
+                &item.cooldown_key,
+                &item.budget_bucket,
+                item.priority,
+                item.budget_cost,
+                item.attempt_count,
+                &item.cooldown_until,
+                &item.next_eligible_at,
+                payload_json,
+                evidence_refs_json,
+                source_report_json,
+                &item.last_error,
+                &item.created_at,
+                &item.updated_at,
+                &item.processed_at,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn list_rumination_queue_items(
+        &self,
+        queue_tier: &str,
+    ) -> Result<Vec<PersistedRuminationQueueItem>, RepositoryError> {
+        let table = queue_table(queue_tier)?;
+        let sql = format!(
+            r#"
+            SELECT
+                item_id,
+                trigger_kind,
+                status,
+                subject_ref,
+                dedupe_key,
+                cooldown_key,
+                budget_bucket,
+                priority,
+                budget_cost,
+                attempt_count,
+                cooldown_until,
+                next_eligible_at,
+                payload_json,
+                evidence_refs_json,
+                source_report_json,
+                last_error,
+                created_at,
+                updated_at,
+                processed_at
+            FROM {table}
+            ORDER BY created_at ASC, item_id ASC
+            "#
+        );
+        let mut statement = self.conn.prepare(&sql)?;
+        let rows = statement.query_map([], |row| map_rumination_queue_row(row, queue_tier))?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn find_active_rumination_item(
+        &self,
+        queue_tier: &str,
+        dedupe_key: &str,
+    ) -> Result<Option<PersistedRuminationQueueItem>, RepositoryError> {
+        let table = queue_table(queue_tier)?;
+        let sql = format!(
+            r#"
+            SELECT
+                item_id,
+                trigger_kind,
+                status,
+                subject_ref,
+                dedupe_key,
+                cooldown_key,
+                budget_bucket,
+                priority,
+                budget_cost,
+                attempt_count,
+                cooldown_until,
+                next_eligible_at,
+                payload_json,
+                evidence_refs_json,
+                source_report_json,
+                last_error,
+                created_at,
+                updated_at,
+                processed_at
+            FROM {table}
+            WHERE dedupe_key = ?1
+              AND status IN (?2, ?3)
+            ORDER BY priority DESC, created_at ASC
+            LIMIT 1
+            "#
+        );
+
+        self.conn
+            .query_row(
+                &sql,
+                params![
+                    dedupe_key,
+                    RuminationQueueStatus::Queued.as_str(),
+                    RuminationQueueStatus::Claimed.as_str()
+                ],
+                |row| map_rumination_queue_row(row, queue_tier),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn claim_next_rumination_item(
+        &self,
+        now: &str,
+    ) -> Result<Option<PersistedRuminationQueueItem>, RepositoryError> {
+        if let Some(item) = self.claim_next_rumination_item_for_tier("spq", now)? {
+            return Ok(Some(item));
+        }
+
+        self.claim_next_rumination_item_for_tier("lpq", now)
+    }
+
+    pub fn complete_rumination_queue_item(
+        &self,
+        queue_tier: &str,
+        item_id: &str,
+        processed_at: &str,
+    ) -> Result<(), RepositoryError> {
+        let table = queue_table(queue_tier)?;
+        let sql = format!(
+            r#"
+            UPDATE {table}
+            SET status = ?2,
+                processed_at = ?3,
+                updated_at = ?3
+            WHERE item_id = ?1
+            "#
+        );
+
+        self.conn.execute(
+            &sql,
+            params![item_id, RuminationQueueStatus::Completed.as_str(), processed_at],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn retry_rumination_queue_item(
+        &self,
+        queue_tier: &str,
+        item_id: &str,
+        next_eligible_at: &str,
+        last_error: &str,
+        updated_at: &str,
+    ) -> Result<(), RepositoryError> {
+        let table = queue_table(queue_tier)?;
+        let sql = format!(
+            r#"
+            UPDATE {table}
+            SET status = ?2,
+                attempt_count = attempt_count + 1,
+                next_eligible_at = ?3,
+                last_error = ?4,
+                updated_at = ?5
+            WHERE item_id = ?1
+            "#
+        );
+
+        self.conn.execute(
+            &sql,
+            params![
+                item_id,
+                RuminationQueueStatus::Queued.as_str(),
+                next_eligible_at,
+                last_error,
+                updated_at
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_latest_rumination_cooldown(
+        &self,
+        queue_tier: &str,
+        cooldown_key: &str,
+    ) -> Result<Option<String>, RepositoryError> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT cooldown_until
+                FROM rumination_trigger_state
+                WHERE queue_tier = ?1
+                  AND cooldown_key = ?2
+                  AND cooldown_until IS NOT NULL
+                ORDER BY cooldown_until DESC
+                LIMIT 1
+                "#,
+                params![queue_tier, cooldown_key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn total_rumination_budget_spent(
+        &self,
+        queue_tier: &str,
+        budget_bucket: &str,
+    ) -> Result<u32, RepositoryError> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT COALESCE(SUM(budget_spent), 0)
+                FROM rumination_trigger_state
+                WHERE queue_tier = ?1
+                  AND budget_bucket = ?2
+                "#,
+                params![queue_tier, budget_bucket],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn get_rumination_trigger_state(
+        &self,
+        queue_tier: &str,
+        dedupe_key: &str,
+    ) -> Result<Option<PersistedRuminationTriggerState>, RepositoryError> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT
+                    queue_tier,
+                    trigger_kind,
+                    dedupe_key,
+                    cooldown_key,
+                    budget_bucket,
+                    budget_window_started_at,
+                    budget_spent,
+                    cooldown_until,
+                    last_enqueued_at,
+                    last_seen_at,
+                    last_decision,
+                    last_item_id,
+                    updated_at
+                FROM rumination_trigger_state
+                WHERE queue_tier = ?1
+                  AND dedupe_key = ?2
+                "#,
+                params![queue_tier, dedupe_key],
+                map_rumination_trigger_state_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn upsert_rumination_trigger_state(
+        &self,
+        state: &PersistedRuminationTriggerState,
+    ) -> Result<(), RepositoryError> {
+        self.conn.execute(
+            r#"
+            INSERT INTO rumination_trigger_state (
+                queue_tier,
+                trigger_kind,
+                dedupe_key,
+                cooldown_key,
+                budget_bucket,
+                budget_window_started_at,
+                budget_spent,
+                cooldown_until,
+                last_enqueued_at,
+                last_seen_at,
+                last_decision,
+                last_item_id,
+                updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            ON CONFLICT(queue_tier, dedupe_key) DO UPDATE SET
+                trigger_kind = excluded.trigger_kind,
+                cooldown_key = excluded.cooldown_key,
+                budget_bucket = excluded.budget_bucket,
+                budget_window_started_at = excluded.budget_window_started_at,
+                budget_spent = excluded.budget_spent,
+                cooldown_until = excluded.cooldown_until,
+                last_enqueued_at = excluded.last_enqueued_at,
+                last_seen_at = excluded.last_seen_at,
+                last_decision = excluded.last_decision,
+                last_item_id = excluded.last_item_id,
+                updated_at = excluded.updated_at
+            "#,
+            params![
+                &state.queue_tier,
+                &state.trigger_kind,
+                &state.dedupe_key,
+                &state.cooldown_key,
+                &state.budget_bucket,
+                &state.budget_window_started_at,
+                state.budget_spent,
+                &state.cooldown_until,
+                &state.last_enqueued_at,
+                &state.last_seen_at,
+                &state.last_decision,
+                &state.last_item_id,
+                &state.updated_at,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    fn claim_next_rumination_item_for_tier(
+        &self,
+        queue_tier: &str,
+        now: &str,
+    ) -> Result<Option<PersistedRuminationQueueItem>, RepositoryError> {
+        let table = queue_table(queue_tier)?;
+        let select_sql = format!(
+            r#"
+            SELECT item_id
+            FROM {table}
+            WHERE status = ?1
+              AND next_eligible_at <= ?2
+            ORDER BY priority DESC, next_eligible_at ASC, created_at ASC
+            LIMIT 1
+            "#
+        );
+        let maybe_item_id = self
+            .conn
+            .query_row(
+                &select_sql,
+                params![RuminationQueueStatus::Queued.as_str(), now],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        let Some(item_id) = maybe_item_id else {
+            return Ok(None);
+        };
+
+        let update_sql = format!(
+            r#"
+            UPDATE {table}
+            SET status = ?2,
+                updated_at = ?3
+            WHERE item_id = ?1
+              AND status = ?4
+              AND next_eligible_at <= ?3
+            "#
+        );
+        let updated = self.conn.execute(
+            &update_sql,
+            params![
+                &item_id,
+                RuminationQueueStatus::Claimed.as_str(),
+                now,
+                RuminationQueueStatus::Queued.as_str()
+            ],
+        )?;
+        if updated == 0 {
+            return Ok(None);
+        }
+
+        let fetch_sql = format!(
+            r#"
+            SELECT
+                item_id,
+                trigger_kind,
+                status,
+                subject_ref,
+                dedupe_key,
+                cooldown_key,
+                budget_bucket,
+                priority,
+                budget_cost,
+                attempt_count,
+                cooldown_until,
+                next_eligible_at,
+                payload_json,
+                evidence_refs_json,
+                source_report_json,
+                last_error,
+                created_at,
+                updated_at,
+                processed_at
+            FROM {table}
+            WHERE item_id = ?1
+            "#
+        );
+
+        self.conn
+            .query_row(&fetch_sql, [item_id], |row| {
+                map_rumination_queue_row(row, queue_tier)
+            })
+            .optional()
+            .map_err(Into::into)
+    }
+
     pub fn get_truth_record(&self, id: &str) -> Result<Option<TruthRecord>, RepositoryError> {
         let Some(base) = self.get_record(id)? else {
             return Ok(None);
@@ -901,6 +1424,102 @@ fn map_ontology_candidate_row(
         created_at: row.get(11)?,
         updated_at: row.get(12)?,
     })
+}
+
+fn map_rumination_queue_row(
+    row: &rusqlite::Row<'_>,
+    queue_tier: &str,
+) -> Result<PersistedRuminationQueueItem, rusqlite::Error> {
+    let status = row.get::<_, String>(2)?;
+    let payload_json = row.get::<_, String>(12)?;
+    let evidence_refs_json = row.get::<_, Option<String>>(13)?;
+    let source_report_json = row.get::<_, Option<String>>(14)?;
+
+    Ok(PersistedRuminationQueueItem {
+        queue_tier: queue_tier.to_string(),
+        item_id: row.get(0)?,
+        trigger_kind: row.get(1)?,
+        status: RuminationQueueStatus::parse(&status).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                2,
+                rusqlite::types::Type::Text,
+                "invalid rumination queue status".into(),
+            )
+        })?,
+        subject_ref: row.get(3)?,
+        dedupe_key: row.get(4)?,
+        cooldown_key: row.get(5)?,
+        budget_bucket: row.get(6)?,
+        priority: row.get(7)?,
+        budget_cost: row.get(8)?,
+        attempt_count: row.get(9)?,
+        cooldown_until: row.get(10)?,
+        next_eligible_at: row.get(11)?,
+        payload_json: serde_json::from_str(&payload_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                12,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
+        evidence_refs_json: evidence_refs_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    13,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?,
+        source_report_json: source_report_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    14,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?,
+        last_error: row.get(15)?,
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
+        processed_at: row.get(18)?,
+    })
+}
+
+fn map_rumination_trigger_state_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<PersistedRuminationTriggerState, rusqlite::Error> {
+    Ok(PersistedRuminationTriggerState {
+        queue_tier: row.get(0)?,
+        trigger_kind: row.get(1)?,
+        dedupe_key: row.get(2)?,
+        cooldown_key: row.get(3)?,
+        budget_bucket: row.get(4)?,
+        budget_window_started_at: row.get(5)?,
+        budget_spent: row.get(6)?,
+        cooldown_until: row.get(7)?,
+        last_enqueued_at: row.get(8)?,
+        last_seen_at: row.get(9)?,
+        last_decision: row.get(10)?,
+        last_item_id: row.get(11)?,
+        updated_at: row.get(12)?,
+    })
+}
+
+fn queue_table(queue_tier: &str) -> Result<&'static str, RepositoryError> {
+    match queue_tier {
+        "spq" => Ok("spq_queue_items"),
+        "lpq" => Ok("lpq_queue_items"),
+        other => Err(RepositoryError::InvalidEnum {
+            field: "queue_tier",
+            value: other.to_string(),
+        }),
+    }
 }
 
 fn parse_source_kind(value: &str) -> Result<SourceKind, RepositoryError> {
