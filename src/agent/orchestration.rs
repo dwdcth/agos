@@ -459,6 +459,7 @@ mod tests {
     use crate::{
         cognition::{
             action::{ActionBranch, ActionCandidate, ActionKind},
+            assembly::WorkingMemoryAssemblyError,
             working_memory::{PresentFrame, SelfStateSnapshot},
         },
         memory::record::TruthLayer,
