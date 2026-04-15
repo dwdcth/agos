@@ -2,12 +2,20 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use agent_memos::{
-    agent::orchestration::{
-        AgentSearchBranchValue, AgentSearchOrchestrator, AgentSearchRequest, AssemblyPort,
-        GatingPort, RetrievalPort, RetrievalStepReport, ScoringPort,
+    agent::{
+        orchestration::{
+            AgentSearchBranchValue, AgentSearchOrchestrator, AgentSearchReport,
+            AgentSearchRequest, AgentSearchRunner, AssemblyPort, GatingPort, RetrievalPort,
+            RetrievalStepReport, ScoringPort,
+        },
+        rig_adapter::RigAgentSearchAdapter,
     },
     cognition::{
         action::{ActionBranch, ActionCandidate, ActionKind},
@@ -31,6 +39,7 @@ use agent_memos::{
         SearchResult,
     },
 };
+use serde_json::Value;
 
 fn sample_record(id: &str, source_uri: &str) -> MemoryRecord {
     MemoryRecord {
@@ -135,6 +144,85 @@ fn sample_working_memory() -> WorkingMemory {
             }],
         },
         branches: vec![branch],
+    }
+}
+
+fn sample_agent_search_report() -> AgentSearchReport {
+    let working_memory = sample_working_memory();
+    let selected_branch = ScoredBranchReport {
+        branch: working_memory.branches[0].clone(),
+        value: ValueVector {
+            goal_progress: 0.40,
+            information_gain: 0.95,
+            risk_avoidance: 0.60,
+            resource_efficiency: 0.50,
+            agent_robustness: 0.75,
+        },
+        projected: ProjectedScore {
+            final_score: 0.71,
+            weight_snapshot: ValueConfig::default(),
+        },
+    };
+
+    AgentSearchReport {
+        working_memory,
+        decision: DecisionReport {
+            scored_branches: vec![selected_branch.clone()],
+            selected_branch: Some(selected_branch),
+            gate: GateReport {
+                decision: GateDecision::Warning,
+                diagnostics: vec!["bounded local orchestration".to_string()],
+                rejected_branch: None,
+                regulative_branch: None,
+                safe_response: None,
+                autonomy_paused: false,
+            },
+            active_risks: vec!["ungated output".to_string()],
+            metacog_flags: vec![MetacognitiveFlag {
+                code: "trace_required".to_string(),
+                detail: Some("all agent output needs citations".to_string()),
+            }],
+        },
+        retrieval_steps: vec![
+            RetrievalStepReport {
+                query: "rig boundary".to_string(),
+                applied_filters: SearchFilters::default(),
+                result_count: 1,
+                citations: vec![sample_result(
+                    sample_record("record-primary", "memo://project/rig-boundary"),
+                    "rig boundary",
+                    "rig stays orchestration only",
+                )
+                .citation],
+            },
+            RetrievalStepReport {
+                query: "gate diagnostics".to_string(),
+                applied_filters: SearchFilters::default(),
+                result_count: 1,
+                citations: vec![sample_result(
+                    sample_record("record-secondary", "memo://project/gate-diagnostics"),
+                    "gate diagnostics",
+                    "gate diagnostics must remain typed",
+                )
+                .citation],
+            },
+        ],
+        citations: vec![
+            sample_result(
+                sample_record("record-primary", "memo://project/rig-boundary"),
+                "rig boundary",
+                "rig stays orchestration only",
+            )
+            .citation,
+            sample_result(
+                sample_record("record-secondary", "memo://project/gate-diagnostics"),
+                "gate diagnostics",
+                "gate diagnostics must remain typed",
+            )
+            .citation,
+        ],
+        executed_steps: 2,
+        step_limit: 3,
     }
 }
 
@@ -339,4 +427,60 @@ fn orchestrator_reuses_internal_services_and_returns_structured_report() {
 
     let RetrievalStepReport { citations, .. } = &report.retrieval_steps[0];
     assert_eq!(citations[0].record_id, "record-primary");
+}
+
+#[derive(Clone)]
+struct CountingRunner {
+    calls: Arc<AtomicUsize>,
+    report: AgentSearchReport,
+}
+
+impl AgentSearchRunner for CountingRunner {
+    fn run(
+        &self,
+        _request: &AgentSearchRequest,
+    ) -> Result<AgentSearchReport, agent_memos::agent::orchestration::AgentSearchError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(self.report.clone())
+    }
+}
+
+#[tokio::test]
+async fn rig_adapter_stays_thin_and_never_bypasses_search_or_truth_gates() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let adapter = RigAgentSearchAdapter::new(CountingRunner {
+        calls: Arc::clone(&calls),
+        report: sample_agent_search_report(),
+    });
+    let request = AgentSearchRequest::new(WorkingMemoryRequest::new("rig boundary"));
+
+    let report = adapter
+        .run(&request)
+        .await
+        .expect("thin rig adapter should delegate to the internal runner");
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(adapter.boundary().tool_name, "internal_agent_search");
+    assert!(
+        !adapter.boundary().allows_truth_write
+            && !adapter.boundary().allows_semantic_retrieval
+            && !adapter.boundary().allows_rumination,
+        "rig adapter must not expose bypass paths around retrieval or governance",
+    );
+
+    let rendered_json = agent_memos::interfaces::cli::render_agent_search_report(&report, true)
+        .expect("developer surface should render structured json");
+    let rendered_text = agent_memos::interfaces::cli::render_agent_search_report(&report, false)
+        .expect("developer surface should render structured text");
+    let json: Value =
+        serde_json::from_str(&rendered_json).expect("rendered report should stay valid json");
+
+    assert_eq!(json["citations"].as_array().map(Vec::len), Some(2));
+    assert_eq!(json["decision"]["gate"]["decision"], "warning");
+    assert_eq!(json["executed_steps"], 2);
+    assert!(
+        rendered_text.contains("gate_decision: warning")
+            && rendered_text.contains("memo://project/rig-boundary"),
+        "developer-facing surface should stay structured and cited, not freeform only",
+    );
 }
