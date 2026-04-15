@@ -21,9 +21,9 @@
 
 - [x] **RET-01**: Agent or developer can run ordinary lexical search over Chinese and PinYin content using `libsimple`-backed SQLite FTS.
 - [x] **RET-02**: System can apply Rust-side BM25/TF-IDF-style keyword weighting and context bonus rules over recalled candidates without external model files.
-- [ ] **RET-03**: System can compose lexical score, keyword bonus, emotion bonus, importance, and recency into a stable ranked result set with explainable scoring behavior.
-- [ ] **RET-04**: Each retrieval result includes source, scope, timestamp or validity metadata, and enough trace data to explain why it was returned.
-- [ ] **RET-05**: Agent or developer can filter retrieval by scope, record type, truth layer, and time validity.
+- [x] **RET-03**: System can compose lexical score, keyword bonus, emotion bonus, importance, and recency into a stable ranked result set with explainable scoring behavior.
+- [x] **RET-04**: Each retrieval result includes source, scope, timestamp or validity metadata, and enough trace data to explain why it was returned.
+- [x] **RET-05**: Agent or developer can filter retrieval by scope, record type, truth layer, and time validity.
 
 ### Truth Layers
 
@@ -41,7 +41,7 @@
 
 ### Agent Search
 
-- [ ] **AGT-01**: Developer can use ordinary retrieval without invoking a language model or agent runtime.
+- [x] **AGT-01**: Developer can use ordinary retrieval without invoking a language model or agent runtime.
 - [ ] **AGT-02**: Developer can invoke a Rig-based agent-search workflow that performs multi-step retrieval and evidence gathering over the internal search services.
 - [ ] **AGT-03**: Agent-search output includes citations and a structured working-memory or decision-support payload instead of a plain freeform answer only.
 - [ ] **AGT-04**: Agent-search orchestration does not bypass ordinary retrieval services or write directly into shared truth without explicit gates.
@@ -93,9 +93,9 @@
 | ING-03 | Phase 2 | Complete |
 | RET-01 | Phase 2 | Complete |
 | RET-02 | Phase 2 | Complete |
-| RET-03 | Phase 2 | Pending |
-| RET-04 | Phase 2 | Pending |
-| RET-05 | Phase 2 | Pending |
+| RET-03 | Phase 2 | Complete |
+| RET-04 | Phase 2 | Complete |
+| RET-05 | Phase 2 | Complete |
 | TRU-01 | Phase 3 | Pending |
 | TRU-02 | Phase 3 | Pending |
 | TRU-03 | Phase 3 | Pending |
@@ -104,7 +104,7 @@
 | COG-02 | Phase 4 | Pending |
 | COG-03 | Phase 4 | Pending |
 | COG-04 | Phase 4 | Pending |
-| AGT-01 | Phase 2 | Pending |
+| AGT-01 | Phase 2 | Complete |
 | AGT-02 | Phase 4 | Pending |
 | AGT-03 | Phase 4 | Pending |
 | AGT-04 | Phase 4 | Pending |

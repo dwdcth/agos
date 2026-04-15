@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-04-15T12:29:13.037Z"
+status: verifying
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-04-15T12:45:42.558Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 6
-  percent: 86
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 
 Phase: 02 (ingest-and-lightweight-retrieval) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-15
 
 Progress: [█████████░] 86%
@@ -58,6 +58,7 @@ Progress: [█████████░] 86%
 | Phase 01 P04 | 2min | 2 tasks | 3 files |
 | Phase 02 P01 | 9min | 2 tasks | 11 files |
 | Phase 02 P02 | 13min | 2 tasks | 13 files |
+| Phase 02 P03 | 9min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,9 @@ Recent decisions affecting current work:
 - [Phase 02]: Stored nullable valid_from and valid_to separately from recorded_at so later retrieval plans can filter and cite validity windows explicitly.
 - [Phase 02]: Bootstrapped libsimple once per process and applied set_jieba_dict per SQLite connection so lexical capability becomes real without changing the single-binary local-first shape.
 - [Phase 02]: Kept lexical readiness truthful for lexical_only and the hybrid lexical baseline while leaving embedding_only and hybrid semantic paths explicitly deferred instead of adding hidden fallbacks.
+- [Phase 02]: Returned a structured SearchResponse with per-result trace and citation data instead of a bare result list.
+- [Phase 02]: Applied scope, record type, truth layer, and validity filters inside lexical SQL recall so filtering stays auditable before rerank.
+- [Phase 02]: Kept CLI ingest/search as synchronous wrappers over library services, preserving no-Rig and no-LLM ordinary retrieval.
 
 ### Pending Todos
 
@@ -106,6 +110,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T12:29:13.034Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-04-15T12:45:42.555Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None

@@ -50,7 +50,7 @@ Plans:
 Plans:
 - [x] 02-01: Implement source normalization, chunking, and ingest persistence
 - [x] 02-02: Implement `libsimple` lexical recall and Rust lightweight scoring rules
-- [ ] 02-03: Implement explainable rerank, filtering, citations, and ordinary retrieval APIs
+- [x] 02-03: Implement explainable rerank, filtering, citations, and ordinary retrieval APIs
 
 ### Phase 3: Truth Layer Governance
 **Goal**: 将 T1/T2/T3 真值分层、私有假设边界和共享晋升规则固化到系统模型中。
