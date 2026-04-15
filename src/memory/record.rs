@@ -10,6 +10,8 @@ pub struct MemoryRecord {
     pub truth_layer: TruthLayer,
     pub provenance: Provenance,
     pub content_text: String,
+    pub chunk: Option<ChunkMetadata>,
+    pub validity: ValidityWindow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,4 +144,35 @@ pub struct Provenance {
     pub origin: String,
     pub imported_via: Option<String>,
     pub derived_from: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChunkMetadata {
+    pub chunk_index: u32,
+    pub chunk_count: u32,
+    pub anchor: ChunkAnchor,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ChunkAnchor {
+    CharRange {
+        start_char: u32,
+        end_char: u32,
+    },
+    LineRange {
+        start_line: u32,
+        end_line: u32,
+    },
+    TurnRange {
+        start_turn: u32,
+        end_turn: u32,
+    },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidityWindow {
+    pub valid_from: Option<String>,
+    pub valid_to: Option<String>,
 }
