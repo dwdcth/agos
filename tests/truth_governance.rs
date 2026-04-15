@@ -8,8 +8,8 @@ use agent_memos::{
     memory::{
         governance::{
             ApprovePromotionRequest, AttachPromotionEvidenceRequest, CreatePromotionReviewRequest,
-            PromotionGate, RejectPromotionRequest, TruthGovernanceError,
-            TruthGovernanceService, UpdatePromotionGateRequest,
+            CreateOntologyCandidateRequest, PromotionGate, RejectPromotionRequest,
+            TruthGovernanceError, TruthGovernanceService, UpdatePromotionGateRequest,
         },
         record::{
             MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceKind, SourceRef,
@@ -523,4 +523,105 @@ fn rejected_promotion_stays_auditable() {
         }
         other => panic!("expected source to stay auditable T3, got {other:?}"),
     }
+}
+
+#[test]
+fn t2_to_t1_creates_candidate_without_t1_mutation() {
+    let path = fresh_db_path("t2-to-t1-candidate");
+    let db = Database::open(&path).expect("database should open");
+    let repo = MemoryRepository::new(db.conn());
+    let service = TruthGovernanceService::new(db.conn());
+
+    repo.insert_record(&sample_record("t2-source", TruthLayer::T2))
+        .expect("t2 record should insert");
+    repo.insert_record(&sample_record("basis-1", TruthLayer::T2))
+        .expect("basis record should insert");
+    repo.insert_record(&sample_record("existing-t1", TruthLayer::T1))
+        .expect("t1 record should insert");
+
+    let candidate = service
+        .create_ontology_candidate(CreateOntologyCandidateRequest {
+            candidate_id: "candidate-1".to_string(),
+            source_record_id: "t2-source".to_string(),
+            basis_record_ids: vec!["t2-source".to_string(), "basis-1".to_string()],
+            proposed_structure: json!({
+                "kind": "ontology_node",
+                "label": "shared truth candidate",
+                "attributes": {
+                    "stability": "under review"
+                }
+            }),
+            created_at: "2026-04-15T15:00:00Z".to_string(),
+        })
+        .expect("candidate should create from a T2 source");
+
+    assert_eq!(candidate.candidate_id, "candidate-1");
+    assert_eq!(candidate.source_record_id, "t2-source");
+    assert_eq!(
+        candidate.basis_record_ids,
+        vec!["t2-source".to_string(), "basis-1".to_string()]
+    );
+    assert_eq!(
+        candidate.time_stability_state,
+        CandidateReviewState::Pending
+    );
+    assert_eq!(
+        candidate.agent_reproducibility_state,
+        CandidateReviewState::Pending
+    );
+    assert_eq!(
+        candidate.context_invariance_state,
+        CandidateReviewState::Pending
+    );
+    assert_eq!(
+        candidate.predictive_utility_state,
+        CandidateReviewState::Pending
+    );
+    assert_eq!(
+        candidate.structural_review_state,
+        CandidateReviewState::Pending
+    );
+    assert_eq!(candidate.candidate_state, OntologyCandidateState::Pending);
+
+    let t1_records = repo
+        .list_records()
+        .expect("records should list")
+        .into_iter()
+        .filter(|record| matches!(record.truth_layer, TruthLayer::T1))
+        .collect::<Vec<_>>();
+    assert_eq!(t1_records.len(), 1);
+    assert_eq!(t1_records[0].id, "existing-t1");
+
+    let source_truth = service
+        .get_truth_record("t2-source")
+        .expect("typed truth lookup should succeed")
+        .expect("source truth record should exist");
+    match source_truth {
+        TruthRecord::T2 {
+            base,
+            open_candidates,
+        } => {
+            assert_eq!(base.truth_layer, TruthLayer::T2);
+            assert_eq!(open_candidates.len(), 1);
+            assert_eq!(open_candidates[0].candidate_id, "candidate-1");
+        }
+        other => panic!("expected source to stay T2 with open candidate, got {other:?}"),
+    }
+
+    let non_t2_error = service
+        .create_ontology_candidate(CreateOntologyCandidateRequest {
+            candidate_id: "candidate-invalid".to_string(),
+            source_record_id: "existing-t1".to_string(),
+            basis_record_ids: vec!["existing-t1".to_string()],
+            proposed_structure: json!({
+                "kind": "ontology_node",
+                "label": "should fail"
+            }),
+            created_at: "2026-04-15T15:01:00Z".to_string(),
+        })
+        .expect_err("non-T2 sources should be rejected");
+    assert!(matches!(
+        non_t2_error,
+        TruthGovernanceError::SourceRecordNotT2 { record_id, .. } if record_id == "existing-t1"
+    ));
 }
