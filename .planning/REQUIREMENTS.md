@@ -42,9 +42,9 @@
 ### Agent Search
 
 - [x] **AGT-01**: Developer can use ordinary retrieval without invoking a language model or agent runtime.
-- [ ] **AGT-02**: Developer can invoke a Rig-based agent-search workflow that performs multi-step retrieval and evidence gathering over the internal search services.
-- [ ] **AGT-03**: Agent-search output includes citations and a structured working-memory or decision-support payload instead of a plain freeform answer only.
-- [ ] **AGT-04**: Agent-search orchestration does not bypass ordinary retrieval services or write directly into shared truth without explicit gates.
+- [x] **AGT-02**: Developer can invoke a Rig-based agent-search workflow that performs multi-step retrieval and evidence gathering over the internal search services.
+- [x] **AGT-03**: Agent-search output includes citations and a structured working-memory or decision-support payload instead of a plain freeform answer only.
+- [x] **AGT-04**: Agent-search orchestration does not bypass ordinary retrieval services or write directly into shared truth without explicit gates.
 
 ### Learning
 
@@ -105,9 +105,9 @@
 | COG-03 | Phase 4 | Complete |
 | COG-04 | Phase 4 | Complete |
 | AGT-01 | Phase 2 | Complete |
-| AGT-02 | Phase 4 | Pending |
-| AGT-03 | Phase 4 | Pending |
-| AGT-04 | Phase 4 | Pending |
+| AGT-02 | Phase 4 | Complete |
+| AGT-03 | Phase 4 | Complete |
+| AGT-04 | Phase 4 | Complete |
 | LRN-01 | Phase 5 | Pending |
 | LRN-02 | Phase 5 | Pending |
 | LRN-03 | Phase 5 | Pending |

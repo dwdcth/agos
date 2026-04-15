@@ -82,7 +82,7 @@ Plans:
 Plans:
 - [x] 04-01: Implement attention-to-working-memory assembly services
 - [x] 04-02: Implement value scoring and metacognitive gating over candidate actions
-- [ ] 04-03: Integrate Rig-based agent-search orchestration on top of ordinary retrieval
+- [x] 04-03: Integrate Rig-based agent-search orchestration on top of ordinary retrieval
 
 ### Phase 5: Rumination And Adaptive Write-back
 **Goal**: 让系统具备短周期/长周期反刍与受控写回能力，使搜索结果和行动结果能逐步沉淀为长期结构。
