@@ -8,8 +8,8 @@ use agent_memos::{
     core::db::Database,
     memory::{
         record::{
-            MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceKind, SourceRef,
-            TruthLayer,
+            ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType,
+            Scope, SourceKind, SourceRef, TruthLayer, ValidityWindow,
         },
         repository::MemoryRepository,
     },
@@ -43,6 +43,34 @@ fn table_names(path: &Path) -> Vec<String> {
         .expect("table names should decode")
 }
 
+fn table_columns(path: &Path, table: &str) -> Vec<String> {
+    let db = Database::open(path).expect("database should open");
+    let mut statement = db
+        .conn()
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .expect("table info statement should prepare");
+
+    statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .expect("table info query should run")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("column names should decode")
+}
+
+fn table_indexes(path: &Path, table: &str) -> Vec<String> {
+    let db = Database::open(path).expect("database should open");
+    let mut statement = db
+        .conn()
+        .prepare(&format!("PRAGMA index_list({table})"))
+        .expect("index list statement should prepare");
+
+    statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .expect("index list query should run")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("index names should decode")
+}
+
 fn sample_record() -> MemoryRecord {
     MemoryRecord {
         id: "rec-001".to_string(),
@@ -65,6 +93,19 @@ fn sample_record() -> MemoryRecord {
             derived_from: vec!["src-17".to_string()],
         },
         content_text: "SQLite bootstrap decisions stay local-first.".to_string(),
+        chunk: Some(ChunkMetadata {
+            chunk_index: 0,
+            chunk_count: 2,
+            anchor: ChunkAnchor::LineRange {
+                start_line: 1,
+                end_line: 2,
+            },
+            content_hash: "sha256:abc123".to_string(),
+        }),
+        validity: ValidityWindow {
+            valid_from: Some("2026-04-01T00:00:00Z".to_string()),
+            valid_to: None,
+        },
     }
 }
 
@@ -77,7 +118,7 @@ fn foundation_migration_bootstraps_clean_db() {
     let db = Database::open(&path).expect("fresh database should bootstrap");
 
     assert!(parent.exists(), "open should create parent directories");
-    assert_eq!(db.schema_version().expect("schema version"), 1);
+    assert_eq!(db.schema_version().expect("schema version"), 2);
 
     let names = table_names(&path);
     assert_eq!(names, vec!["memory_records"]);
@@ -96,24 +137,42 @@ fn foundation_migration_bootstraps_clean_db() {
 fn foundation_migration_reopen_is_idempotent() {
     let path = fresh_db_path("reopen");
     let first = Database::open(&path).expect("first open should succeed");
-    assert_eq!(first.schema_version().expect("first schema version"), 1);
+    assert_eq!(first.schema_version().expect("first schema version"), 2);
     drop(first);
 
     let second = Database::open(&path).expect("second open should succeed");
-    assert_eq!(second.schema_version().expect("second schema version"), 1);
+    assert_eq!(second.schema_version().expect("second schema version"), 2);
     assert_eq!(table_names(&path), vec!["memory_records"]);
 }
 
 #[test]
-fn foundation_schema_stays_additive_and_phase_one_only() {
+fn foundation_schema_stays_additive_with_ingest_columns_and_indexes() {
     let path = fresh_db_path("phase-one-only");
     let names = table_names(&path);
+    let columns = table_columns(&path, "memory_records");
+    let indexes = table_indexes(&path, "memory_records");
 
     assert!(
         names.contains(&"memory_records".to_string()),
         "foundation schema should include memory_records"
     );
-    assert_eq!(names.len(), 1, "phase 1 should keep only base tables");
+    assert_eq!(names.len(), 1, "phase 2 ingest foundation should keep only authority tables");
+    assert!(
+        columns.contains(&"chunk_index".to_string())
+            && columns.contains(&"chunk_count".to_string())
+            && columns.contains(&"chunk_anchor_json".to_string())
+            && columns.contains(&"content_hash".to_string())
+            && columns.contains(&"valid_from".to_string())
+            && columns.contains(&"valid_to".to_string()),
+        "memory_records should expose additive ingest columns: {columns:?}"
+    );
+    assert!(
+        indexes.contains(&"idx_memory_records_scope_recorded_at".to_string())
+            && indexes.contains(&"idx_memory_records_truth_layer_recorded_at".to_string())
+            && indexes.contains(&"idx_memory_records_source_chunk_order".to_string())
+            && indexes.contains(&"idx_memory_records_validity_window".to_string()),
+        "memory_records should retain phase 1 indexes and add ingest indexes: {indexes:?}"
+    );
 
     let schema_dump = fs::read_to_string(&path).err();
     assert!(
@@ -147,6 +206,14 @@ fn memory_record_types_stay_strongly_typed() {
     assert!(matches!(record.scope, Scope::Project));
     assert!(matches!(record.record_type, RecordType::Observation));
     assert!(matches!(record.truth_layer, TruthLayer::T2));
+    assert!(matches!(
+        record.chunk.as_ref().expect("chunk metadata should exist").anchor,
+        ChunkAnchor::LineRange { .. }
+    ));
+    assert_eq!(
+        record.validity.valid_from.as_deref(),
+        Some("2026-04-01T00:00:00Z")
+    );
 }
 
 #[test]
