@@ -192,7 +192,7 @@ fn init_creates_database_and_inspect_schema_reports_foundation_state() {
         stderr(&inspect_output)
     );
     assert!(
-        inspect_text.contains("schema_version: 4"),
+        inspect_text.contains("schema_version: 5"),
         "inspect schema should report schema_version: {inspect_text}"
     );
     assert!(
@@ -277,7 +277,7 @@ fn init_output_is_truthful_after_successful_bootstrap() {
         "init should confirm initialization: {text}"
     );
     assert!(
-        text.contains("schema_version: 4"),
+        text.contains("schema_version: 5"),
         "init should report the post-bootstrap schema version: {text}"
     );
     assert!(
@@ -326,5 +326,83 @@ fn init_allows_reserved_modes_but_rejects_invalid_runtime_requests() {
             .contains("embedding_only requires a non-disabled embedding backend"),
         "init should explain invalid runtime requests: {}",
         stdout(&invalid_output)
+    );
+}
+
+#[test]
+fn diagnostic_commands_remain_informational_while_operational_gate_uses_same_contract() {
+    let reserved_dir = unique_temp_dir("diagnostic-reserved");
+    let reserved_db_path = reserved_dir.join("agent-memos.sqlite");
+    let reserved_config_path = reserved_dir.join("config.toml");
+    Database::open(&reserved_db_path).expect("database should bootstrap for reserved diagnostics");
+    write_config(
+        &reserved_config_path,
+        &reserved_db_path,
+        "embedding_only",
+        "reserved",
+    );
+
+    let reserved_status = run_cli(&reserved_config_path, &["status"]);
+    assert!(
+        reserved_status.status.success(),
+        "status should remain informational for reserved modes: stdout={} stderr={}",
+        stdout(&reserved_status),
+        stderr(&reserved_status)
+    );
+
+    let reserved_doctor = run_cli(&reserved_config_path, &["doctor"]);
+    let reserved_search = run_cli(&reserved_config_path, &["search", "runtime gate"]);
+    assert!(
+        !reserved_doctor.status.success(),
+        "doctor should fail for reserved semantic modes"
+    );
+    assert!(
+        !reserved_search.status.success(),
+        "operational commands should fail for reserved semantic modes"
+    );
+    assert_eq!(
+        stdout(&reserved_search),
+        stdout(&reserved_doctor),
+        "operational gate should reuse the same structured doctor rendering for reserved semantic modes"
+    );
+
+    let bad_dir = unique_temp_dir("diagnostic-bad-db");
+    let bad_db_path = bad_dir.join("data").join("agent-memos.sqlite");
+    let bad_config_path = bad_dir.join("config.toml");
+    fs::create_dir_all(bad_db_path.parent().expect("db path should have parent"))
+        .expect("db parent should exist");
+    fs::write(&bad_db_path, b"not a sqlite database").expect("bad db fixture should be written");
+    write_config(&bad_config_path, &bad_db_path, "lexical_only", "disabled");
+
+    let bad_status = run_cli(&bad_config_path, &["status"]);
+    assert!(
+        bad_status.status.success(),
+        "status should stay informational for bad db files: stdout={} stderr={}",
+        stdout(&bad_status),
+        stderr(&bad_status)
+    );
+    assert!(
+        stdout(&bad_status).contains("schema inspection failed for existing database file"),
+        "status should explain the broken local db file: {}",
+        stdout(&bad_status)
+    );
+
+    let inspect_output = run_cli(&bad_config_path, &["inspect", "schema"]);
+    assert!(
+        inspect_output.status.success(),
+        "inspect schema should remain diagnostic-only for bad db files: stdout={} stderr={}",
+        stdout(&inspect_output),
+        stderr(&inspect_output)
+    );
+
+    let bad_search = run_cli(&bad_config_path, &["search", "runtime gate"]);
+    assert!(
+        !bad_search.status.success(),
+        "operational commands should fail for broken local db files"
+    );
+    assert!(
+        stdout(&bad_search).contains("schema inspection failed for existing database file"),
+        "operational gate should surface the same diagnostic reason for broken local db files: {}",
+        stdout(&bad_search)
     );
 }

@@ -163,7 +163,7 @@ fn foundation_migration_bootstraps_clean_db() {
     );
     assert!(
         !names.iter().any(|name| {
-            name.contains("vec") || name.contains("rig")
+            name.contains("sqlite_vec") || name.starts_with("rig_")
         }),
         "lexical plan should not introduce semantic or agent tables: {names:?}"
     );

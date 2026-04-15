@@ -10,6 +10,7 @@ use agent_memos::{
     ingest::{IngestRequest, IngestService},
     memory::record::{RecordType, Scope, TruthLayer},
 };
+use rusqlite::Connection;
 
 fn unique_temp_dir(name: &str) -> PathBuf {
     let unique = SystemTime::now()
@@ -114,6 +115,22 @@ fn seed_project_record(db_path: &Path) {
         .expect("seed ingest should succeed");
 }
 
+fn create_foundation_without_lexical_sidecars(db_path: &Path) {
+    let parent = db_path.parent().expect("db path should have parent");
+    fs::create_dir_all(parent).expect("db parent should exist");
+
+    let conn = Connection::open(db_path).expect("sqlite db should open");
+    conn.execute_batch(
+        r#"
+        PRAGMA user_version = 5;
+        CREATE TABLE memory_records (
+            id TEXT PRIMARY KEY
+        );
+        "#,
+    )
+    .expect("foundation-only schema should be created");
+}
+
 #[test]
 fn gated_commands_fail_for_reserved_or_invalid_runtime_modes() {
     for (name, mode, backend, expected) in [
@@ -202,4 +219,68 @@ fn gated_commands_succeed_for_ready_lexical_mode() {
         stdout(&agent_search_output),
         stderr(&agent_search_output)
     );
+}
+
+#[test]
+fn operational_commands_block_when_runtime_readiness_is_not_satisfied() {
+    for (name, setup, expected) in [
+        (
+            "missing-init",
+            SetupKind::MissingInit,
+            "database schema is not initialized yet; run `agent-memos init` to create it",
+        ),
+        (
+            "bad-db-file",
+            SetupKind::BadDbFile,
+            "schema inspection failed for existing database file",
+        ),
+        (
+            "missing-lexical-sidecars",
+            SetupKind::MissingLexicalSidecars,
+            "lexical sidecar indexes are missing or incomplete",
+        ),
+    ] {
+        let dir = unique_temp_dir(name);
+        let db_path = dir.join("agent-memos.sqlite");
+        let config_path = dir.join("config.toml");
+        write_config(&config_path, &db_path, "lexical_only", "disabled");
+
+        match setup {
+            SetupKind::MissingInit => {}
+            SetupKind::BadDbFile => {
+                let parent = db_path.parent().expect("db path should have parent");
+                fs::create_dir_all(parent).expect("db parent should exist");
+                fs::write(&db_path, b"not a sqlite database").expect("bad db fixture should exist");
+            }
+            SetupKind::MissingLexicalSidecars => {
+                create_foundation_without_lexical_sidecars(&db_path);
+            }
+        }
+
+        for (command_name, args) in operational_commands() {
+            let output = run_cli(&config_path, &args);
+            let text = stdout(&output);
+
+            assert!(
+                !output.status.success(),
+                "{command_name} should fail for lexical runtime-not-ready case {name}: stdout={text} stderr={}",
+                stderr(&output)
+            );
+            assert!(
+                text.contains("ready: false"),
+                "{command_name} should render structured gate output for lexical runtime-not-ready case {name}: {text}"
+            );
+            assert!(
+                text.contains(expected),
+                "{command_name} should explain lexical runtime-not-ready case {name}: {text}"
+            );
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SetupKind {
+    MissingInit,
+    BadDbFile,
+    MissingLexicalSidecars,
 }

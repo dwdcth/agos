@@ -106,7 +106,7 @@ fn ingest_record(service: &IngestService<'_>, record: FixtureRecord<'_>) {
 fn library_search_returns_citations_and_filter_trace() {
     let path = fresh_db_path("library-shape");
     let db = Database::open(&path).expect("database should open");
-    assert_eq!(db.schema_version().expect("schema version"), 4);
+    assert_eq!(db.schema_version().expect("schema version"), 5);
     let ingest = IngestService::new(db.conn());
 
     ingest_record(
@@ -238,6 +238,14 @@ fn cli_ingest_and_search_emit_json_reports() {
     let config_path = dir.join("config.toml");
     write_config(&config_path, &db_path);
 
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "cli init should succeed before ingest/search: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+
     let ingest_output = run_cli(
         &config_path,
         &[
@@ -325,6 +333,14 @@ fn cli_search_text_output_renders_citation_summary() {
     let db_path = dir.join("agent-memos.sqlite");
     let config_path = dir.join("config.toml");
     write_config(&config_path, &db_path);
+
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "cli init should succeed before text ingest/search: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
 
     let ingest_output = run_cli(
         &config_path,
