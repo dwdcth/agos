@@ -9,6 +9,7 @@ use crate::{
     agent::orchestration::AgentSearchReport,
     cognition::{metacog::GateDecision, report::DecisionReport},
     memory::repository::{
+        LocalAdaptationEntry, LocalAdaptationPayload, LocalAdaptationTargetKind,
         MemoryRepository, PersistedRuminationQueueItem, PersistedRuminationTriggerState,
         RepositoryError, RuminationQueueStatus,
     },
@@ -242,6 +243,46 @@ impl RuminationTriggerEvent {
 
         Ok(event)
     }
+
+    pub fn from_user_correction(
+        subject_ref: impl Into<String>,
+        corrections: Value,
+        occurred_at: impl Into<String>,
+        budget_bucket: impl Into<String>,
+        source_report_ref: Option<String>,
+    ) -> Self {
+        Self::new(
+            RuminationTriggerKind::UserCorrection,
+            subject_ref,
+            occurred_at,
+            budget_bucket,
+            source_report_ref,
+        )
+        .with_payload(json!({ "corrections": corrections }))
+    }
+
+    pub fn from_action_failure(
+        subject_ref: impl Into<String>,
+        failure_kind: impl Into<String>,
+        summary: impl Into<String>,
+        risk_markers: Vec<String>,
+        occurred_at: impl Into<String>,
+        budget_bucket: impl Into<String>,
+        source_report_ref: Option<String>,
+    ) -> Self {
+        Self::new(
+            RuminationTriggerKind::ActionFailure,
+            subject_ref,
+            occurred_at,
+            budget_bucket,
+            source_report_ref,
+        )
+        .with_payload(json!({
+            "failure_kind": failure_kind.into(),
+            "summary": summary.into(),
+            "risk_markers": risk_markers,
+        }))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -296,6 +337,17 @@ impl RuminationQueueItem {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ShortCycleWritebackReport {
+    pub item_id: String,
+    pub subject_ref: String,
+    pub trigger_kind: RuminationTriggerKind,
+    pub entry_count: usize,
+    pub target_kinds: Vec<LocalAdaptationTargetKind>,
+    pub evidence_refs: Vec<String>,
+    pub completed_at: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuminationTriggerDecision {
     Enqueued {
@@ -337,6 +389,13 @@ pub enum RuminationServiceError {
     Json(#[from] serde_json::Error),
     #[error("unsupported gate decision for rumination routing: {0:?}")]
     UnsupportedGateDecision(GateDecision),
+    #[error("short-cycle write-back does not support trigger kind {0:?}")]
+    UnsupportedShortCycleTrigger(RuminationTriggerKind),
+    #[error("short-cycle write-back payload for {trigger:?} was missing required field {field}")]
+    MissingShortCyclePayloadField {
+        trigger: RuminationTriggerKind,
+        field: &'static str,
+    },
 }
 
 pub struct RuminationService<'db> {
@@ -444,6 +503,34 @@ impl<'db> RuminationService<'db> {
             .transpose()
     }
 
+    pub fn drain_short_cycle(
+        &self,
+        now: &str,
+    ) -> Result<Option<ShortCycleWritebackReport>, RuminationServiceError> {
+        let Some(item) = self
+            .repository
+            .claim_next_rumination_item_for_tier("spq", now)?
+            .map(from_persisted_item)
+            .transpose()?
+        else {
+            return Ok(None);
+        };
+
+        match self.process_short_cycle_item(&item, now) {
+            Ok(report) => Ok(Some(report)),
+            Err(error) => {
+                self.repository.retry_rumination_queue_item(
+                    item.queue_tier.as_str(),
+                    &item.item_id,
+                    now,
+                    &error.to_string(),
+                    now,
+                )?;
+                Err(error)
+            }
+        }
+    }
+
     pub fn complete(
         &self,
         item: &RuminationQueueItem,
@@ -511,6 +598,32 @@ impl<'db> RuminationService<'db> {
         self.repository.upsert_rumination_trigger_state(&state)?;
 
         Ok(())
+    }
+
+    fn process_short_cycle_item(
+        &self,
+        item: &RuminationQueueItem,
+        processed_at: &str,
+    ) -> Result<ShortCycleWritebackReport, RuminationServiceError> {
+        let entries = derive_short_cycle_entries(item, processed_at)?;
+        for entry in &entries {
+            self.repository.insert_local_adaptation_entry(entry)?;
+        }
+        self.repository.complete_rumination_queue_item(
+            item.queue_tier.as_str(),
+            &item.item_id,
+            processed_at,
+        )?;
+
+        Ok(ShortCycleWritebackReport {
+            item_id: item.item_id.clone(),
+            subject_ref: item.subject_ref.clone(),
+            trigger_kind: item.trigger_kind,
+            entry_count: entries.len(),
+            target_kinds: unique_target_kinds(&entries),
+            evidence_refs: item.evidence_refs.clone(),
+            completed_at: processed_at.to_string(),
+        })
     }
 }
 
@@ -621,4 +734,206 @@ where
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+fn derive_short_cycle_entries(
+    item: &RuminationQueueItem,
+    processed_at: &str,
+) -> Result<Vec<LocalAdaptationEntry>, RuminationServiceError> {
+    let trigger_kind = item.trigger_kind.as_str().to_string();
+    let mut entries = Vec::new();
+
+    match item.trigger_kind {
+        RuminationTriggerKind::UserCorrection => {
+            let corrections = item
+                .payload
+                .get("corrections")
+                .and_then(Value::as_object)
+                .ok_or(RuminationServiceError::MissingShortCyclePayloadField {
+                    trigger: item.trigger_kind,
+                    field: "corrections",
+                })?;
+
+            if let Some(self_state) = corrections.get("self_state").and_then(Value::as_object) {
+                append_entries_from_object(
+                    &mut entries,
+                    item,
+                    LocalAdaptationTargetKind::SelfState,
+                    self_state,
+                    &trigger_kind,
+                    processed_at,
+                );
+            }
+            if let Some(risk_boundary) =
+                corrections.get("risk_boundary").and_then(Value::as_object)
+            {
+                append_entries_from_object(
+                    &mut entries,
+                    item,
+                    LocalAdaptationTargetKind::RiskBoundary,
+                    risk_boundary,
+                    &trigger_kind,
+                    processed_at,
+                );
+            }
+            if let Some(private_t3) = corrections.get("private_t3").and_then(Value::as_object) {
+                append_entries_from_object(
+                    &mut entries,
+                    item,
+                    LocalAdaptationTargetKind::PrivateT3,
+                    private_t3,
+                    &trigger_kind,
+                    processed_at,
+                );
+            }
+        }
+        RuminationTriggerKind::ActionFailure => {
+            let summary = item
+                .payload
+                .get("summary")
+                .cloned()
+                .ok_or(RuminationServiceError::MissingShortCyclePayloadField {
+                    trigger: item.trigger_kind,
+                    field: "summary",
+                })?;
+            entries.push(build_local_adaptation_entry(
+                item,
+                LocalAdaptationTargetKind::SelfState,
+                "last_action_failure".to_string(),
+                summary,
+                &trigger_kind,
+                processed_at,
+                0,
+            ));
+
+            if let Some(risk_markers) = item.payload.get("risk_markers").and_then(Value::as_array) {
+                for (index, risk_marker) in risk_markers.iter().filter_map(Value::as_str).enumerate()
+                {
+                    entries.push(build_local_adaptation_entry(
+                        item,
+                        LocalAdaptationTargetKind::RiskBoundary,
+                        risk_marker.to_string(),
+                        json!("blocked"),
+                        &trigger_kind,
+                        processed_at,
+                        entries.len() + index,
+                    ));
+                }
+            }
+        }
+        RuminationTriggerKind::MetacogVeto => {
+            let gate_decision = item
+                .payload
+                .get("gate_decision")
+                .cloned()
+                .ok_or(RuminationServiceError::MissingShortCyclePayloadField {
+                    trigger: item.trigger_kind,
+                    field: "gate_decision",
+                })?;
+            entries.push(build_local_adaptation_entry(
+                item,
+                LocalAdaptationTargetKind::SelfState,
+                "last_gate_decision".to_string(),
+                gate_decision,
+                &trigger_kind,
+                processed_at,
+                0,
+            ));
+
+            if let Some(active_risks) = item.payload.get("active_risks").and_then(Value::as_array) {
+                for risk in active_risks.iter().filter_map(Value::as_str) {
+                    entries.push(build_local_adaptation_entry(
+                        item,
+                        LocalAdaptationTargetKind::RiskBoundary,
+                        risk.to_string(),
+                        json!("active"),
+                        &trigger_kind,
+                        processed_at,
+                        entries.len(),
+                    ));
+                }
+            }
+            if let Some(metacog_flags) =
+                item.payload.get("metacog_flags").and_then(Value::as_array)
+            {
+                for flag in metacog_flags {
+                    let Some(code) = flag.get("code").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    let detail = flag
+                        .get("detail")
+                        .cloned()
+                        .unwrap_or_else(|| json!("active"));
+                    entries.push(build_local_adaptation_entry(
+                        item,
+                        LocalAdaptationTargetKind::SelfState,
+                        format!("metacog_flag:{code}"),
+                        detail,
+                        &trigger_kind,
+                        processed_at,
+                        entries.len(),
+                    ));
+                }
+            }
+        }
+        other => return Err(RuminationServiceError::UnsupportedShortCycleTrigger(other)),
+    }
+
+    Ok(entries)
+}
+
+fn append_entries_from_object(
+    entries: &mut Vec<LocalAdaptationEntry>,
+    item: &RuminationQueueItem,
+    target_kind: LocalAdaptationTargetKind,
+    values: &serde_json::Map<String, Value>,
+    trigger_kind: &str,
+    processed_at: &str,
+) {
+    for (key, value) in values {
+        entries.push(build_local_adaptation_entry(
+            item,
+            target_kind,
+            key.clone(),
+            value.clone(),
+            trigger_kind,
+            processed_at,
+            entries.len(),
+        ));
+    }
+}
+
+fn build_local_adaptation_entry(
+    item: &RuminationQueueItem,
+    target_kind: LocalAdaptationTargetKind,
+    key: String,
+    value: Value,
+    trigger_kind: &str,
+    processed_at: &str,
+    index: usize,
+) -> LocalAdaptationEntry {
+    LocalAdaptationEntry {
+        entry_id: format!("{}:{}:{}", item.item_id, target_kind.as_str(), index),
+        subject_ref: item.subject_ref.clone(),
+        target_kind,
+        key,
+        payload: LocalAdaptationPayload {
+            value,
+            trigger_kind: trigger_kind.to_string(),
+            evidence_refs: item.evidence_refs.clone(),
+        },
+        source_queue_item_id: Some(item.item_id.clone()),
+        created_at: processed_at.to_string(),
+        updated_at: processed_at.to_string(),
+    }
+}
+
+fn unique_target_kinds(entries: &[LocalAdaptationEntry]) -> Vec<LocalAdaptationTargetKind> {
+    let mut target_kinds = Vec::new();
+    for entry in entries {
+        if !target_kinds.contains(&entry.target_kind) {
+            target_kinds.push(entry.target_kind);
+        }
+    }
+    target_kinds
 }

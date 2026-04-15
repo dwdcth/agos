@@ -869,11 +869,19 @@ impl<'db> MemoryRepository<'db> {
         &self,
         now: &str,
     ) -> Result<Option<PersistedRuminationQueueItem>, RepositoryError> {
-        if let Some(item) = self.claim_next_rumination_item_for_tier("spq", now)? {
+        if let Some(item) = self.claim_next_rumination_item_for_tier_impl("spq", now)? {
             return Ok(Some(item));
         }
 
-        self.claim_next_rumination_item_for_tier("lpq", now)
+        self.claim_next_rumination_item_for_tier_impl("lpq", now)
+    }
+
+    pub fn claim_next_rumination_item_for_tier(
+        &self,
+        queue_tier: &str,
+        now: &str,
+    ) -> Result<Option<PersistedRuminationQueueItem>, RepositoryError> {
+        self.claim_next_rumination_item_for_tier_impl(queue_tier, now)
     }
 
     pub fn complete_rumination_queue_item(
@@ -967,7 +975,7 @@ impl<'db> MemoryRepository<'db> {
         self.conn
             .query_row(
                 r#"
-                SELECT COALESCE(SUM(budget_spent), 0)
+                SELECT COALESCE(MAX(budget_spent), 0)
                 FROM rumination_trigger_state
                 WHERE queue_tier = ?1
                   AND budget_bucket = ?2
@@ -1126,7 +1134,7 @@ impl<'db> MemoryRepository<'db> {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    fn claim_next_rumination_item_for_tier(
+    fn claim_next_rumination_item_for_tier_impl(
         &self,
         queue_tier: &str,
         now: &str,
