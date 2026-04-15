@@ -113,6 +113,22 @@ mod tests {
         assert!(lexical_readiness.ready);
         assert_eq!(lexical_readiness.configured_mode, RetrievalMode::LexicalOnly);
         assert_eq!(lexical_readiness.effective_mode, RetrievalMode::LexicalOnly);
+        assert!(
+            lexical_readiness
+                .notes
+                .iter()
+                .any(|note| note.contains("Phase 2 lexical-first baseline")),
+            "lexical_only should describe the real Phase 2 lexical baseline: {:?}",
+            lexical_readiness.notes
+        );
+        assert!(
+            lexical_readiness
+                .notes
+                .iter()
+                .all(|note| !note.contains("lexical retrieval dependency loading and index creation are deferred")),
+            "lexical_only should reject stale deferred lexical wording: {:?}",
+            lexical_readiness.notes
+        );
 
         let embedding_only = Config {
             db_path: "memory.db".to_string(),
@@ -137,5 +153,38 @@ mod tests {
             RetrievalMode::EmbeddingOnly
         );
         assert!(!embedding_readiness.notes.is_empty());
+        assert!(
+            embedding_readiness
+                .notes
+                .iter()
+                .any(|note| note.contains("reserved for a later phase")),
+            "embedding_only should stay explicitly deferred: {:?}",
+            embedding_readiness.notes
+        );
+
+        let hybrid = Config {
+            db_path: "memory.db".to_string(),
+            retrieval: RetrievalConfig {
+                mode: RetrievalMode::Hybrid,
+            },
+            embedding: EmbeddingConfig {
+                backend: EmbeddingBackend::Reserved,
+                model: Some("future-model".to_string()),
+                endpoint: Some("http://localhost:11434".to_string()),
+            },
+        };
+
+        let hybrid_readiness = RuntimeReadiness::from_config(&hybrid);
+        assert!(!hybrid_readiness.ready);
+        assert_eq!(hybrid_readiness.configured_mode, RetrievalMode::Hybrid);
+        assert_eq!(hybrid_readiness.effective_mode, RetrievalMode::Hybrid);
+        assert!(
+            hybrid_readiness
+                .notes
+                .iter()
+                .any(|note| note.contains("reserved until semantic retrieval lands")),
+            "hybrid should keep semantic capability deferred: {:?}",
+            hybrid_readiness.notes
+        );
     }
 }
