@@ -51,8 +51,8 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
 }
 
 fn init_command(app: &AppContext) -> Result<ExitCode> {
-    let status = StatusReport::collect(app)?;
-    let doctor = DoctorReport::evaluate(&status, CommandPath::Init);
+    let preflight_status = StatusReport::collect(app)?;
+    let doctor = DoctorReport::evaluate(&preflight_status, CommandPath::Init);
 
     if !doctor.ready {
         println!("{}", doctor.render_text());
@@ -60,13 +60,15 @@ fn init_command(app: &AppContext) -> Result<ExitCode> {
     }
 
     let db = Database::open(app.db_path())?;
+    let post_init_status = StatusReport::collect(app)?;
+    let post_init_doctor = DoctorReport::evaluate(&post_init_status, CommandPath::Init);
     println!("initialized: true");
     println!("database_path: {}", db.path().display());
     println!("schema_version: {}", db.schema_version()?);
 
-    if !doctor.warnings.is_empty() {
+    if !post_init_doctor.warnings.is_empty() {
         println!("warnings:");
-        for warning in doctor.warnings {
+        for warning in post_init_doctor.warnings {
             println!("  - {warning}");
         }
     }
