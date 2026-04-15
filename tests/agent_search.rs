@@ -25,9 +25,11 @@ use agent_memos::{
             ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType,
             Scope, SourceKind, SourceRef, TruthLayer, ValidityWindow,
         },
-        truth::{T3Confidence, T3RevocationState},
     },
-    search::{Citation, CitationAnchor, ResultTrace, ScoreBreakdown, SearchFilters, SearchRequest, SearchResponse, SearchResult},
+    search::{
+        Citation, ResultTrace, ScoreBreakdown, SearchFilters, SearchRequest, SearchResponse,
+        SearchResult,
+    },
 };
 
 fn sample_record(id: &str, source_uri: &str) -> MemoryRecord {

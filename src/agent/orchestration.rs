@@ -1,0 +1,492 @@
+use std::collections::BTreeSet;
+
+use anyhow::Result as AnyResult;
+use rusqlite::Connection;
+use serde::Serialize;
+use thiserror::Error;
+
+use crate::{
+    cognition::{
+        assembly::{
+            SelfStateProvider, WorkingMemoryAssembler, WorkingMemoryAssemblyError,
+            WorkingMemoryRequest,
+        },
+        metacog::MetacognitionService,
+        report::DecisionReport,
+        value::{ScoredBranch, ValueConfig, ValueScorer, ValueVector},
+        working_memory::WorkingMemory,
+    },
+    search::{Citation, SearchFilters, SearchRequest, SearchResponse, SearchService},
+};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentSearchBranchValue {
+    pub kind: crate::cognition::action::ActionKind,
+    pub summary: String,
+    pub value: ValueVector,
+}
+
+impl AgentSearchBranchValue {
+    pub fn new(
+        kind: crate::cognition::action::ActionKind,
+        summary: impl Into<String>,
+        value: ValueVector,
+    ) -> Self {
+        Self {
+            kind,
+            summary: summary.into(),
+            value,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentSearchRequest {
+    pub working_memory: WorkingMemoryRequest,
+    pub follow_up_queries: Vec<String>,
+    pub max_steps: usize,
+    pub step_limit: usize,
+    pub branch_values: Vec<AgentSearchBranchValue>,
+}
+
+impl AgentSearchRequest {
+    pub const DEFAULT_MAX_STEPS: usize = 2;
+    pub const DEFAULT_STEP_LIMIT: usize = SearchRequest::DEFAULT_LIMIT;
+
+    pub fn new(working_memory: WorkingMemoryRequest) -> Self {
+        Self {
+            working_memory,
+            follow_up_queries: Vec::new(),
+            max_steps: Self::DEFAULT_MAX_STEPS,
+            step_limit: Self::DEFAULT_STEP_LIMIT,
+            branch_values: Vec::new(),
+        }
+    }
+
+    pub fn with_follow_up_query(mut self, query: impl Into<String>) -> Self {
+        self.follow_up_queries.push(query.into());
+        self
+    }
+
+    pub fn with_max_steps(mut self, max_steps: usize) -> Self {
+        self.max_steps = max_steps.max(1);
+        self
+    }
+
+    pub fn with_step_limit(mut self, step_limit: usize) -> Self {
+        self.step_limit = step_limit.max(1);
+        self
+    }
+
+    pub fn with_branch_value(mut self, branch_value: AgentSearchBranchValue) -> Self {
+        self.branch_values.push(branch_value);
+        self
+    }
+
+    fn bounded_queries(&self) -> Vec<String> {
+        std::iter::once(self.working_memory.query.clone())
+            .chain(self.follow_up_queries.iter().cloned())
+            .take(self.max_steps.max(1))
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RetrievalStepReport {
+    pub query: String,
+    pub applied_filters: SearchFilters,
+    pub result_count: usize,
+    pub citations: Vec<Citation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentSearchReport {
+    pub working_memory: WorkingMemory,
+    pub decision: DecisionReport,
+    pub retrieval_steps: Vec<RetrievalStepReport>,
+    pub citations: Vec<Citation>,
+    pub executed_steps: usize,
+    pub step_limit: usize,
+}
+
+pub trait RetrievalPort {
+    fn search(&self, request: &SearchRequest) -> AnyResult<SearchResponse>;
+}
+
+pub trait AssemblyPort {
+    fn assemble(&self, request: &WorkingMemoryRequest) -> AnyResult<WorkingMemory>;
+}
+
+pub trait ScoringPort {
+    fn score(
+        &self,
+        working_memory: &WorkingMemory,
+        branch_values: &[AgentSearchBranchValue],
+    ) -> AnyResult<Vec<ScoredBranch>>;
+}
+
+pub trait GatingPort {
+    fn evaluate(
+        &self,
+        working_memory: &WorkingMemory,
+        scored_branches: Vec<ScoredBranch>,
+    ) -> AnyResult<DecisionReport>;
+}
+
+#[derive(Debug, Error)]
+pub enum AgentSearchError {
+    #[error("retrieval step '{query}' failed")]
+    Retrieval {
+        query: String,
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("working-memory assembly failed")]
+    Assembly {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("value scoring failed")]
+    Scoring {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("metacognitive gating failed")]
+    Gating {
+        #[source]
+        source: anyhow::Error,
+    },
+}
+
+pub struct AgentSearchOrchestrator<R, A, S, G> {
+    retriever: R,
+    assembler: A,
+    scorer: S,
+    gate: G,
+}
+
+impl<R, A, S, G> AgentSearchOrchestrator<R, A, S, G> {
+    pub fn new(retriever: R, assembler: A, scorer: S, gate: G) -> Self {
+        Self {
+            retriever,
+            assembler,
+            scorer,
+            gate,
+        }
+    }
+}
+
+impl<R, A, S, G> AgentSearchOrchestrator<R, A, S, G>
+where
+    R: RetrievalPort,
+    A: AssemblyPort,
+    S: ScoringPort,
+    G: GatingPort,
+{
+    pub fn run(&self, request: &AgentSearchRequest) -> Result<AgentSearchReport, AgentSearchError> {
+        let retrieval_steps = request
+            .bounded_queries()
+            .into_iter()
+            .map(|query| {
+                let search_request = SearchRequest::new(query.clone())
+                    .with_limit(request.step_limit)
+                    .with_filters(request.working_memory.filters.clone());
+                let response = self
+                    .retriever
+                    .search(&search_request)
+                    .map_err(|source| AgentSearchError::Retrieval {
+                        query: query.clone(),
+                        source,
+                    })?;
+                Ok(RetrievalStepReport {
+                    query,
+                    applied_filters: response.applied_filters.clone(),
+                    result_count: response.results.len(),
+                    citations: response.results.into_iter().map(|result| result.citation).collect(),
+                })
+            })
+            .collect::<Result<Vec<_>, AgentSearchError>>()?;
+
+        let working_memory = self
+            .assembler
+            .assemble(&request.working_memory)
+            .map_err(|source| AgentSearchError::Assembly { source })?;
+        let scored_branches = self
+            .scorer
+            .score(&working_memory, &request.branch_values)
+            .map_err(|source| AgentSearchError::Scoring { source })?;
+        let decision = self
+            .gate
+            .evaluate(&working_memory, scored_branches)
+            .map_err(|source| AgentSearchError::Gating { source })?;
+
+        Ok(AgentSearchReport {
+            citations: collect_unique_citations(&retrieval_steps),
+            executed_steps: retrieval_steps.len(),
+            retrieval_steps,
+            step_limit: request.step_limit,
+            working_memory,
+            decision,
+        })
+    }
+}
+
+pub struct SearchServicePort<'db> {
+    search: SearchService<'db>,
+}
+
+impl<'db> SearchServicePort<'db> {
+    pub fn new(conn: &'db Connection) -> Self {
+        Self {
+            search: SearchService::new(conn),
+        }
+    }
+}
+
+impl RetrievalPort for SearchServicePort<'_> {
+    fn search(&self, request: &SearchRequest) -> AnyResult<SearchResponse> {
+        Ok(self.search.search(request)?)
+    }
+}
+
+pub struct WorkingMemoryAssemblyPort<'db, P> {
+    assembler: WorkingMemoryAssembler<'db, P>,
+}
+
+impl<'db, P> WorkingMemoryAssemblyPort<'db, P>
+where
+    P: SelfStateProvider,
+{
+    pub fn new(conn: &'db Connection, self_state_provider: P) -> Self {
+        Self {
+            assembler: WorkingMemoryAssembler::new(conn, self_state_provider),
+        }
+    }
+}
+
+impl<P> AssemblyPort for WorkingMemoryAssemblyPort<'_, P>
+where
+    P: SelfStateProvider,
+{
+    fn assemble(&self, request: &WorkingMemoryRequest) -> AnyResult<WorkingMemory> {
+        Ok(self.assembler.assemble(request)?)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ValueScoringError {
+    #[error("missing value vector for branch {kind}:{summary}")]
+    MissingBranchValue { kind: &'static str, summary: String },
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct WorkingMemoryScoringPort {
+    scorer: ValueScorer,
+}
+
+impl WorkingMemoryScoringPort {
+    pub fn new(config: ValueConfig) -> Self {
+        Self {
+            scorer: ValueScorer::new(config),
+        }
+    }
+}
+
+impl ScoringPort for WorkingMemoryScoringPort {
+    fn score(
+        &self,
+        working_memory: &WorkingMemory,
+        branch_values: &[AgentSearchBranchValue],
+    ) -> AnyResult<Vec<ScoredBranch>> {
+        working_memory
+            .branches
+            .iter()
+            .map(|branch| {
+                let branch_value = branch_values
+                    .iter()
+                    .find(|value| {
+                        value.kind == branch.candidate.kind
+                            && value.summary == branch.candidate.summary
+                    })
+                    .ok_or_else(|| ValueScoringError::MissingBranchValue {
+                        kind: branch.candidate.kind.as_str(),
+                        summary: branch.candidate.summary.clone(),
+                    })?;
+
+                Ok(self.scorer.score_branch(crate::cognition::value::BranchValueInput::new(
+                    branch.clone(),
+                    branch_value.value.clone(),
+                )))
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MetacognitionPort {
+    service: MetacognitionService,
+}
+
+impl MetacognitionPort {
+    pub fn new(service: MetacognitionService) -> Self {
+        Self { service }
+    }
+}
+
+impl GatingPort for MetacognitionPort {
+    fn evaluate(
+        &self,
+        working_memory: &WorkingMemory,
+        scored_branches: Vec<ScoredBranch>,
+    ) -> AnyResult<DecisionReport> {
+        Ok(self.service.evaluate(working_memory, scored_branches))
+    }
+}
+
+impl<'db, P>
+    AgentSearchOrchestrator<
+        SearchServicePort<'db>,
+        WorkingMemoryAssemblyPort<'db, P>,
+        WorkingMemoryScoringPort,
+        MetacognitionPort,
+    >
+where
+    P: SelfStateProvider,
+{
+    pub fn with_services(conn: &'db Connection, self_state_provider: P, value_config: ValueConfig) -> Self {
+        Self::new(
+            SearchServicePort::new(conn),
+            WorkingMemoryAssemblyPort::new(conn, self_state_provider),
+            WorkingMemoryScoringPort::new(value_config),
+            MetacognitionPort::default(),
+        )
+    }
+}
+
+fn collect_unique_citations(retrieval_steps: &[RetrievalStepReport]) -> Vec<Citation> {
+    let mut seen = BTreeSet::new();
+    let mut citations = Vec::new();
+
+    for citation in retrieval_steps
+        .iter()
+        .flat_map(|step| step.citations.iter().cloned())
+    {
+        if seen.insert(citation.record_id.clone()) {
+            citations.push(citation);
+        }
+    }
+
+    citations
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        cognition::{
+            action::{ActionBranch, ActionCandidate, ActionKind},
+            working_memory::{PresentFrame, SelfStateSnapshot},
+        },
+        memory::record::TruthLayer,
+    };
+
+    #[test]
+    fn request_bounds_queries_to_declared_step_budget() {
+        let request = AgentSearchRequest::new(WorkingMemoryRequest::new("primary"))
+            .with_follow_up_query("follow-up-a")
+            .with_follow_up_query("follow-up-b")
+            .with_max_steps(2);
+
+        assert_eq!(request.bounded_queries(), vec!["primary", "follow-up-a"]);
+    }
+
+    #[test]
+    fn scoring_port_requires_value_vectors_for_each_branch() {
+        let branch = ActionBranch::new(ActionCandidate::new(
+            ActionKind::Instrumental,
+            "ship directly",
+        ));
+        let working_memory = WorkingMemory {
+            present: PresentFrame {
+                world_fragments: Vec::new(),
+                self_state: SelfStateSnapshot {
+                    task_context: None,
+                    capability_flags: Vec::new(),
+                    readiness_flags: Vec::new(),
+                    facts: Vec::new(),
+                },
+                active_goal: None,
+                active_risks: Vec::new(),
+                metacog_flags: Vec::new(),
+            },
+            branches: vec![branch],
+        };
+
+        let error = WorkingMemoryScoringPort::default()
+            .score(&working_memory, &[])
+            .expect_err("branch scoring should reject missing value vectors");
+
+        assert!(
+            error.to_string().contains("ship directly"),
+            "missing-branch error should preserve the branch summary: {error}",
+        );
+        let _ = TruthLayer::T2;
+    }
+
+    #[test]
+    fn unique_citations_are_deduplicated_by_record_id() {
+        let citation = Citation {
+            record_id: "record-1".to_string(),
+            source_uri: "memo://project/record-1".to_string(),
+            source_kind: crate::memory::record::SourceKind::Note,
+            source_label: Some("record-1".to_string()),
+            recorded_at: "2026-04-16T00:00:00Z".to_string(),
+            validity: crate::memory::record::ValidityWindow::default(),
+            anchor: crate::search::CitationAnchor {
+                chunk_index: 0,
+                chunk_count: 1,
+                anchor: crate::memory::record::ChunkAnchor::LineRange {
+                    start_line: 1,
+                    end_line: 1,
+                },
+            },
+        };
+        let citations = collect_unique_citations(&[
+            RetrievalStepReport {
+                query: "first".to_string(),
+                applied_filters: SearchFilters::default(),
+                result_count: 1,
+                citations: vec![citation.clone()],
+            },
+            RetrievalStepReport {
+                query: "second".to_string(),
+                applied_filters: SearchFilters::default(),
+                result_count: 1,
+                citations: vec![citation],
+            },
+        ]);
+
+        assert_eq!(citations.len(), 1);
+    }
+
+    #[test]
+    fn assembly_port_surfaces_underlying_builder_failures() {
+        #[derive(Clone, Copy)]
+        struct BrokenAssemblyPort;
+
+        impl AssemblyPort for BrokenAssemblyPort {
+            fn assemble(&self, _: &WorkingMemoryRequest) -> AnyResult<WorkingMemory> {
+                Err(anyhow::Error::new(
+                    WorkingMemoryAssemblyError::MissingSupportingRecord {
+                        record_id: "missing".to_string(),
+                    },
+                ))
+            }
+        }
+
+        let error = BrokenAssemblyPort
+            .assemble(&WorkingMemoryRequest::new("primary"))
+            .expect_err("broken assembly should fail");
+        assert!(error.to_string().contains("missing"));
+    }
+}

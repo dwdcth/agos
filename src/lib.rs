@@ -1,5 +1,6 @@
 #![warn(clippy::all)]
 
+pub mod agent;
 pub mod cognition;
 pub mod core;
 pub mod ingest;
