@@ -1,10 +1,34 @@
 use agent_memos::cognition::{
     action::{ActionBranch, ActionCandidate, ActionKind},
+    metacog::{GateDecision, MetacognitionService},
+    report::DecisionReport,
     value::{BranchValueInput, ValueConfig, ValueScorer, ValueVector},
+    working_memory::{MetacognitiveFlag, PresentFrame, SelfStateSnapshot, WorkingMemory},
 };
 
 fn sample_branch(kind: ActionKind, summary: &str) -> ActionBranch {
     ActionBranch::new(ActionCandidate::new(kind, summary))
+}
+
+fn sample_working_memory(
+    branches: Vec<ActionBranch>,
+    metacog_flags: Vec<MetacognitiveFlag>,
+) -> WorkingMemory {
+    WorkingMemory {
+        present: PresentFrame {
+            world_fragments: Vec::new(),
+            self_state: SelfStateSnapshot {
+                task_context: Some("evaluate candidate actions".to_string()),
+                capability_flags: vec!["lexical_search_ready".to_string()],
+                readiness_flags: vec!["truth_governance_ready".to_string()],
+                facts: Vec::new(),
+            },
+            active_goal: None,
+            active_risks: Vec::new(),
+            metacog_flags,
+        },
+        branches,
+    }
 }
 
 fn approx_eq(left: f32, right: f32) {
@@ -113,5 +137,164 @@ fn value_scorer_projects_five_dimensions_with_dynamic_weights() {
     assert!(
         goal_scored[2].projected.final_score > goal_scored[0].projected.final_score,
         "regulative branches must stay comparable on the same scoring surface",
+    );
+}
+
+#[test]
+fn metacog_gates_warn_veto_and_escalate_with_typed_reports() {
+    let scorer = ValueScorer::default();
+    let service = MetacognitionService::default();
+
+    let warning_branch = sample_branch(ActionKind::Instrumental, "apply the patch immediately");
+    let warning_memory = sample_working_memory(vec![warning_branch.clone()], Vec::new());
+    let warning_scored = scorer.score_branches(vec![BranchValueInput::new(
+        warning_branch,
+        ValueVector {
+            goal_progress: 0.90,
+            information_gain: 0.20,
+            risk_avoidance: 0.55,
+            resource_efficiency: 0.80,
+            agent_robustness: 0.65,
+        },
+    )]);
+    let warning_report: DecisionReport = service.evaluate(&warning_memory, warning_scored);
+
+    assert_eq!(warning_report.gate.decision, GateDecision::Warning);
+    assert_eq!(
+        warning_report
+            .selected_branch
+            .as_ref()
+            .expect("warnings should preserve a selected branch")
+            .branch
+            .candidate
+            .kind,
+        ActionKind::Instrumental
+    );
+    assert!(
+        warning_report
+            .active_risks
+            .iter()
+            .any(|risk| risk.contains("under-supported")),
+        "warning should enrich active risks instead of blocking output",
+    );
+    assert!(
+        warning_report
+            .metacog_flags
+            .iter()
+            .any(|flag| flag.code == "warning_under_supported"),
+        "warning should inject a typed metacognitive flag",
+    );
+
+    let soft_branch = sample_branch(ActionKind::Instrumental, "ship the irreversible change")
+        .with_risk_marker("clarification_required");
+    let regulate_branch = sample_branch(ActionKind::Regulative, "pause and request clarification");
+    let soft_memory = sample_working_memory(
+        vec![soft_branch.clone(), regulate_branch.clone()],
+        Vec::new(),
+    );
+    let soft_scored = scorer.score_branches(vec![
+        BranchValueInput::new(
+            soft_branch,
+            ValueVector {
+                goal_progress: 0.95,
+                information_gain: 0.25,
+                risk_avoidance: 0.20,
+                resource_efficiency: 0.85,
+                agent_robustness: 0.45,
+            },
+        ),
+        BranchValueInput::new(
+            regulate_branch,
+            ValueVector {
+                goal_progress: 0.35,
+                information_gain: 0.35,
+                risk_avoidance: 0.95,
+                resource_efficiency: 0.45,
+                agent_robustness: 0.98,
+            },
+        ),
+    ]);
+    let soft_report = service.evaluate(&soft_memory, soft_scored);
+
+    assert_eq!(soft_report.gate.decision, GateDecision::SoftVeto);
+    assert_eq!(
+        soft_report
+            .gate
+            .rejected_branch
+            .as_ref()
+            .expect("soft veto should record the rejected branch")
+            .branch
+            .candidate
+            .kind,
+        ActionKind::Instrumental
+    );
+    assert_eq!(
+        soft_report
+            .selected_branch
+            .as_ref()
+            .expect("soft veto should force a regulative alternative")
+            .branch
+            .candidate
+            .kind,
+        ActionKind::Regulative
+    );
+    assert!(
+        soft_report.gate.regulative_branch.is_some(),
+        "soft veto should keep the forced regulative path in the report",
+    );
+
+    let hard_branch =
+        sample_branch(ActionKind::Instrumental, "run the destructive migration now")
+            .with_risk_marker("unsafe_action");
+    let hard_memory = sample_working_memory(vec![hard_branch.clone()], Vec::new());
+    let hard_scored = scorer.score_branches(vec![BranchValueInput::new(
+        hard_branch,
+        ValueVector {
+            goal_progress: 0.95,
+            information_gain: 0.10,
+            risk_avoidance: 0.05,
+            resource_efficiency: 0.90,
+            agent_robustness: 0.10,
+        },
+    )]);
+    let hard_report = service.evaluate(&hard_memory, hard_scored);
+
+    assert_eq!(hard_report.gate.decision, GateDecision::HardVeto);
+    assert!(hard_report.selected_branch.is_none());
+    assert_eq!(
+        hard_report.gate.safe_response.as_deref(),
+        Some("pause execution and request a safer alternative"),
+    );
+
+    let escalate_branch = sample_branch(ActionKind::Epistemic, "keep searching without review");
+    let escalate_memory = sample_working_memory(
+        vec![escalate_branch.clone()],
+        vec![MetacognitiveFlag {
+            code: "human_review_required".to_string(),
+            detail: Some("operator must approve the next step".to_string()),
+        }],
+    );
+    let escalate_scored = scorer.score_branches(vec![BranchValueInput::new(
+        escalate_branch,
+        ValueVector {
+            goal_progress: 0.50,
+            information_gain: 0.90,
+            risk_avoidance: 0.70,
+            resource_efficiency: 0.60,
+            agent_robustness: 0.80,
+        },
+    )]);
+    let escalate_report = service.evaluate(&escalate_memory, escalate_scored);
+
+    assert_eq!(escalate_report.gate.decision, GateDecision::Escalate);
+    assert!(escalate_report.selected_branch.is_none());
+    assert!(escalate_report.gate.autonomy_paused);
+    assert!(
+        escalate_report
+            .gate
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("human_review_required")),
+        "escalation diagnostics should preserve the triggering flag",
     );
 }
