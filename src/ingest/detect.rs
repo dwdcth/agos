@@ -1,6 +1,7 @@
+use serde::Serialize;
 use serde_json::Value;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Format {
     ClaudeJsonl,
     ChatGptJson,

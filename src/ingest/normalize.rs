@@ -1,3 +1,4 @@
+use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -10,7 +11,7 @@ use super::IngestRequest;
 
 pub type Result<T> = std::result::Result<T, NormalizeError>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NormalizedSource {
     pub canonical_uri: String,
     pub source_label: Option<String>,
@@ -25,7 +26,7 @@ pub struct NormalizedSource {
     pub conversation_turns: Option<Vec<ConversationTurn>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConversationTurn {
     pub text: String,
     pub start_turn: u32,

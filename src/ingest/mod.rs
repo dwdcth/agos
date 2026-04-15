@@ -3,6 +3,7 @@ pub mod detect;
 pub mod normalize;
 
 use rusqlite::Connection;
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
@@ -34,7 +35,7 @@ pub struct IngestRequest {
     pub valid_to: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct IngestReport {
     pub detected_format: Format,
     pub normalized_source: NormalizedSource,

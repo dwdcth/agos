@@ -2,6 +2,7 @@ use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use serde_json::json;
 
 use crate::{
     core::{
@@ -11,6 +12,9 @@ use crate::{
         doctor::{CommandPath, DoctorReport},
         status::StatusReport,
     },
+    ingest::{IngestRequest, IngestService},
+    memory::record::{RecordType, Scope, SourceKind, TruthLayer},
+    search::{SearchFilters, SearchRequest, SearchService},
 };
 
 #[derive(Debug, Clone, Parser)]
@@ -28,6 +32,53 @@ pub enum Commands {
     Init,
     Status,
     Doctor,
+    Ingest {
+        #[arg(long, value_name = "URI")]
+        source_uri: String,
+        #[arg(long, value_name = "LABEL")]
+        source_label: Option<String>,
+        #[arg(long, value_name = "KIND", value_parser = parse_source_kind_arg)]
+        source_kind: Option<SourceKind>,
+        #[arg(long, value_name = "PATH", conflicts_with = "content")]
+        path: Option<PathBuf>,
+        #[arg(long, value_name = "TEXT", conflicts_with = "path")]
+        content: Option<String>,
+        #[arg(long, value_name = "SCOPE", default_value = "project", value_parser = parse_scope_arg)]
+        scope: Scope,
+        #[arg(long = "record-type", value_name = "TYPE", default_value = "observation", value_parser = parse_record_type_arg)]
+        record_type: RecordType,
+        #[arg(long = "truth-layer", value_name = "LAYER", default_value = "t2", value_parser = parse_truth_layer_arg)]
+        truth_layer: TruthLayer,
+        #[arg(long = "recorded-at", value_name = "RFC3339")]
+        recorded_at: String,
+        #[arg(long = "valid-from", value_name = "RFC3339")]
+        valid_from: Option<String>,
+        #[arg(long = "valid-to", value_name = "RFC3339")]
+        valid_to: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    Search {
+        query: String,
+        #[arg(long = "top-k", default_value_t = SearchRequest::DEFAULT_LIMIT)]
+        top_k: usize,
+        #[arg(long, value_name = "SCOPE", value_parser = parse_scope_arg)]
+        scope: Option<Scope>,
+        #[arg(long = "record-type", value_name = "TYPE", value_parser = parse_record_type_arg)]
+        record_type: Option<RecordType>,
+        #[arg(long = "truth-layer", value_name = "LAYER", value_parser = parse_truth_layer_arg)]
+        truth_layer: Option<TruthLayer>,
+        #[arg(long = "valid-at", value_name = "RFC3339")]
+        valid_at: Option<String>,
+        #[arg(long = "from", value_name = "RFC3339")]
+        from: Option<String>,
+        #[arg(long = "to", value_name = "RFC3339")]
+        to: Option<String>,
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        trace: bool,
+    },
     Inspect {
         #[command(subcommand)]
         command: InspectCommands,
@@ -46,8 +97,94 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
         Commands::Init => init_command(&app),
         Commands::Status => status_command(&app),
         Commands::Doctor => doctor_command(&app),
+        Commands::Ingest {
+            source_uri,
+            source_label,
+            source_kind,
+            path,
+            content,
+            scope,
+            record_type,
+            truth_layer,
+            recorded_at,
+            valid_from,
+            valid_to,
+            json,
+        } => ingest_command(
+            &app,
+            IngestCommand {
+                source_uri,
+                source_label,
+                source_kind,
+                path,
+                content,
+                scope,
+                record_type,
+                truth_layer,
+                recorded_at,
+                valid_from,
+                valid_to,
+                json,
+            },
+        ),
+        Commands::Search {
+            query,
+            top_k,
+            scope,
+            record_type,
+            truth_layer,
+            valid_at,
+            from,
+            to,
+            json,
+            trace,
+        } => search_command(
+            &app,
+            SearchCommand {
+                query,
+                top_k,
+                scope,
+                record_type,
+                truth_layer,
+                valid_at,
+                from,
+                to,
+                json,
+                trace,
+            },
+        ),
         Commands::Inspect { command } => inspect_command(&app, command),
     }
+}
+
+#[derive(Debug, Clone)]
+struct IngestCommand {
+    source_uri: String,
+    source_label: Option<String>,
+    source_kind: Option<SourceKind>,
+    path: Option<PathBuf>,
+    content: Option<String>,
+    scope: Scope,
+    record_type: RecordType,
+    truth_layer: TruthLayer,
+    recorded_at: String,
+    valid_from: Option<String>,
+    valid_to: Option<String>,
+    json: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SearchCommand {
+    query: String,
+    top_k: usize,
+    scope: Option<Scope>,
+    record_type: Option<RecordType>,
+    truth_layer: Option<TruthLayer>,
+    valid_at: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
+    json: bool,
+    trace: bool,
 }
 
 fn init_command(app: &AppContext) -> Result<ExitCode> {
@@ -94,6 +231,103 @@ fn doctor_command(app: &AppContext) -> Result<ExitCode> {
     })
 }
 
+fn ingest_command(app: &AppContext, command: IngestCommand) -> Result<ExitCode> {
+    let db = Database::open(app.db_path())?;
+    let ingest = IngestService::new(db.conn());
+    let content = match (command.path.as_ref(), command.content) {
+        (Some(path), None) => std::fs::read_to_string(path)?,
+        (None, Some(content)) => content,
+        (None, None) => anyhow::bail!("either --path or --content must be provided"),
+        (Some(_), Some(_)) => anyhow::bail!("--path and --content cannot be used together"),
+    };
+    let report = ingest.ingest(IngestRequest {
+        source_uri: command.source_uri,
+        source_label: command.source_label,
+        source_kind: command.source_kind,
+        content,
+        scope: command.scope,
+        record_type: command.record_type,
+        truth_layer: command.truth_layer,
+        recorded_at: command.recorded_at,
+        valid_from: command.valid_from,
+        valid_to: command.valid_to,
+    })?;
+
+    if command.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "ingested {} chunk(s) from {}",
+            report.chunk_count, report.normalized_source.canonical_uri
+        );
+    }
+
+    Ok(ExitCode::SUCCESS)
+}
+
+fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> {
+    let db = Database::open(app.db_path())?;
+    let service = SearchService::new(db.conn());
+    let response = service.search(
+        &SearchRequest::new(command.query)
+            .with_limit(command.top_k)
+            .with_filters(SearchFilters {
+                scope: command.scope,
+                record_type: command.record_type,
+                truth_layer: command.truth_layer,
+                valid_at: command.valid_at,
+                recorded_from: command.from,
+                recorded_to: command.to,
+            }),
+    )?;
+
+    if command.json {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+    } else {
+        println!("results: {}", response.results.len());
+        println!("filters: {}", format_filters(&response.applied_filters));
+
+        for (index, result) in response.results.iter().enumerate() {
+            println!("{}. {}", index + 1, result.record.source.uri);
+            println!("   snippet: {}", result.snippet);
+            println!(
+                "   citation: chunk {}/{} recorded_at={} valid_from={} valid_to={}",
+                result.citation.anchor.chunk_index + 1,
+                result.citation.anchor.chunk_count,
+                result.citation.recorded_at,
+                result
+                    .citation
+                    .validity
+                    .valid_from
+                    .as_deref()
+                    .unwrap_or("none"),
+                result.citation.validity.valid_to.as_deref().unwrap_or("none")
+            );
+            println!("   final_score: {:.3}", result.score.final_score);
+            if command.trace {
+                println!(
+                    "   lexical_base: {:.3} keyword_bonus: {:.3} importance_bonus: {:.3} recency_bonus: {:.3} emotion_bonus: {:.3}",
+                    result.score.lexical_base,
+                    result.score.keyword_bonus,
+                    result.score.importance_bonus,
+                    result.score.recency_bonus,
+                    result.score.emotion_bonus
+                );
+                println!(
+                    "   trace: {}",
+                    serde_json::to_string(&json!({
+                        "matched_query": result.trace.matched_query,
+                        "query_strategies": result.trace.query_strategies,
+                        "applied_filters": result.trace.applied_filters,
+                    }))?
+                );
+            }
+        }
+    }
+
+    Ok(ExitCode::SUCCESS)
+}
+
 fn inspect_command(app: &AppContext, command: InspectCommands) -> Result<ExitCode> {
     match command {
         InspectCommands::Schema => inspect_schema_command(app),
@@ -117,4 +351,33 @@ fn inspect_schema_command(app: &AppContext) -> Result<ExitCode> {
     println!("  index_readiness: {}", report.index_readiness);
 
     Ok(ExitCode::SUCCESS)
+}
+
+fn format_filters(filters: &SearchFilters) -> String {
+    let scope = filters.scope.map(Scope::as_str).unwrap_or("any");
+    let record_type = filters.record_type.map(RecordType::as_str).unwrap_or("any");
+    let truth_layer = filters.truth_layer.map(TruthLayer::as_str).unwrap_or("any");
+    let valid_at = filters.valid_at.as_deref().unwrap_or("any");
+    let recorded_from = filters.recorded_from.as_deref().unwrap_or("any");
+    let recorded_to = filters.recorded_to.as_deref().unwrap_or("any");
+
+    format!(
+        "scope={scope}, record_type={record_type}, truth_layer={truth_layer}, valid_at={valid_at}, from={recorded_from}, to={recorded_to}"
+    )
+}
+
+fn parse_scope_arg(value: &str) -> std::result::Result<Scope, String> {
+    Scope::parse(value).ok_or_else(|| format!("unsupported scope: {value}"))
+}
+
+fn parse_record_type_arg(value: &str) -> std::result::Result<RecordType, String> {
+    RecordType::parse(value).ok_or_else(|| format!("unsupported record type: {value}"))
+}
+
+fn parse_truth_layer_arg(value: &str) -> std::result::Result<TruthLayer, String> {
+    TruthLayer::parse(value).ok_or_else(|| format!("unsupported truth layer: {value}"))
+}
+
+fn parse_source_kind_arg(value: &str) -> std::result::Result<SourceKind, String> {
+    SourceKind::parse(value).ok_or_else(|| format!("unsupported source kind: {value}"))
 }
