@@ -418,6 +418,10 @@ fn t3_promotion_requires_all_gate_checks() {
         } => {
             assert_eq!(base.truth_layer, TruthLayer::T3);
             assert_eq!(t3_state.revocation_state, T3RevocationState::Active);
+            assert_eq!(
+                t3_state.last_reviewed_at,
+                Some("2026-04-15T13:10:00Z".to_string())
+            );
             assert_eq!(open_reviews.len(), 1);
             assert_eq!(open_reviews[0].decision_state, PromotionDecisionState::Approved);
         }
@@ -506,6 +510,10 @@ fn rejected_promotion_stays_auditable() {
             ..
         } => {
             assert_eq!(t3_state.record_id, "t3-source");
+            assert_eq!(
+                t3_state.last_reviewed_at,
+                Some("2026-04-15T14:02:00Z".to_string())
+            );
             assert_eq!(open_reviews.len(), 1);
             assert_eq!(open_reviews[0].decision_state, PromotionDecisionState::Rejected);
             assert_eq!(
