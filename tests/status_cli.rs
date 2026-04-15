@@ -57,10 +57,34 @@ fn stderr(output: &std::process::Output) -> String {
 
 #[test]
 fn status_exits_successfully_for_reserved_modes() {
-    for (name, mode, backend, ready) in [
-        ("lexical", "lexical_only", "disabled", "true"),
-        ("embedding", "embedding_only", "reserved", "false"),
-        ("hybrid", "hybrid", "reserved", "false"),
+    for (name, mode, backend, ready, lexical_state, embedding_state, index_state) in [
+        (
+            "lexical",
+            "lexical_only",
+            "disabled",
+            "true",
+            "ready",
+            "disabled",
+            "ready",
+        ),
+        (
+            "embedding",
+            "embedding_only",
+            "reserved",
+            "false",
+            "not_applicable",
+            "deferred",
+            "not_applicable",
+        ),
+        (
+            "hybrid",
+            "hybrid",
+            "reserved",
+            "false",
+            "ready",
+            "deferred",
+            "deferred",
+        ),
     ] {
         let dir = unique_temp_dir(name);
         let db_path = dir.join("agent-memos.sqlite");
@@ -85,12 +109,16 @@ fn status_exits_successfully_for_reserved_modes() {
             "status should report effective_mode for {mode}: {text}"
         );
         assert!(
-            text.contains("lexical_dependency_state:"),
-            "status should include lexical dependency state: {text}"
+            text.contains(&format!("lexical_dependency_state: {lexical_state}")),
+            "status should include lexical dependency state for {mode}: {text}"
         );
         assert!(
-            text.contains("index_readiness:"),
-            "status should include index readiness: {text}"
+            text.contains(&format!("embedding_dependency_state: {embedding_state}")),
+            "status should include embedding dependency state for {mode}: {text}"
+        );
+        assert!(
+            text.contains(&format!("index_readiness: {index_state}")),
+            "status should include index readiness for {mode}: {text}"
         );
         assert!(
             text.contains(&format!("ready: {ready}")),
@@ -164,7 +192,7 @@ fn init_creates_database_and_inspect_schema_reports_foundation_state() {
         stderr(&inspect_output)
     );
     assert!(
-        inspect_text.contains("schema_version: 1"),
+        inspect_text.contains("schema_version: 3"),
         "inspect schema should report schema_version: {inspect_text}"
     );
     assert!(
@@ -172,8 +200,8 @@ fn init_creates_database_and_inspect_schema_reports_foundation_state() {
         "inspect schema should report base table readiness: {inspect_text}"
     );
     assert!(
-        inspect_text.contains("index_readiness: not_built_in_phase_1"),
-        "inspect schema should stay honest about deferred indexes: {inspect_text}"
+        inspect_text.contains("index_readiness: ready"),
+        "inspect schema should report ready lexical indexes after phase 2 bootstrap: {inspect_text}"
     );
 }
 
@@ -212,6 +240,10 @@ fn status_reports_non_sqlite_db_as_not_ready() {
         "status should report explicit non-ready base table state: {text}"
     );
     assert!(
+        text.contains("lexical_dependency_state: not_applicable"),
+        "status should keep lexical dependency state mode-aware for embedding_only: {text}"
+    );
+    assert!(
         text.contains("index_readiness: not_applicable"),
         "status should still report index readiness for embedding_only: {text}"
     );
@@ -245,7 +277,7 @@ fn init_output_is_truthful_after_successful_bootstrap() {
         "init should confirm initialization: {text}"
     );
     assert!(
-        text.contains("schema_version: 1"),
+        text.contains("schema_version: 3"),
         "init should report the post-bootstrap schema version: {text}"
     );
     assert!(
