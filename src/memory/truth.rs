@@ -257,17 +257,19 @@ pub enum TruthRecord {
     },
     T2 {
         base: MemoryRecord,
+        open_candidates: Vec<OntologyCandidate>,
     },
     T3 {
         base: MemoryRecord,
         t3_state: Option<T3State>,
+        open_reviews: Vec<PromotionReview>,
     },
 }
 
 impl TruthRecord {
     pub fn record(&self) -> &MemoryRecord {
         match self {
-            Self::T1 { base } | Self::T2 { base } | Self::T3 { base, .. } => base,
+            Self::T1 { base } | Self::T2 { base, .. } | Self::T3 { base, .. } => base,
         }
     }
 
@@ -275,3 +277,7 @@ impl TruthRecord {
         self.record().truth_layer
     }
 }
+
+pub type ReviewState = ReviewGateState;
+pub type PromotionReviewRecord = PromotionReview;
+pub type OntologyCandidateRecord = OntologyCandidate;
