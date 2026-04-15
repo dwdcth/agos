@@ -119,6 +119,24 @@ fn sample_fragment(record_id: &str, source_uri: &str) -> EvidenceFragment {
     }
 }
 
+fn sample_fragment_with_query(record_id: &str, source_uri: &str, query: &str) -> EvidenceFragment {
+    let record = sample_record(record_id, source_uri);
+    let result = sample_result(record, query, "integrated follow-up evidence");
+    EvidenceFragment {
+        record_id: result.record.id,
+        snippet: result.snippet,
+        citation: result.citation,
+        truth_context: TruthContext {
+            truth_layer: TruthLayer::T2,
+            t3_state: None,
+            open_review_ids: Vec::new(),
+            open_candidate_ids: Vec::new(),
+        },
+        trace: result.trace,
+        score: result.score,
+    }
+}
+
 fn sample_working_memory() -> WorkingMemory {
     let fragment = sample_fragment("record-primary", "memo://project/rig-boundary");
     let branch = ActionBranch::new(
@@ -255,7 +273,31 @@ impl AssemblyPort for ScriptedAssembler {
         self.calls
             .borrow_mut()
             .push(format!("assemble:{}", request.query));
-        Ok(self.working_memory.clone())
+        let mut working_memory = self.working_memory.clone();
+        if !request.integrated_results.is_empty() {
+            let merged_fragments = request
+                .integrated_results
+                .iter()
+                .map(|result| EvidenceFragment {
+                    record_id: result.record.id.clone(),
+                    snippet: result.snippet.clone(),
+                    citation: result.citation.clone(),
+                    truth_context: TruthContext {
+                        truth_layer: TruthLayer::T2,
+                        t3_state: None,
+                        open_review_ids: Vec::new(),
+                        open_candidate_ids: Vec::new(),
+                    },
+                    trace: result.trace.clone(),
+                    score: result.score.clone(),
+                })
+                .collect::<Vec<_>>();
+            working_memory.present.world_fragments = merged_fragments.clone();
+            if let Some(branch) = working_memory.branches.first_mut() {
+                branch.supporting_evidence = merged_fragments;
+            }
+        }
+        Ok(working_memory)
     }
 }
 
@@ -427,6 +469,169 @@ fn orchestrator_reuses_internal_services_and_returns_structured_report() {
 
     let RetrievalStepReport { citations, .. } = &report.retrieval_steps[0];
     assert_eq!(citations[0].record_id, "record-primary");
+}
+
+#[test]
+fn orchestrator_integrates_follow_up_evidence_into_working_memory_and_report() {
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let retriever = ScriptedRetriever {
+        calls: Rc::clone(&calls),
+        responses: HashMap::from([
+            (
+                "primary".to_string(),
+                SearchResponse {
+                    applied_filters: SearchFilters::default(),
+                    results: vec![sample_result(
+                        sample_record("record-primary", "memo://project/primary"),
+                        "primary",
+                        "primary evidence",
+                    )],
+                },
+            ),
+            (
+                "follow-up".to_string(),
+                SearchResponse {
+                    applied_filters: SearchFilters::default(),
+                    results: vec![sample_result(
+                        sample_record("record-follow-up", "memo://project/follow-up"),
+                        "follow-up",
+                        "follow-up evidence",
+                    )],
+                },
+            ),
+        ]),
+    };
+    let assembler = ScriptedAssembler {
+        calls: Rc::clone(&calls),
+        working_memory: sample_working_memory(),
+    };
+    let orchestrator = AgentSearchOrchestrator::new(
+        retriever,
+        assembler,
+        ScriptedScorer {
+            calls: Rc::clone(&calls),
+        },
+        ScriptedGate {
+            calls: Rc::clone(&calls),
+        },
+    );
+
+    let report = orchestrator
+        .run(
+            &AgentSearchRequest::developer_defaults("primary")
+                .with_follow_up_query("follow-up")
+                .with_max_steps(2),
+        )
+        .expect("scripted orchestration should succeed");
+
+    let world_ids = report
+        .working_memory
+        .present
+        .world_fragments
+        .iter()
+        .map(|fragment| fragment.record_id.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        world_ids.contains(&"record-follow-up"),
+        "working memory should include follow-up-only evidence after orchestration integration: {world_ids:?}"
+    );
+    assert_eq!(report.retrieval_steps.len(), 2);
+    assert_eq!(report.retrieval_steps[1].query, "follow-up");
+    assert!(
+        report
+            .citations
+            .iter()
+            .any(|citation| citation.record_id == "record-follow-up"),
+        "top-level citations should still retain follow-up evidence"
+    );
+}
+
+#[test]
+fn integrated_follow_up_evidence_influences_decision_surface() {
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let retriever = ScriptedRetriever {
+        calls: Rc::clone(&calls),
+        responses: HashMap::from([
+            (
+                "primary".to_string(),
+                SearchResponse {
+                    applied_filters: SearchFilters::default(),
+                    results: vec![sample_result(
+                        sample_record("record-primary", "memo://project/primary"),
+                        "primary",
+                        "primary evidence",
+                    )],
+                },
+            ),
+            (
+                "follow-up".to_string(),
+                SearchResponse {
+                    applied_filters: SearchFilters::default(),
+                    results: vec![sample_result(
+                        sample_record("record-follow-up", "memo://project/follow-up"),
+                        "follow-up",
+                        "follow-up evidence",
+                    )],
+                },
+            ),
+        ]),
+    };
+    let base_working_memory = sample_working_memory();
+    let mut merged_working_memory = base_working_memory.clone();
+    let follow_up_fragment =
+        sample_fragment_with_query("record-follow-up", "memo://project/follow-up", "follow-up");
+    merged_working_memory
+        .present
+        .world_fragments
+        .push(follow_up_fragment.clone());
+    merged_working_memory.branches[0]
+        .supporting_evidence
+        .push(follow_up_fragment);
+    let assembler = ScriptedAssembler {
+        calls: Rc::clone(&calls),
+        working_memory: merged_working_memory,
+    };
+    let orchestrator = AgentSearchOrchestrator::new(
+        retriever,
+        assembler,
+        ScriptedScorer {
+            calls: Rc::clone(&calls),
+        },
+        ScriptedGate {
+            calls: Rc::clone(&calls),
+        },
+    );
+
+    let report = orchestrator
+        .run(
+            &AgentSearchRequest::developer_defaults("primary")
+                .with_follow_up_query("follow-up")
+                .with_max_steps(2),
+        )
+        .expect("scripted orchestration should succeed");
+
+    let selected_branch = report
+        .decision
+        .selected_branch
+        .as_ref()
+        .expect("selected branch should exist");
+    assert!(
+        selected_branch
+            .branch
+            .supporting_evidence
+            .iter()
+            .any(|fragment| fragment.record_id == "record-follow-up"),
+        "selected branch should be supported by integrated follow-up evidence"
+    );
+    assert!(
+        report
+            .working_memory
+            .present
+            .world_fragments
+            .iter()
+            .any(|fragment| fragment.trace.matched_query == "follow-up"),
+        "integrated working memory should preserve follow-up query provenance"
+    );
 }
 
 #[derive(Clone)]

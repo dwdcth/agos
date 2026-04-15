@@ -246,6 +246,7 @@ where
     G: GatingPort,
 {
     fn execute(&self, request: &AgentSearchRequest) -> Result<AgentSearchReport, AgentSearchError> {
+        let mut integrated_results = Vec::new();
         let retrieval_steps = request
             .bounded_queries()
             .into_iter()
@@ -260,6 +261,7 @@ where
                         query: query.clone(),
                         source,
                     })?;
+                integrated_results.extend(response.results.iter().cloned());
                 Ok(RetrievalStepReport {
                     query,
                     applied_filters: response.applied_filters.clone(),
@@ -269,9 +271,13 @@ where
             })
             .collect::<Result<Vec<_>, AgentSearchError>>()?;
 
+        let working_memory_request = request
+            .working_memory
+            .clone()
+            .with_integrated_results(integrated_results);
         let working_memory = self
             .assembler
-            .assemble(&request.working_memory)
+            .assemble(&working_memory_request)
             .map_err(|source| AgentSearchError::Assembly { source })?;
         let scored_branches = self
             .scorer
