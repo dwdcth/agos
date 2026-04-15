@@ -468,6 +468,52 @@ impl<'db> MemoryRepository<'db> {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    pub fn insert_ontology_candidate(
+        &self,
+        candidate: &OntologyCandidate,
+    ) -> Result<(), RepositoryError> {
+        let basis_record_ids_json = serde_json::to_string(&candidate.basis_record_ids)?;
+        let proposed_structure_json = serde_json::to_string(&candidate.proposed_structure)?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO truth_ontology_candidates (
+                candidate_id,
+                source_record_id,
+                basis_record_ids_json,
+                proposed_structure_json,
+                time_stability_state,
+                agent_reproducibility_state,
+                context_invariance_state,
+                predictive_utility_state,
+                structural_review_state,
+                candidate_state,
+                decided_at,
+                created_at,
+                updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            "#,
+            params![
+                &candidate.candidate_id,
+                &candidate.source_record_id,
+                basis_record_ids_json,
+                proposed_structure_json,
+                candidate.time_stability_state.as_str(),
+                candidate.agent_reproducibility_state.as_str(),
+                candidate.context_invariance_state.as_str(),
+                candidate.predictive_utility_state.as_str(),
+                candidate.structural_review_state.as_str(),
+                candidate.candidate_state.as_str(),
+                &candidate.decided_at,
+                &candidate.created_at,
+                &candidate.updated_at,
+            ],
+        )?;
+
+        Ok(())
+    }
+
     pub fn get_truth_record(&self, id: &str) -> Result<Option<TruthRecord>, RepositoryError> {
         let Some(base) = self.get_record(id)? else {
             return Ok(None);

@@ -7,8 +7,9 @@ use crate::memory::{
     record::{MemoryRecord, Provenance, TruthLayer},
     repository::{MemoryRepository, RepositoryError},
     truth::{
-        EvidenceRole, PromotionDecisionState, PromotionEvidence, PromotionReview,
-        ReviewGateState, T3RevocationState, TruthRecord,
+        CandidateReviewState, EvidenceRole, OntologyCandidate, OntologyCandidateState,
+        PromotionDecisionState, PromotionEvidence, PromotionReview, ReviewGateState,
+        T3RevocationState, TruthRecord,
     },
 };
 
@@ -72,6 +73,15 @@ pub struct ApprovePromotionRequest {
     pub review_notes: Option<Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateOntologyCandidateRequest {
+    pub candidate_id: String,
+    pub source_record_id: String,
+    pub basis_record_ids: Vec<String>,
+    pub proposed_structure: Value,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PromotionReviewReport {
     pub review: PromotionReview,
@@ -96,6 +106,11 @@ pub enum TruthGovernanceError {
         record_id: String,
         truth_layer: &'static str,
     },
+    #[error("source record {record_id} is {truth_layer} and cannot create a T2-to-T1 ontology candidate")]
+    SourceRecordNotT2 {
+        record_id: String,
+        truth_layer: &'static str,
+    },
     #[error("source record {record_id} is revoked and cannot enter the promotion gate")]
     SourceRecordRevoked { record_id: String },
     #[error("promotion review {review_id} was not found")]
@@ -112,6 +127,10 @@ pub enum TruthGovernanceError {
     },
     #[error("evidence record {record_id} was not found")]
     EvidenceRecordNotFound { record_id: String },
+    #[error("candidate {candidate_id} must include at least one basis record")]
+    MissingCandidateBasis { candidate_id: String },
+    #[error("basis record {record_id} was not found")]
+    BasisRecordNotFound { record_id: String },
     #[error("promotion review {review_id} has no attached evidence")]
     MissingEvidence { review_id: String },
     #[error("promotion review {review_id} has not passed {gate:?}")]
@@ -288,6 +307,60 @@ impl<'db> TruthGovernanceService<'db> {
         })
     }
 
+    pub fn create_ontology_candidate(
+        &self,
+        request: CreateOntologyCandidateRequest,
+    ) -> Result<OntologyCandidate, TruthGovernanceError> {
+        self.require_t2_source(&request.source_record_id)?;
+
+        if request.basis_record_ids.is_empty() {
+            return Err(TruthGovernanceError::MissingCandidateBasis {
+                candidate_id: request.candidate_id,
+            });
+        }
+
+        let mut basis_record_ids = Vec::with_capacity(request.basis_record_ids.len());
+        for record_id in request.basis_record_ids {
+            if !basis_record_ids.contains(&record_id) {
+                basis_record_ids.push(record_id);
+            }
+        }
+        for record_id in &basis_record_ids {
+            if self.repository.get_record(record_id)?.is_none() {
+                return Err(TruthGovernanceError::BasisRecordNotFound {
+                    record_id: record_id.clone(),
+                });
+            }
+        }
+
+        let candidate = OntologyCandidate {
+            candidate_id: request.candidate_id,
+            source_record_id: request.source_record_id,
+            basis_record_ids,
+            proposed_structure: request.proposed_structure,
+            time_stability_state: CandidateReviewState::Pending,
+            agent_reproducibility_state: CandidateReviewState::Pending,
+            context_invariance_state: CandidateReviewState::Pending,
+            predictive_utility_state: CandidateReviewState::Pending,
+            structural_review_state: CandidateReviewState::Pending,
+            candidate_state: OntologyCandidateState::Pending,
+            decided_at: None,
+            created_at: request.created_at.clone(),
+            updated_at: request.created_at,
+        };
+
+        self.repository.insert_ontology_candidate(&candidate)?;
+
+        Ok(candidate)
+    }
+
+    pub fn get_truth_record(
+        &self,
+        record_id: &str,
+    ) -> Result<Option<TruthRecord>, TruthGovernanceError> {
+        self.repository.get_truth_record(record_id).map_err(Into::into)
+    }
+
     fn require_active_t3_source(
         &self,
         record_id: &str,
@@ -318,6 +391,23 @@ impl<'db> TruthGovernanceService<'db> {
                 field: "t3_state",
             }),
             other => Err(TruthGovernanceError::SourceRecordNotT3 {
+                record_id: record_id.to_string(),
+                truth_layer: other.truth_layer().as_str(),
+            }),
+        }
+    }
+
+    fn require_t2_source(&self, record_id: &str) -> Result<MemoryRecord, TruthGovernanceError> {
+        let truth_record = self
+            .repository
+            .get_truth_record(record_id)?
+            .ok_or_else(|| TruthGovernanceError::SourceRecordNotFound {
+                record_id: record_id.to_string(),
+            })?;
+
+        match truth_record {
+            TruthRecord::T2 { base, .. } => Ok(base),
+            other => Err(TruthGovernanceError::SourceRecordNotT2 {
                 record_id: record_id.to_string(),
                 truth_layer: other.truth_layer().as_str(),
             }),
