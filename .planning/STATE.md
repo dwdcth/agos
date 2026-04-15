@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-04-15T12:07:07.652Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-04-15T12:29:13.037Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 7
-  completed_plans: 5
-  percent: 71
+  completed_plans: 6
+  percent: 86
 ---
 
 # Project State
@@ -26,30 +26,30 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 ## Current Position
 
 Phase: 02 (ingest-and-lightweight-retrieval) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-15
 
-Progress: [███████░░░] 71%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 5
-- Average duration: 5min
-- Total execution time: 0.4 hours
+- Total plans completed: 6
+- Average duration: 7min
+- Total execution time: 0.7 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 4 | 17min | 4min |
-| 02 | 1 | 9min | 9min |
+| 02 | 2 | 22min | 11min |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01, 01-02, 01-03, 01-04, 02-01
+- Last 5 plans: 01-02, 01-03, 01-04, 02-01, 02-02
 - Trend: Stable
 
 | Phase 01 P01 | 4min | 2 tasks | 9 files |
@@ -57,6 +57,7 @@ Progress: [███████░░░] 71%
 | Phase 01 P03 | 6min | 2 tasks | 8 files |
 | Phase 01 P04 | 2min | 2 tasks | 3 files |
 | Phase 02 P01 | 9min | 2 tasks | 11 files |
+| Phase 02 P02 | 13min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Kept memory_records as the only authority store and added chunk and validity metadata additively for ingest.
 - [Phase 02]: Implemented ingest as synchronous detect -> normalize -> chunk -> persist services so ordinary retrieval remains usable without Rig, embeddings, or async runtime changes.
 - [Phase 02]: Stored nullable valid_from and valid_to separately from recorded_at so later retrieval plans can filter and cite validity windows explicitly.
+- [Phase 02]: Bootstrapped libsimple once per process and applied set_jieba_dict per SQLite connection so lexical capability becomes real without changing the single-binary local-first shape.
+- [Phase 02]: Kept lexical readiness truthful for lexical_only and the hybrid lexical baseline while leaving embedding_only and hybrid semantic paths explicitly deferred instead of adding hidden fallbacks.
 
 ### Pending Todos
 
@@ -103,6 +106,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T12:07:07.648Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-04-15T12:29:13.034Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None

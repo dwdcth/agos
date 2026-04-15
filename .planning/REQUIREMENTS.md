@@ -15,12 +15,12 @@
 
 - [x] **ING-01**: Developer can ingest notes, documents, and conversation-like text into normalized memory units suitable for indexing.
 - [x] **ING-02**: System can chunk ingested content while preserving source linkage and chunk provenance.
-- [ ] **ING-03**: System can persist lexical and scoring metadata needed for lightweight retrieval without requiring embeddings or model files.
+- [x] **ING-03**: System can persist lexical and scoring metadata needed for lightweight retrieval without requiring embeddings or model files.
 
 ### Retrieval
 
-- [ ] **RET-01**: Agent or developer can run ordinary lexical search over Chinese and PinYin content using `libsimple`-backed SQLite FTS.
-- [ ] **RET-02**: System can apply Rust-side BM25/TF-IDF-style keyword weighting and context bonus rules over recalled candidates without external model files.
+- [x] **RET-01**: Agent or developer can run ordinary lexical search over Chinese and PinYin content using `libsimple`-backed SQLite FTS.
+- [x] **RET-02**: System can apply Rust-side BM25/TF-IDF-style keyword weighting and context bonus rules over recalled candidates without external model files.
 - [ ] **RET-03**: System can compose lexical score, keyword bonus, emotion bonus, importance, and recency into a stable ranked result set with explainable scoring behavior.
 - [ ] **RET-04**: Each retrieval result includes source, scope, timestamp or validity metadata, and enough trace data to explain why it was returned.
 - [ ] **RET-05**: Agent or developer can filter retrieval by scope, record type, truth layer, and time validity.
@@ -90,9 +90,9 @@
 | FND-03 | Phase 1 | Complete |
 | ING-01 | Phase 2 | Complete |
 | ING-02 | Phase 2 | Complete |
-| ING-03 | Phase 2 | Pending |
-| RET-01 | Phase 2 | Pending |
-| RET-02 | Phase 2 | Pending |
+| ING-03 | Phase 2 | Complete |
+| RET-01 | Phase 2 | Complete |
+| RET-02 | Phase 2 | Complete |
 | RET-03 | Phase 2 | Pending |
 | RET-04 | Phase 2 | Pending |
 | RET-05 | Phase 2 | Pending |

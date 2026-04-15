@@ -49,7 +49,7 @@ Plans:
 
 Plans:
 - [x] 02-01: Implement source normalization, chunking, and ingest persistence
-- [ ] 02-02: Implement `libsimple` lexical recall and Rust lightweight scoring rules
+- [x] 02-02: Implement `libsimple` lexical recall and Rust lightweight scoring rules
 - [ ] 02-03: Implement explainable rerank, filtering, citations, and ordinary retrieval APIs
 
 ### Phase 3: Truth Layer Governance
@@ -111,7 +111,7 @@ Embedding retrieval is planned as a later optional extension that can coexist wi
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation Kernel | 4/4 | Complete | 2026-04-15 |
-| 2. Ingest And Lightweight Retrieval | 0/3 | Not started | - |
+| 2. Ingest And Lightweight Retrieval | 2/3 | In Progress | - |
 | 3. Truth Layer Governance | 0/3 | Not started | - |
 | 4. Working Memory And Agent Search | 0/3 | Not started | - |
 | 5. Rumination And Adaptive Write-back | 0/3 | Not started | - |
