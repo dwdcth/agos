@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-04-15T12:45:42.558Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-04-15T13:21:43.173Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 8
+  completed_plans: 8
   percent: 100
 ---
 
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 
 ## Current Position
 
-Phase: 02 (ingest-and-lightweight-retrieval) — VERIFYING
-Plan: 3 of 3
+Phase: 02 (ingest-and-lightweight-retrieval) — EXECUTING
+Plan: 1 of 1
 Status: Phase complete — ready for verification
 Last activity: 2026-04-15
 
@@ -59,6 +59,7 @@ Progress: [██████████] 100%
 | Phase 02 P01 | 9min | 2 tasks | 11 files |
 | Phase 02 P02 | 13min | 2 tasks | 13 files |
 | Phase 02 P03 | 9min | 2 tasks | 12 files |
+| Phase 02 P04 | 2min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Returned a structured SearchResponse with per-result trace and citation data instead of a bare result list.
 - [Phase 02]: Applied scope, record type, truth layer, and validity filters inside lexical SQL recall so filtering stays auditable before rerank.
 - [Phase 02]: Kept CLI ingest/search as synchronous wrappers over library services, preserving no-Rig and no-LLM ordinary retrieval.
+- [Phase 02]: Replaced stale lexical-only readiness notes with Phase 2 lexical-first wording while preserving deferred semantic modes.
+- [Phase 02]: Finalized Plan 02-04 from existing implementation commits and re-ran focused status verification before updating metadata.
 
 ### Pending Todos
 
@@ -110,6 +113,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T12:45:42.555Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-04-15T13:21:43.169Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
