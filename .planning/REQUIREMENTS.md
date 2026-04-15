@@ -36,8 +36,8 @@
 
 - [x] **COG-01**: System can assemble a working-memory object containing `world_fragments`, `self_state`, `active_goal`, `active_risks`, `candidate_actions`, and `metacog_flags`.
 - [x] **COG-02**: Working memory can contain epistemic, operational, and regulatory candidate actions in the same decision field.
-- [ ] **COG-03**: System can score candidate actions with a multi-dimensional value representation before projecting them into a comparable decision score.
-- [ ] **COG-04**: Metacognitive logic can inject warnings or veto flags when retrieval or candidate actions are too uncertain, risky, or under-supported.
+- [x] **COG-03**: System can score candidate actions with a multi-dimensional value representation before projecting them into a comparable decision score.
+- [x] **COG-04**: Metacognitive logic can inject warnings or veto flags when retrieval or candidate actions are too uncertain, risky, or under-supported.
 
 ### Agent Search
 
@@ -102,8 +102,8 @@
 | TRU-04 | Phase 3 | Complete |
 | COG-01 | Phase 4 | Complete |
 | COG-02 | Phase 4 | Complete |
-| COG-03 | Phase 4 | Pending |
-| COG-04 | Phase 4 | Pending |
+| COG-03 | Phase 4 | Complete |
+| COG-04 | Phase 4 | Complete |
 | AGT-01 | Phase 2 | Complete |
 | AGT-02 | Phase 4 | Pending |
 | AGT-03 | Phase 4 | Pending |

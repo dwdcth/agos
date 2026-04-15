@@ -81,7 +81,7 @@ Plans:
 
 Plans:
 - [x] 04-01: Implement attention-to-working-memory assembly services
-- [ ] 04-02: Implement value scoring and metacognitive gating over candidate actions
+- [x] 04-02: Implement value scoring and metacognitive gating over candidate actions
 - [ ] 04-03: Integrate Rig-based agent-search orchestration on top of ordinary retrieval
 
 ### Phase 5: Rumination And Adaptive Write-back

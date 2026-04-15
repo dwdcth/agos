@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-04-15T16:37:17.155Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-04-15T16:51:47.856Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 14
-  completed_plans: 12
-  percent: 86
+  completed_plans: 13
+  percent: 93
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 ## Current Position
 
 Phase: 04 (working-memory-and-agent-search) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-15
 
@@ -66,6 +66,7 @@ Progress: [█████████░] 86%
 | Phase 03 P03 | 4min | 2 tasks | 3 files |
 | Phase 03 P03 | 4min | 2 tasks | 3 files |
 | Phase 04 P01 | 8min | 2 tasks | 6 files |
+| Phase 04 P02 | 5min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,9 @@ Recent decisions affecting current work:
 - [Phase 04]: Kept WorkingMemory runtime-only and immutable, with builder validation preventing partial present-state execution.
 - [Phase 04]: Made self_state a minimal provider seam fed by request-local flags and selected TruthRecord projections instead of a new durable self-model subsystem.
 - [Phase 04]: Materialized branch evidence directly from cited retrieval fragments so Phase 2 provenance and Phase 3 truth context remain attached inside the control field.
+- [Phase 04]: Kept value scoring vector-first with explicit five-dimension fields and stored runtime weight snapshots inside each projected score.
+- [Phase 04]: Rebalanced the default value profile toward goal progress and efficiency so risky high-scoring branches remain visible to metacognitive supervision instead of being hidden by safety-heavy defaults.
+- [Phase 04]: Returned typed decision and gate reports with forced regulative fallback, safe-response hard veto, and paused-autonomy escalation rather than flattening gate outcomes into booleans or log strings.
 
 ### Pending Todos
 
@@ -130,6 +134,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T16:37:17.150Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-04-15T16:51:47.853Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
