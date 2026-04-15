@@ -17,6 +17,7 @@ struct DatabaseInspection {
     schema_state: CapabilityState,
     base_table_state: CapabilityState,
     lexical_index_state: CapabilityState,
+    embedding_index_state: CapabilityState,
     note: Option<String>,
 }
 
@@ -61,6 +62,7 @@ pub struct StatusReport {
     pub embedding_dependency_state: CapabilityState,
     pub base_table_state: CapabilityState,
     pub index_readiness: CapabilityState,
+    pub embedding_index_readiness: CapabilityState,
     pub ready: bool,
     pub readiness_notes: Vec<String>,
 }
@@ -75,6 +77,7 @@ impl StatusReport {
                 schema_state: CapabilityState::Missing,
                 base_table_state: CapabilityState::Missing,
                 lexical_index_state: CapabilityState::Missing,
+                embedding_index_state: CapabilityState::Missing,
                 note: Some(format!(
                     "schema inspection failed for existing database file: {error:#}"
                 )),
@@ -85,6 +88,7 @@ impl StatusReport {
                 schema_state: CapabilityState::Missing,
                 base_table_state: CapabilityState::Missing,
                 lexical_index_state: CapabilityState::Missing,
+                embedding_index_state: CapabilityState::Missing,
                 note: None,
             }
         };
@@ -106,6 +110,11 @@ impl StatusReport {
                 CapabilityState::Ready => CapabilityState::Deferred,
                 other => other,
             },
+        };
+        let embedding_index_readiness = match app.config.embedding.backend {
+            EmbeddingBackend::Disabled => CapabilityState::NotApplicable,
+            EmbeddingBackend::Reserved => CapabilityState::Deferred,
+            EmbeddingBackend::Builtin => inspection.embedding_index_state,
         };
 
         let mut readiness_notes = app.readiness.notes.clone();
@@ -148,6 +157,7 @@ impl StatusReport {
             embedding_dependency_state,
             base_table_state: inspection.base_table_state,
             index_readiness,
+            embedding_index_readiness,
             ready,
             readiness_notes,
         })
@@ -190,6 +200,10 @@ impl StatusReport {
                 self.embedding_dependency_state
             ),
             format!("  index_readiness: {}", self.index_readiness),
+            format!(
+                "  embedding_index_readiness: {}",
+                self.embedding_index_readiness
+            ),
         ];
 
         if !self.readiness_notes.is_empty() {
@@ -234,6 +248,14 @@ fn inspect_database(path: &Path) -> Result<DatabaseInspection> {
             |row| row.get::<_, i64>(0),
         )
         .context("failed to inspect lexical trigger readiness")?;
+    let embedding_index_exists = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'record_embedding_index_state')",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .context("failed to inspect embedding index readiness")?
+        != 0;
 
     let schema_state = if schema_version > 0 {
         CapabilityState::Ready
@@ -250,12 +272,18 @@ fn inspect_database(path: &Path) -> Result<DatabaseInspection> {
     } else {
         CapabilityState::Missing
     };
+    let embedding_index_state = if embedding_index_exists {
+        CapabilityState::Ready
+    } else {
+        CapabilityState::Missing
+    };
 
     Ok(DatabaseInspection {
         schema_version: Some(schema_version),
         schema_state,
         base_table_state,
         lexical_index_state,
+        embedding_index_state,
         note: None,
     })
 }

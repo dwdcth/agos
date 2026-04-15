@@ -210,7 +210,7 @@ fn init_creates_database_and_inspect_schema_reports_foundation_state() {
         stderr(&inspect_output)
     );
     assert!(
-        inspect_text.contains("schema_version: 5"),
+        inspect_text.contains("schema_version: 6"),
         "inspect schema should report schema_version: {inspect_text}"
     );
     assert!(
@@ -295,7 +295,7 @@ fn init_output_is_truthful_after_successful_bootstrap() {
         "init should confirm initialization: {text}"
     );
     assert!(
-        text.contains("schema_version: 5"),
+        text.contains("schema_version: 6"),
         "init should report the post-bootstrap schema version: {text}"
     );
     assert!(
@@ -544,4 +544,72 @@ fn embedding_foundation_doctor_preserves_lexical_first_contract() {
             "doctor should explain that Phase 8 only establishes the foundation for {mode}: {text}"
         );
     }
+}
+
+#[test]
+fn embedding_foundation_status_reports_vector_sidecar_state() {
+    let ready_dir = unique_temp_dir("embedding-index-ready");
+    let ready_db_path = ready_dir.join("agent-memos.sqlite");
+    let ready_config_path = ready_dir.join("config.toml");
+    Database::open(&ready_db_path).expect("database should bootstrap embedding foundation schema");
+    write_config_with_embedding(
+        &ready_config_path,
+        &ready_db_path,
+        "lexical_only",
+        "builtin",
+        Some("hash-16"),
+        None,
+    );
+
+    let ready_status = run_cli(&ready_config_path, &["status"]);
+    let ready_text = stdout(&ready_status);
+    assert!(
+        ready_status.status.success(),
+        "status should succeed for builtin embedding foundation: stdout={ready_text} stderr={}",
+        stderr(&ready_status)
+    );
+    assert!(
+        ready_text.contains("embedding_index_readiness: ready"),
+        "status should report ready embedding index sidecar state when the foundation schema exists: {ready_text}"
+    );
+
+    let inspect_text = stdout(&run_cli(&ready_config_path, &["inspect", "schema"]));
+    assert!(
+        inspect_text.contains("embedding_index_readiness: ready"),
+        "inspect schema should expose embedding index readiness alongside lexical readiness: {inspect_text}"
+    );
+
+    let missing_dir = unique_temp_dir("embedding-index-missing");
+    let missing_db_path = missing_dir.join("agent-memos.sqlite");
+    let missing_config_path = missing_dir.join("config.toml");
+    Database::open(&missing_db_path).expect("database should bootstrap first");
+    {
+        let conn = rusqlite::Connection::open(&missing_db_path).expect("sqlite db should open");
+        conn.execute("DROP TABLE record_embedding_index_state", [])
+            .expect("test fixture should drop embedding index state table");
+    }
+    write_config_with_embedding(
+        &missing_config_path,
+        &missing_db_path,
+        "lexical_only",
+        "builtin",
+        Some("hash-16"),
+        None,
+    );
+
+    let missing_status = run_cli(&missing_config_path, &["status"]);
+    let missing_text = stdout(&missing_status);
+    assert!(
+        missing_status.status.success(),
+        "status should remain informational when embedding index state is missing: stdout={missing_text} stderr={}",
+        stderr(&missing_status)
+    );
+    assert!(
+        missing_text.contains("embedding_index_readiness: missing"),
+        "status should distinguish missing embedding sidecar state from lexical readiness: {missing_text}"
+    );
+    assert!(
+        missing_text.contains("index_readiness: ready"),
+        "lexical readiness should remain independent from embedding index state: {missing_text}"
+    );
 }

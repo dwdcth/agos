@@ -436,6 +436,10 @@ fn inspect_schema_command(app: &AppContext) -> Result<ExitCode> {
     );
     println!("  base_table_state: {}", report.base_table_state);
     println!("  index_readiness: {}", report.index_readiness);
+    println!(
+        "  embedding_index_readiness: {}",
+        report.embedding_index_readiness
+    );
 
     Ok(ExitCode::SUCCESS)
 }
