@@ -17,6 +17,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Truth Layer Governance** - 把 T1/T2/T3 分层和受控晋升规则落到数据模型与服务边界
 - [x] **Phase 4: Working Memory And Agent Search** - 接入 Rig 智能体搜索、工作记忆装配、价值评分与元认知监督
 - [x] **Phase 5: Rumination And Adaptive Write-back** - 实现短周期/长周期反刍队列与受控写回
+- [ ] **Phase 6: Runtime Gate Enforcement** - 让 readiness/doctor 规则真正约束 `ingest`、`search`、`agent-search` 等运行入口
+- [ ] **Phase 7: Follow-up Evidence Integration** - 让 agent-search 的 follow-up retrieval 真实进入 working memory 与 decision 流
 
 ## Phase Details
 
@@ -99,6 +101,36 @@ Plans:
 - [x] 05-02-PLAN.md — Implement short-cycle write-back into self/risk state
 - [x] 05-03-PLAN.md — Implement long-cycle write-back for skill extraction and promotion candidates
 
+### Phase 6: Runtime Gate Enforcement
+**Goal**: 将 `doctor/init` 的 readiness 规则贯穿到 `ingest`、`search`、`agent-search` 等运行入口，避免无效或不可能的 mode/backend 组合在后续命令中继续执行。
+**Depends on**: Phase 5
+**Requirements**: [FND-01, FND-03, AGT-01]
+**Gap Closure:** Closes gaps from milestone audit around downstream command gating.
+**Success Criteria** (what must be TRUE):
+  1. `ingest`、`search`、`agent-search` 与 `init/doctor` 共享一致的 readiness gate 语义。
+  2. 不合法或不可能的 mode/backend 组合不能在后续运行命令中被绕过。
+  3. CLI 状态与 gate 行为保持一致、可解释，并有回归测试覆盖。
+**Plans**: 2 plans
+
+Plans:
+- [ ] 06-01: Enforce readiness/doctor gating across operational commands
+- [ ] 06-02: Add regression coverage for gated command behavior and operator semantics
+
+### Phase 7: Follow-up Evidence Integration
+**Goal**: 让 agent-search 的 follow-up retrieval 结果真正进入 working memory、branch scoring 和 metacognitive decision 流，而不是只停留在 retrieval steps/citations 报告里。
+**Depends on**: Phase 6
+**Requirements**: [COG-01, AGT-02, AGT-03]
+**Gap Closure:** Closes milestone audit gaps around agent follow-up retrieval not feeding cognition.
+**Success Criteria** (what must be TRUE):
+  1. follow-up retrieval evidence 被合并进 working memory 的 present/world fragments 或等价认知表示。
+  2. branch scoring 和 metacognitive gate 能看到 follow-up evidence，而不是只看 primary query。
+  3. agent-search 的结构化输出与实际参与决策的证据保持一致。
+**Plans**: 2 plans
+
+Plans:
+- [ ] 07-01: Merge follow-up retrieval evidence into working-memory assembly
+- [ ] 07-02: Propagate follow-up evidence into scoring, gates, and structured agent-search reports
+
 ## Progress
 
 **Execution Order:**
@@ -115,3 +147,5 @@ Embedding retrieval is planned as a later optional extension that can coexist wi
 | 3. Truth Layer Governance | 3/3 | Complete | 2026-04-15 |
 | 4. Working Memory And Agent Search | 3/3 | Complete | 2026-04-16 |
 | 5. Rumination And Adaptive Write-back | 3/3 | Complete | 2026-04-16 |
+| 6. Runtime Gate Enforcement | 0/2 | Not started | - |
+| 7. Follow-up Evidence Integration | 0/2 | Not started | - |

@@ -7,9 +7,9 @@
 
 ### Foundation
 
-- [x] **FND-01**: Developer can initialize a local-first Rust application with a SQLite database, schema migrations, and deterministic startup checks for retrieval dependencies.
+- [ ] **FND-01**: Developer can initialize a local-first Rust application with a SQLite database, schema migrations, and deterministic startup checks for retrieval dependencies.
 - [x] **FND-02**: System can persist typed memory records with source, timestamp, scope, record type, truth-layer metadata, and provenance fields.
-- [x] **FND-03**: Developer can inspect system health and index status from a CLI surface without requiring an LLM.
+- [ ] **FND-03**: Developer can inspect system health and index status from a CLI surface without requiring an LLM.
 
 ### Ingest
 
@@ -34,16 +34,16 @@
 
 ### Cognitive Core
 
-- [x] **COG-01**: System can assemble a working-memory object containing `world_fragments`, `self_state`, `active_goal`, `active_risks`, `candidate_actions`, and `metacog_flags`.
+- [ ] **COG-01**: System can assemble a working-memory object containing `world_fragments`, `self_state`, `active_goal`, `active_risks`, `candidate_actions`, and `metacog_flags`.
 - [x] **COG-02**: Working memory can contain epistemic, operational, and regulatory candidate actions in the same decision field.
 - [x] **COG-03**: System can score candidate actions with a multi-dimensional value representation before projecting them into a comparable decision score.
 - [x] **COG-04**: Metacognitive logic can inject warnings or veto flags when retrieval or candidate actions are too uncertain, risky, or under-supported.
 
 ### Agent Search
 
-- [x] **AGT-01**: Developer can use ordinary retrieval without invoking a language model or agent runtime.
-- [x] **AGT-02**: Developer can invoke a Rig-based agent-search workflow that performs multi-step retrieval and evidence gathering over the internal search services.
-- [x] **AGT-03**: Agent-search output includes citations and a structured working-memory or decision-support payload instead of a plain freeform answer only.
+- [ ] **AGT-01**: Developer can use ordinary retrieval without invoking a language model or agent runtime.
+- [ ] **AGT-02**: Developer can invoke a Rig-based agent-search workflow that performs multi-step retrieval and evidence gathering over the internal search services.
+- [ ] **AGT-03**: Agent-search output includes citations and a structured working-memory or decision-support payload instead of a plain freeform answer only.
 - [x] **AGT-04**: Agent-search orchestration does not bypass ordinary retrieval services or write directly into shared truth without explicit gates.
 
 ### Learning
@@ -85,9 +85,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FND-01 | Phase 1 | Complete |
+| FND-01 | Phase 6 | Pending |
 | FND-02 | Phase 1 | Complete |
-| FND-03 | Phase 1 | Complete |
+| FND-03 | Phase 6 | Pending |
 | ING-01 | Phase 2 | Complete |
 | ING-02 | Phase 2 | Complete |
 | ING-03 | Phase 2 | Complete |
@@ -100,13 +100,13 @@
 | TRU-02 | Phase 3 | Complete |
 | TRU-03 | Phase 3 | Complete |
 | TRU-04 | Phase 3 | Complete |
-| COG-01 | Phase 4 | Complete |
+| COG-01 | Phase 7 | Pending |
 | COG-02 | Phase 4 | Complete |
 | COG-03 | Phase 4 | Complete |
 | COG-04 | Phase 4 | Complete |
-| AGT-01 | Phase 2 | Complete |
-| AGT-02 | Phase 4 | Complete |
-| AGT-03 | Phase 4 | Complete |
+| AGT-01 | Phase 6 | Pending |
+| AGT-02 | Phase 7 | Pending |
+| AGT-03 | Phase 7 | Pending |
 | AGT-04 | Phase 4 | Complete |
 | LRN-01 | Phase 5 | Complete |
 | LRN-02 | Phase 5 | Complete |
