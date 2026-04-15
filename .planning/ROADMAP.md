@@ -113,8 +113,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: Enforce readiness/doctor gating across operational commands
-- [ ] 06-02: Add regression coverage for gated command behavior and operator semantics
+- [x] 06-01: Enforce readiness/doctor gating across operational commands
+- [x] 06-02: Add regression coverage for gated command behavior and operator semantics
 
 ### Phase 7: Follow-up Evidence Integration
 **Goal**: 让 agent-search 的 follow-up retrieval 结果真正进入 working memory、branch scoring 和 metacognitive decision 流，而不是只停留在 retrieval steps/citations 报告里。
