@@ -1,3 +1,8 @@
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
+
 use anyhow::Result;
 
 use crate::core::config::{Config, RetrievalMode};
@@ -6,14 +11,20 @@ use crate::core::config::{Config, RetrievalMode};
 pub struct AppContext {
     pub config: Config,
     pub readiness: RuntimeReadiness,
+    db_path: PathBuf,
 }
 
 impl AppContext {
     pub fn load(config: Config) -> Result<Self> {
         Ok(Self {
             readiness: RuntimeReadiness::from_config(&config),
+            db_path: resolve_home_path(&config.db_path),
             config,
         })
+    }
+
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
     }
 }
 
@@ -33,8 +44,9 @@ impl RuntimeReadiness {
                 effective_mode: RetrievalMode::LexicalOnly,
                 ready: true,
                 notes: vec![
-                    "lexical_only keeps the explainable lexical baseline active".to_string(),
-                    "embedding backend is optional and remains disabled in Phase 1".to_string(),
+                    "lexical_only remains the Phase 1 foundation default".to_string(),
+                    "lexical retrieval dependency loading and index creation are deferred to a later phase"
+                        .to_string(),
                 ],
             },
             RetrievalMode::EmbeddingOnly => Self {
@@ -64,6 +76,16 @@ impl RuntimeReadiness {
                 ],
             },
         }
+    }
+}
+
+fn resolve_home_path(path: &str) -> PathBuf {
+    match path.strip_prefix("~/") {
+        Some(suffix) => env::var_os("HOME")
+            .map(PathBuf::from)
+            .map(|home| home.join(suffix))
+            .unwrap_or_else(|| PathBuf::from(path)),
+        None => PathBuf::from(path),
     }
 }
 
