@@ -1,0 +1,22 @@
+[package]
+name = "agent-memos"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Local-first cognitive memory kernel for agents."
+rust-version = "1.85"
+
+[[bin]]
+name = "agent-memos"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+directories = "6"
+rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite_migration = "2.3"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml = "0.8"
+tracing = "0.1"
