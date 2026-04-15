@@ -106,6 +106,7 @@ fn ingest_record(service: &IngestService<'_>, record: FixtureRecord<'_>) {
 fn library_search_returns_citations_and_filter_trace() {
     let path = fresh_db_path("library-shape");
     let db = Database::open(&path).expect("database should open");
+    assert_eq!(db.schema_version().expect("schema version"), 4);
     let ingest = IngestService::new(db.conn());
 
     ingest_record(
@@ -113,8 +114,7 @@ fn library_search_returns_citations_and_filter_trace() {
         FixtureRecord {
             source_uri: "memo://project/search-decision",
             source_label: "search decision memo",
-            content:
-                "lexical retrieval must stay explainable and preserve citations for the project team",
+            content: "lexical retrieval must stay explainable and preserve citations for the project team",
             scope: Scope::Project,
             record_type: RecordType::Decision,
             truth_layer: TruthLayer::T2,
@@ -168,7 +168,11 @@ fn library_search_returns_citations_and_filter_trace() {
         .search(&request)
         .expect("library retrieval should succeed");
 
-    assert_eq!(response.results.len(), 1, "filters should narrow results in SQL");
+    assert_eq!(
+        response.results.len(),
+        1,
+        "filters should narrow results in SQL"
+    );
     assert_eq!(
         response.applied_filters.scope,
         Some(Scope::Project),
@@ -192,8 +196,7 @@ fn library_search_returns_citations_and_filter_trace() {
 
     let result = &response.results[0];
     assert_eq!(
-        result.record.source.uri,
-        "memo://project/search-decision",
+        result.record.source.uri, "memo://project/search-decision",
         "ordinary retrieval should keep the expected authority-backed row"
     );
     assert_eq!(
@@ -268,7 +271,10 @@ fn cli_ingest_and_search_emit_json_reports() {
     );
     let ingest_json: Value =
         serde_json::from_str(&stdout(&ingest_output)).expect("ingest should emit json");
-    assert_eq!(ingest_json["chunk_count"], 1, "ingest json should surface chunk count");
+    assert_eq!(
+        ingest_json["chunk_count"], 1,
+        "ingest json should surface chunk count"
+    );
 
     let search_output = run_cli(
         &config_path,
