@@ -10,7 +10,8 @@
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Hybrid retrieval | Memory systems are expected to handle exact terms and semantic similarity | MEDIUM | Must combine lexical and vector search instead of choosing one. |
+| Lexical-first retrieval | Memory systems must reliably find exact terms, Chinese phrases, and symbolic cues | MEDIUM | `libsimple` + FTS5 should be the baseline before any semantic extension. |
+| Lightweight keyword rerank | Users expect search to reflect current context, not raw term match only | MEDIUM | BM25/TF-IDF-style weights plus simple context bonuses are enough at small corpus scale. |
 | Source citations and traceability | Users need to trust retrieved memory in downstream decisions | MEDIUM | Results should carry source, timestamp, and retrieval rationale. |
 | Structured ingestion | A memory system that cannot normalize docs, notes, and conversations is incomplete | MEDIUM | Ingest needs typed memory units, not just raw blobs. |
 | Scoped filtering | Users expect project/topic/type filtering when memory grows | LOW | Wing/room style scoping from `mempal` is a strong reference. |
@@ -32,6 +33,7 @@
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
 | “Just chat with the database” | Fast demo path | Collapses retrieval, reasoning, and truth management into one opaque loop | Keep ordinary retrieval and agent search as separate surfaces |
+| “先上向量再说” | Feels modern and powerful | 在小规模语料上会先引入模型/扩展复杂度，掩盖 lexical baseline 是否足够 | 先做 lexical-first，再决定是否追加 `sqlite-vec` |
 | Fully automatic promotion into shared truth | Feels intelligent and autonomous | Pollutes T2/T1 with hallucinations or single-session bias | Require evidence, verification, and metacognitive checks |
 | UI-first dashboards before the core engine | Easier to demo visually | Consumes time before ranking, schema, and search semantics are stable | CLI/library/API-first delivery |
 | Overly generic memory blobs | Simplifies ingestion | Makes later truth-layering, working-memory assembly, and write-back much harder | Typed memories: evidence, event, decision, skill, self-state, world-state |
@@ -39,13 +41,13 @@
 ## Feature Dependencies
 
 ```text
-Hybrid retrieval
+Lexical-first retrieval
     ├──requires──> memory schema
     ├──requires──> lexical index
-    └──requires──> vector index
+    └──requires──> scoring policy
 
 Agentic search
-    ├──requires──> hybrid retrieval
+    ├──requires──> ordinary retrieval
     ├──requires──> citation/trace output
     ├──requires──> working memory assembly
     └──requires──> rig integration
@@ -63,7 +65,7 @@ Rumination
 
 ### Dependency Notes
 
-- **Hybrid retrieval requires memory schema:** lexical and vector ranking need a stable row model, filters, and metadata.
+- **Lexical-first retrieval requires memory schema:** FTS recall and Rust-side weighting both need a stable row model, filters, and metadata.
 - **Agentic search requires citation output:** otherwise the agent cannot explain or verify why a memory was used.
 - **Truth layering requires typed schema:** T1/T2/T3 is not a ranking tweak; it is a data-model decision.
 - **Rumination requires outcome capture:** without outcomes and corrections, there is nothing meaningful to write back.
@@ -73,7 +75,7 @@ Rumination
 ### Launch With (v1)
 
 - [ ] Local-first memory store with typed memory records and SQLite schema
-- [ ] Hybrid search combining `libsimple` lexical recall and `sqlite-vec` semantic recall
+- [ ] Lexical-first search combining `libsimple` recall with Rust-side BM25/TF-IDF-style or keyword-bonus rerank
 - [ ] Search results with source, scope, and timestamp traces
 - [ ] Agentic search workflow using Rig to plan multi-step retrieval and assemble working memory
 - [ ] Minimal truth-layer separation for private hypotheses vs shared evidence-backed facts
@@ -83,6 +85,7 @@ Rumination
 - [ ] Candidate action generation and value scoring — once retrieval quality is reliable enough to drive decisions
 - [ ] Metacognitive veto and search-policy adjustment — once false-positive and false-confidence patterns are observed
 - [ ] Skill-memory extraction from successful traces — once repeated action patterns are available
+- [ ] Optional `sqlite-vec` semantic extension — only if lexical-first retrieval shows recall gaps in practice
 
 ### Future Consideration (v2+)
 
@@ -95,7 +98,8 @@ Rumination
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Hybrid retrieval | HIGH | MEDIUM | P1 |
+| Lexical-first retrieval | HIGH | MEDIUM | P1 |
+| Lightweight keyword rerank | HIGH | MEDIUM | P1 |
 | Citation / trace output | HIGH | MEDIUM | P1 |
 | Typed memory schema | HIGH | MEDIUM | P1 |
 | Agentic search orchestration | HIGH | HIGH | P1 |
@@ -103,6 +107,7 @@ Rumination
 | Working memory assembly | HIGH | HIGH | P1 |
 | Rumination queues | MEDIUM | HIGH | P2 |
 | Skill extraction | MEDIUM | HIGH | P2 |
+| Optional `sqlite-vec` extension | MEDIUM | MEDIUM | P2 |
 | MCP / remote surface | MEDIUM | MEDIUM | P2 |
 | Visual UI | LOW | MEDIUM | P3 |
 
@@ -115,7 +120,7 @@ Rumination
 
 | Feature | Generic RAG tools | `mempal` | Our Approach |
 |---------|-------------------|----------|--------------|
-| Hybrid retrieval | Usually yes, but shallow | Yes, with BM25 + vector + RRF | Yes, but extended with cognitive metadata and truth layers |
+| Retrieval baseline | Often embedding-heavy | BM25 + vector + RRF | Lexical-first with lightweight Rust scoring, semantic retrieval optional later |
 | Citation / trace | Often partial | Strong | Must be first-class |
 | Agentic search | Usually prompt glue | Some agent-facing tooling, not 0415 cognition | Explicit second subsystem with working-memory assembly |
 | Truth layering | Rare | Not the primary model | Core differentiator |

@@ -42,7 +42,7 @@ Recent decisions affecting current work:
 
 - [Init]: Ordinary retrieval and agent search remain separate product lines.
 - [Init]: `reference/mempal` is only a code-style and module-splitting reference, not a domain-model reference.
-- [Init]: Retrieval stack is fixed to SQLite + `sqlite-vec` + `libsimple`, with `rig` reserved for agent orchestration.
+- [Init]: Retrieval baseline is fixed to SQLite + `libsimple` + Rust lightweight keyword weighting, with `sqlite-vec` downgraded to an optional extension and `rig` reserved for agent orchestration.
 
 ### Pending Todos
 
@@ -50,7 +50,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- `sqlite-vec`, `libsimple`, and `rig` integration details need phase-level verification before implementation starts.
+- `libsimple`, Rust-side score composition, and `rig` integration details need phase-level verification before implementation starts.
 - Truth-layer minimum schema should be locked early in Phase 1/2 to avoid later refactors.
 
 ## Deferred Items

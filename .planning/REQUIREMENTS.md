@@ -15,13 +15,13 @@
 
 - [ ] **ING-01**: Developer can ingest notes, documents, and conversation-like text into normalized memory units suitable for indexing.
 - [ ] **ING-02**: System can chunk ingested content while preserving source linkage and chunk provenance.
-- [ ] **ING-03**: System can store or derive embeddings for indexed memory units without breaking lexical retrieval.
+- [ ] **ING-03**: System can persist lexical and scoring metadata needed for lightweight retrieval without requiring embeddings or model files.
 
 ### Retrieval
 
 - [ ] **RET-01**: Agent or developer can run ordinary lexical search over Chinese and PinYin content using `libsimple`-backed SQLite FTS.
-- [ ] **RET-02**: Agent or developer can run semantic search over the same corpus using `sqlite-vec`.
-- [ ] **RET-03**: System can fuse lexical and semantic candidates into a single ranked result set with stable scoring behavior.
+- [ ] **RET-02**: System can apply Rust-side BM25/TF-IDF-style keyword weighting and context bonus rules over recalled candidates without external model files.
+- [ ] **RET-03**: System can compose lexical score, keyword bonus, emotion bonus, importance, and recency into a stable ranked result set with explainable scoring behavior.
 - [ ] **RET-04**: Each retrieval result includes source, scope, timestamp or validity metadata, and enough trace data to explain why it was returned.
 - [ ] **RET-05**: Agent or developer can filter retrieval by scope, record type, truth layer, and time validity.
 
@@ -63,6 +63,7 @@
 
 - **EXT-01**: System can support cross-project tunnel discovery or multi-wing memory routing.
 - **EXT-02**: System can support richer visualization or inspection tooling for truth layers and working-memory state.
+- **EXT-03**: System can enable `sqlite-vec` semantic recall as an optional extension behind the same retrieval interface.
 
 ### Advanced Governance
 

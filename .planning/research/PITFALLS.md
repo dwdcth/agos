@@ -48,21 +48,21 @@ Phase 1 and Phase 2
 
 ---
 
-### Pitfall 3: Relying on vector search alone
+### Pitfall 3: Making vector retrieval a v1 prerequisite
 
 **What goes wrong:**
-Exact decisions, identifiers, Chinese terms, and symbolic cues are missed. Users lose trust when obvious lexical hits do not show up.
+The project absorbs extension and model complexity before proving that a lexical-first baseline is good enough. Search becomes harder to debug and slower to stabilize.
 
 **Why it happens:**
-Vector search feels modern and simpler to market.
+Vector search feels modern and powerful, so teams adopt it before validating the smaller, simpler option.
 
 **How to avoid:**
-Ship hybrid retrieval from the start: lexical (`libsimple` FTS5) + semantic (`sqlite-vec`) + fusion/rerank.
+Ship lexical-first retrieval first: `libsimple` FTS5 + BM25/TF-IDF-style Rust scoring + explicit bonus rules. Add `sqlite-vec` only if real recall gaps appear.
 
 **Warning signs:**
-- Queries with exact names or Chinese abbreviations fail
-- Users start phrasing queries unnaturally to satisfy embeddings
-- Search quality depends too much on paraphrasing
+- Phase 1 spends more effort on extension loading than on ranking quality
+- The team cannot explain why lexical hits are insufficient
+- The retrieval path requires model files before the first useful search command exists
 
 **Phase to address:**
 Phase 1
@@ -143,16 +143,17 @@ Phase 4
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| `sqlite-vec` | Forgetting explicit extension initialization | Load and register the extension during DB bootstrap before vector queries |
 | `libsimple` | Assuming default SQLite tokenizer behavior is enough | Explicitly configure the tokenizer and dictionary path for Chinese/PinYin recall |
+| Rust-side scorer | Letting ad hoc bonus rules sprawl across handlers | Centralize score composition in a dedicated retrieval scoring module |
+| `sqlite-vec` (optional) | Wiring it into core flows too early | Keep it behind the same retrieval interface and feature gate |
 | `rig` | Letting framework abstractions dictate the core memory model | Keep Rig at the orchestration boundary and adapt internal services outward |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Re-embedding everything on every write | Slow ingest, growing latency | Batch embedding and selective reindexing | Medium corpus size and above |
-| Full-table fusion in memory | Search latency jumps with corpus size | Scope/filter early and cap candidate sets before rerank | Once thousands of memory records accumulate |
+| Recomputing global term statistics on every query | Search latency grows with corpus size | Cache or precompute lightweight lexical stats where needed | Once the corpus is larger than the small-agent regime |
+| Full-table rerank in memory | Search latency jumps with corpus size | Scope/filter early and cap candidate sets before bonus scoring | Once thousands of memory records accumulate |
 | Excessive prompt-driven agent search retries | Expensive agent mode with unstable answers | Bound step count and keep deterministic search cheap | As soon as agent search is exposed interactively |
 
 ## Security Mistakes
@@ -167,13 +168,13 @@ Phase 4
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Search results without explanation | Users cannot tell why a result appeared | Show lexical/vector/rerank cues and source metadata |
+| Search results without explanation | Users cannot tell why a result appeared | Show lexical score, bonus cues, and source metadata |
 | Agent search that hides intermediate retrieval | Users cannot debug incorrect answers | Expose searched scopes, cited evidence, and rejected paths |
 | Stale memory shown as current truth | Users stop trusting the system | Surface timestamps, validity state, and truth layer clearly |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Hybrid search:** Often missing lexical ranking or Chinese tokenization — verify exact-term recall and semantic recall both work.
+- [ ] **Lexical-first search:** Often missing BM25 tuning or bonus-rule explainability — verify exact-term recall and score composition both work.
 - [ ] **Agent search:** Often missing citation preservation — verify the final answer still carries sources.
 - [ ] **Truth layers:** Often missing rollback or pending-promotion states — verify wrong promotions can be contained.
 - [ ] **Working memory:** Often missing candidate actions and risks — verify it is more than a result list.
@@ -185,7 +186,7 @@ Phase 4
 |---------|---------------|----------------|
 | Retrieval/cognition collapse | HIGH | Extract deterministic search service, move prompt logic outward, rebuild tests |
 | Truth-layer pollution | HIGH | Add typed states, mark contaminated records, re-run promotion review |
-| Vector-only search gap | MEDIUM | Add lexical index, backfill FTS tokens, retune fusion |
+| Vector-prerequisite drift | MEDIUM | Re-center on lexical-first retrieval, isolate optional semantic code, simplify baseline tests |
 | Unsafe write-back | HIGH | Freeze promotion, add pending-review path, audit recent writes |
 
 ## Pitfall-to-Phase Mapping
@@ -194,7 +195,7 @@ Phase 4
 |---------|------------------|--------------|
 | Retrieval/cognition collapse | Phase 1 and 3 | Search tests pass without LLM involvement |
 | Truth-layer pollution | Phase 1 and 2 | Promotion invariants and record typing are enforced |
-| Vector-only gap | Phase 1 | Exact-match and Chinese recall regression tests exist |
+| Vector-prerequisite drift | Phase 1 | Exact-match, Chinese recall, and lightweight score composition tests exist |
 | Unsafe write-back | Phase 2 and 4 | Shared-truth writes require evidence and explicit gate checks |
 | Working-memory-as-cache | Phase 3 | Working-memory object contains goals, risks, and candidate actions |
 | Batch-only rumination | Phase 4 | SPQ and LPQ are separated and independently testable |

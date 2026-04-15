@@ -25,8 +25,8 @@
 ├─────────────────────────────────────────────────────────────┤
 │                   Storage / Infra Layer                     │
 ├─────────────────────────────────────────────────────────────┤
-│ SQLite schema  FTS5/libsimple  sqlite-vec  embeddings      │
-│ traces  migration  background jobs                         │
+│ SQLite schema  FTS5/libsimple  optional sqlite-vec         │
+│ traces  migration  bonus rules  background jobs            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -36,7 +36,7 @@
 |-----------|----------------|------------------------|
 | `core` | Own config, DB access, types, IDs, migrations, shared errors | Similar to `reference/mempal/src/core` |
 | `memory` | Own typed memory schema, truth layers, promotion rules | Domain-specific models and repository services |
-| `search` | Own lexical/vector retrieval, fusion, rerank, filters, citations | Hybrid query pipeline over SQLite |
+| `search` | Own lexical retrieval, lightweight scoring, optional semantic extension, filters, citations | Lexical-first query pipeline over SQLite |
 | `agent` | Own Rig integration, tool routing, multi-step retrieval orchestration | Rig agents and tool wrappers over internal services |
 | `cognition` | Own attention, working memory, value, metacognition, rumination logic | Pure domain modules with minimal IO |
 | `interfaces` | Expose CLI / API / MCP without owning domain logic | Thin handlers calling services |
@@ -64,12 +64,13 @@ src/
 │   ├── normalize.rs
 │   ├── chunk.rs
 │   └── mod.rs
-├── search/                   # hybrid retrieval
+├── search/                   # lexical-first retrieval
 │   ├── lexical.rs
-│   ├── semantic.rs
-│   ├── fuse.rs
+│   ├── score.rs
+│   ├── bonus.rs
 │   ├── rerank.rs
 │   ├── citation.rs
+│   ├── semantic.rs           # optional sqlite-vec extension
 │   └── mod.rs
 ├── cognition/                # 0415 cognitive core
 │   ├── attention.rs
@@ -134,8 +135,8 @@ Interface handler
     ↓
 Search service
     ├── lexical retrieval (FTS5/libsimple)
-    ├── semantic retrieval (sqlite-vec)
-    ├── fusion / rerank
+    ├── Rust lightweight scoring / bonus rules
+    ├── optional semantic retrieval (sqlite-vec)
     └── citations / trace assembly
     ↓
 Ordinary search result
@@ -165,8 +166,8 @@ write-back to self / skill / world / truth promotion candidates
 
 ### Key Data Flows
 
-1. **Ingest flow:** source material → normalization → chunking / typing → embedding + indexing → SQLite persisted memory records.
-2. **Ordinary retrieval flow:** query → lexical/vector recall → fusion → filters → citations.
+1. **Ingest flow:** source material → normalization → chunking / typing → lexical indexing and metadata persistence → SQLite persisted memory records.
+2. **Ordinary retrieval flow:** query → lexical recall → BM25/TF-IDF-style weighting and bonus scoring → filters → citations.
 3. **Agent search flow:** user goal → ordinary retrieval calls → follow-up retrieval / verification → working memory package.
 4. **Learning flow:** action result / correction → SPQ or LPQ routing → bounded write-back.
 
@@ -204,7 +205,7 @@ write-back to self / skill / world / truth promotion candidates
 | Service | Integration Pattern | Notes |
 |---------|---------------------|-------|
 | LLM / embedding providers | Through Rig provider abstractions | Keep provider-specific logic out of the memory core. |
-| SQLite extensions | Loaded during DB initialization | `sqlite-vec` and `libsimple` both need explicit setup paths. |
+| SQLite extensions | Loaded during DB initialization | `libsimple` is baseline; `sqlite-vec` should stay behind an optional path if enabled later. |
 
 ### Internal Boundaries
 

@@ -9,27 +9,29 @@
 
 这个项目不是普通的 RAG 工具，而是一个把“检索”和“认知”明确拆开的记忆认知底座。`doc/` 中的 0415 理论文档决定了它至少要同时满足两件事：一是提供可靠、可解释、可追溯的 ordinary retrieval；二是在此之上提供基于智能体的搜索，将 recall 组织成工作记忆、候选行动与后续写回。
 
-从实现视角看，最稳的做法是采用 `reference/mempal` 那种 Rust 单二进制、本地 SQLite、模块化拆分的工程骨架，但不要直接复制它的领域模型。当前项目的差异化不在于“再做一个 memory search”，而在于 T1/T2/T3、工作记忆、元认知 veto、双队列反刍这些认知结构必须成为一等公民。
+从实现视角看，最稳的做法是采用 `reference/mempal` 那种 Rust 单二进制、本地 SQLite、模块化拆分的工程骨架，但不要直接复制它的领域模型。检索基线不再把语义向量作为前提，而是优先采用 `libsimple` + FTS5 + Rust 轻量关键词权重；`sqlite-vec` 仅保留为后续可选扩展。当前项目的差异化不在于“再做一个 memory search”，而在于 T1/T2/T3、工作记忆、元认知 veto、双队列反刍这些认知结构必须成为一等公民。
 
 ## Key Findings
 
 ### Recommended Stack
 
-推荐以 Rust 1.85+、SQLite、`rusqlite`、`sqlite-vec`、`libsimple` 和 `rig-core` 作为骨架。`libsimple` 明确覆盖中文 / 拼音 FTS5 tokenizer，`sqlite-vec` 负责本地语义检索，Rig 则更适合作为 agent/tool/provider orchestration 层，而不是核心存储层。核心内存模型仍应自己维护。
+推荐以 Rust 1.85+、SQLite、`rusqlite`、`libsimple` 和 `rig-core` 作为骨架。`libsimple` 明确覆盖中文 / 拼音 FTS5 tokenizer，Rust 侧再叠加 BM25/TF-IDF 风格关键词权重和上下文 bonus 规则，就能实现一个足够轻量的 v1 检索底座。Rig 更适合作为 agent/tool orchestration 层，而不是核心存储层。`sqlite-vec` 只保留为后续语义扩展。
 
 **Core technologies:**
 - Rust 1.85+：满足 `libsimple 0.9.0` 的版本约束，并适合强边界建模
-- SQLite + `rusqlite`：本地优先、便于组合 FTS5 和向量扩展
-- `sqlite-vec`：语义检索底座，但官方仍标注 pre-v1，需留兼容缓冲
+- SQLite + `rusqlite`：本地优先、便于组合 FTS5 和清晰的类型化 schema
 - `libsimple ~0.9`：中文和拼音全文检索，是普通检索体验的关键
+- Rust 轻量 scorer：承接 BM25/TF-IDF 风格关键词权重、情绪 bonus、importance 和 recency bonus
 - `rig-core`：agent 搜索、工具编排、模型抽象
+- `sqlite-vec`：后续可选语义扩展，不是首发依赖
 
 ### Expected Features
 
-这个领域的 table stakes 不是“能搜”，而是“能搜对、能解释、能约束”。因此，v1 至少要有混合检索、引用和时间正确性、类型化 memory schema、scope filter、agentic search orchestration、working-memory assembly。
+这个领域的 table stakes 不是“能搜”，而是“能搜对、能解释、能约束”。因此，v1 至少要有 lexical-first retrieval、轻量关键词 rerank、引用和时间正确性、类型化 memory schema、scope filter、agentic search orchestration、working-memory assembly。
 
 **Must have (table stakes):**
-- 混合检索
+- lexical-first retrieval
+- lightweight keyword rerank
 - 引用与 trace
 - 类型化 memory schema
 - scoped filtering
@@ -61,7 +63,7 @@
 
 1. **检索与认知塌缩** — 必须把 deterministic search 和 LLM orchestration 分开
 2. **T1/T2/T3 混表** — truth-layer 元数据和 promotion 规则要早建
-3. **只做向量搜索** — 中文 exact match 与结构化 cue 会失真
+3. **把向量检索当前提** — 会在 lexical baseline 稳定前引入不必要复杂度
 4. **agent 直接写共享真值** — 写回必须经过证据和 gate
 5. **把 working memory 当 top-k 结果** — 必须单独装配控制场
 
@@ -69,11 +71,11 @@
 
 Based on research, suggested phase structure:
 
-### Phase 1: Storage And Hybrid Retrieval Foundation
-**Rationale:** 所有上层认知能力都依赖稳定 schema 和混合检索
-**Delivers:** 核心 SQLite schema、typed memory records、`libsimple` + `sqlite-vec` 检索链路
+### Phase 1: Storage And Lightweight Retrieval Foundation
+**Rationale:** 所有上层认知能力都依赖稳定 schema 和 ordinary retrieval
+**Delivers:** 核心 SQLite schema、typed memory records、`libsimple` + Rust 轻量权重检索链路
 **Addresses:** ordinary retrieval, citations, scope, validity
-**Avoids:** vector-only search and search/cognition collapse
+**Avoids:** vector-prerequisite drift and search/cognition collapse
 
 ### Phase 2: Truth-Layered Memory Model
 **Rationale:** 没有 truth layers，后续 agent search 和 write-back 都会失真
@@ -100,7 +102,7 @@ Based on research, suggested phase structure:
 ### Research Flags
 
 Phases likely needing deeper research during planning:
-- **Phase 1:** `libsimple` + `sqlite-vec` + `rusqlite` 初始化与兼容细节
+- **Phase 1:** `libsimple` + FTS5 + Rust 轻量 scorer 的最小可靠实现
 - **Phase 3:** Rig tool / agent / retrieval adapter 的最小可行接法
 - **Phase 4:** write-back 协议、promotion gate 和反刍队列策略
 
@@ -111,7 +113,7 @@ Phases with standard patterns (skip research-phase):
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | MEDIUM | 外部依赖信息足够，但 `sqlite-vec` 和 Rig 仍在快速迭代 |
+| Stack | MEDIUM | 外部依赖信息足够，但 `libsimple` 的接入细节和 Rig 适配仍需实现期验证 |
 | Features | HIGH | 用户目标和本地理论文档非常明确 |
 | Architecture | MEDIUM | `mempal` 提供了好骨架，但当前项目的 cognition core 仍需自己抽象 |
 | Pitfalls | HIGH | 主要风险直接来自本项目理论边界和同类系统常见塌缩模式 |
@@ -120,7 +122,7 @@ Phases with standard patterns (skip research-phase):
 
 ### Gaps to Address
 
-- `sqlite-vec` 的实际 pinned version 需要在 Phase 1 结合 `rusqlite` 代码验证
+- Rust 轻量 scorer 的具体公式需要在 Phase 1 明确为“FTS5 BM25 + bonus rules”还是“显式 TF-IDF/BM25 混合”
 - Rig 是否直接接内置 SQLite adapter，还是先走自定义工具层，需要在 Phase 3 定稿
 - T1/T2/T3 的最小 schema 粒度需要在 Phase 2 明确到字段级
 
