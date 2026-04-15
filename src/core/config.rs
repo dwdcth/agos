@@ -1,10 +1,13 @@
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
+use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const DEFAULT_DB_PATH: &str = "~/.agent-memos/agent-memos.db";
+const DEFAULT_CONFIG_PATH: &str = "~/.config/agent-memos/config.toml";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -16,7 +19,7 @@ pub enum RetrievalMode {
 
 impl Default for RetrievalMode {
     fn default() -> Self {
-        Self::EmbeddingOnly
+        Self::LexicalOnly
     }
 }
 
@@ -29,7 +32,7 @@ pub enum EmbeddingBackend {
 
 impl Default for EmbeddingBackend {
     fn default() -> Self {
-        Self::Reserved
+        Self::Disabled
     }
 }
 
@@ -67,16 +70,18 @@ impl Default for Config {
 
 impl Config {
     pub fn load() -> Result<Self, ConfigError> {
-        Self::load_from(Path::new(DEFAULT_DB_PATH))
+        Self::load_from(&default_config_path())
     }
 
     pub fn load_from(path: &Path) -> Result<Self, ConfigError> {
-        let contents = fs::read_to_string(path).map_err(|source| ConfigError::Read {
-            path: path.to_path_buf(),
-            source,
-        })?;
-
-        toml::from_str(&contents).map_err(ConfigError::Parse)
+        match fs::read_to_string(path) {
+            Ok(contents) => toml::from_str(&contents).map_err(ConfigError::Parse),
+            Err(source) if source.kind() == ErrorKind::NotFound => Ok(Self::default()),
+            Err(source) => Err(ConfigError::Read {
+                path: path.to_path_buf(),
+                source,
+            }),
+        }
     }
 }
 
@@ -90,6 +95,12 @@ pub enum ConfigError {
     },
     #[error("failed to parse config TOML")]
     Parse(#[source] toml::de::Error),
+}
+
+pub fn default_config_path() -> PathBuf {
+    ProjectDirs::from("", "", "agent-memos")
+        .map(|dirs| dirs.config_dir().join("config.toml"))
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_PATH))
 }
 
 #[cfg(test)]

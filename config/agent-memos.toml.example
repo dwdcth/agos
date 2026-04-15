@@ -1,0 +1,15 @@
+db_path = "~/.agent-memos/agent-memos.db"
+
+[retrieval]
+mode = "lexical_only" # lexical_only | embedding_only | hybrid
+
+[embedding]
+backend = "disabled" # disabled keeps ordinary retrieval lexical-only in Phase 1
+model = ""
+endpoint = ""
+
+# Mode semantics:
+# - lexical_only: precise, source-aware retrieval with strong explainability
+# - embedding_only: reserved semantic-heavy mode for later phases
+# - hybrid: lexical remains the primary explanation channel; embedding is a
+#   secondary expansion or rerank path once implemented

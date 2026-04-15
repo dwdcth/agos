@@ -1,7 +1,10 @@
 use anyhow::Result;
 use clap::Parser;
 
-use agent_memos::interfaces::Cli;
+use agent_memos::{
+    core::{app::AppContext, config::Config},
+    interfaces::Cli,
+};
 
 fn main() {
     if let Err(error) = run() {
@@ -14,7 +17,12 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let _cli = Cli::parse();
+    let cli = Cli::parse();
+    let config = match cli.config.as_deref() {
+        Some(path) => Config::load_from(path)?,
+        None => Config::load()?,
+    };
+    let _app = AppContext::load(config)?;
 
     Ok(())
 }

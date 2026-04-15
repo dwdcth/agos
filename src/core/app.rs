@@ -27,11 +27,42 @@ pub struct RuntimeReadiness {
 
 impl RuntimeReadiness {
     pub fn from_config(config: &Config) -> Self {
-        Self {
-            configured_mode: config.retrieval.mode,
-            effective_mode: RetrievalMode::LexicalOnly,
-            ready: false,
-            notes: Vec::new(),
+        match config.retrieval.mode {
+            RetrievalMode::LexicalOnly => Self {
+                configured_mode: RetrievalMode::LexicalOnly,
+                effective_mode: RetrievalMode::LexicalOnly,
+                ready: true,
+                notes: vec![
+                    "lexical_only keeps the explainable lexical baseline active".to_string(),
+                    "embedding backend is optional and remains disabled in Phase 1".to_string(),
+                ],
+            },
+            RetrievalMode::EmbeddingOnly => Self {
+                configured_mode: RetrievalMode::EmbeddingOnly,
+                effective_mode: RetrievalMode::EmbeddingOnly,
+                ready: false,
+                notes: vec![
+                    format!(
+                        "embedding_only is configured, but backend {:?} is reserved for a later phase",
+                        config.embedding.backend
+                    ),
+                    "semantic retrieval remains explicit instead of collapsing to a boolean flag"
+                        .to_string(),
+                ],
+            },
+            RetrievalMode::Hybrid => Self {
+                configured_mode: RetrievalMode::Hybrid,
+                effective_mode: RetrievalMode::Hybrid,
+                ready: false,
+                notes: vec![
+                    "hybrid is configured with lexical as the primary explanation channel"
+                        .to_string(),
+                    format!(
+                        "embedding backend {:?} is reserved until semantic retrieval lands",
+                        config.embedding.backend
+                    ),
+                ],
+            },
         }
     }
 }
