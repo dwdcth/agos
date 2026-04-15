@@ -9,31 +9,21 @@ use thiserror::Error;
 const DEFAULT_DB_PATH: &str = "~/.agent-memos/agent-memos.db";
 const DEFAULT_CONFIG_PATH: &str = "~/.config/agent-memos/config.toml";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetrievalMode {
+    #[default]
     LexicalOnly,
     EmbeddingOnly,
     Hybrid,
 }
 
-impl Default for RetrievalMode {
-    fn default() -> Self {
-        Self::LexicalOnly
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EmbeddingBackend {
+    #[default]
     Disabled,
     Reserved,
-}
-
-impl Default for EmbeddingBackend {
-    fn default() -> Self {
-        Self::Disabled
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
