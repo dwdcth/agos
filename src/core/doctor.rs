@@ -7,6 +7,9 @@ use crate::core::{
 pub enum CommandPath {
     Init,
     Doctor,
+    Ingest,
+    Search,
+    AgentSearch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,7 +38,7 @@ impl DoctorReport {
             _ => {}
         }
 
-        if matches!(command_path, CommandPath::Doctor) {
+        if blocks_reserved_semantic_modes(command_path) {
             match (status.configured_mode, status.embedding_backend) {
                 (RetrievalMode::EmbeddingOnly, EmbeddingBackend::Reserved) => failures.push(
                     "embedding_only is reserved but not implemented in Phase 1".to_string(),
@@ -46,6 +49,10 @@ impl DoctorReport {
                 ),
                 _ => {}
             }
+        }
+
+        if requires_operational_readiness(command_path) {
+            failures.extend(operational_readiness_failures(status));
         }
 
         if matches!(status.schema_state, CapabilityState::Missing) {
@@ -95,4 +102,51 @@ impl DoctorReport {
 
         lines.join("\n")
     }
+}
+
+fn blocks_reserved_semantic_modes(command_path: CommandPath) -> bool {
+    matches!(
+        command_path,
+        CommandPath::Doctor | CommandPath::Ingest | CommandPath::Search | CommandPath::AgentSearch
+    )
+}
+
+fn requires_operational_readiness(command_path: CommandPath) -> bool {
+    matches!(
+        command_path,
+        CommandPath::Ingest | CommandPath::Search | CommandPath::AgentSearch
+    )
+}
+
+fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
+    if !matches!(status.configured_mode, RetrievalMode::LexicalOnly) {
+        return Vec::new();
+    }
+
+    let mut failures = Vec::new();
+
+    if matches!(status.schema_state, CapabilityState::Missing) {
+        failures.push(
+            "database schema is not initialized yet; run `agent-memos init` to create it"
+                .to_string(),
+        );
+    }
+
+    if matches!(status.base_table_state, CapabilityState::Missing) {
+        failures.push("foundation base tables are incomplete or missing".to_string());
+    }
+
+    if matches!(status.index_readiness, CapabilityState::Missing) {
+        failures.push("lexical sidecar indexes are missing or incomplete".to_string());
+    }
+
+    if let Some(note) = status
+        .readiness_notes
+        .iter()
+        .find(|note| note.starts_with("schema inspection failed for existing database file"))
+    {
+        failures.push(note.clone());
+    }
+
+    failures
 }

@@ -273,6 +273,10 @@ fn doctor_command(app: &AppContext) -> Result<ExitCode> {
 }
 
 fn ingest_command(app: &AppContext, command: IngestCommand) -> Result<ExitCode> {
+    if let Some(exit_code) = operational_gate(app, CommandPath::Ingest)? {
+        return Ok(exit_code);
+    }
+
     let db = Database::open(app.db_path())?;
     let ingest = IngestService::new(db.conn());
     let content = match (command.path.as_ref(), command.content) {
@@ -307,6 +311,10 @@ fn ingest_command(app: &AppContext, command: IngestCommand) -> Result<ExitCode> 
 }
 
 fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> {
+    if let Some(exit_code) = operational_gate(app, CommandPath::Search)? {
+        return Ok(exit_code);
+    }
+
     let db = Database::open(app.db_path())?;
     let service = SearchService::new(db.conn());
     let response = service.search(
@@ -370,6 +378,10 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
 }
 
 fn agent_search_command(app: &AppContext, command: AgentSearchCommand) -> Result<ExitCode> {
+    if let Some(exit_code) = operational_gate(app, CommandPath::AgentSearch)? {
+        return Ok(exit_code);
+    }
+
     let db = Database::open(app.db_path())?;
     let mut request = AgentSearchRequest::developer_defaults(command.query)
         .with_working_memory_limit(command.top_k)
@@ -389,6 +401,18 @@ fn agent_search_command(app: &AppContext, command: AgentSearchCommand) -> Result
 
     println!("{}", render_agent_search_report(&report, command.json)?);
     Ok(ExitCode::SUCCESS)
+}
+
+fn operational_gate(app: &AppContext, command_path: CommandPath) -> Result<Option<ExitCode>> {
+    let status = StatusReport::collect(app)?;
+    let doctor = DoctorReport::evaluate(&status, command_path);
+
+    if doctor.ready {
+        Ok(None)
+    } else {
+        println!("{}", doctor.render_text());
+        Ok(Some(ExitCode::FAILURE))
+    }
 }
 
 fn inspect_command(app: &AppContext, command: InspectCommands) -> Result<ExitCode> {
