@@ -22,7 +22,9 @@ use agent_memos::{
             ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType,
             Scope, SourceKind, SourceRef, TruthLayer, ValidityWindow,
         },
-        repository::MemoryRepository,
+        governance::TruthGovernanceService,
+        repository::{MemoryRepository, RuminationCandidateKind},
+        truth::{OntologyCandidateState, PromotionDecisionState},
     },
     search::{Citation, ResultTrace, ScoreBreakdown, SearchFilters, SearchResult},
 };
@@ -261,4 +263,90 @@ fn lpq_generates_unified_candidates_from_accumulated_evidence() {
             candidate.payload
         );
     }
+}
+
+#[test]
+fn lpq_bridges_to_governance_without_auto_approval() {
+    let path = fresh_db_path("lpq-governance-bridge");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+    let governance = TruthGovernanceService::new(db.conn());
+    let service = RuminationService::new(db.conn());
+    let subject_ref = "task://rumination/governance";
+
+    repository
+        .insert_record(&sample_record("t3-hypothesis", TruthLayer::T3))
+        .expect("t3 hypothesis should insert");
+    repository
+        .insert_record(&sample_record("t2-pattern", TruthLayer::T2))
+        .expect("t2 pattern should insert");
+
+    let t3_report = sample_agent_search_report("t3-hypothesis", TruthLayer::T3);
+    let t3_event = RuminationTriggerEvent::from_agent_search_report(
+        RuminationTriggerKind::EvidenceAccumulation,
+        subject_ref,
+        &t3_report,
+        "2026-04-16T17:00:00Z",
+        "2026-04-16",
+        None,
+        Some("lpq-t3".to_string()),
+    )
+    .expect("t3 lpq event should normalize");
+    service.schedule(t3_event).expect("t3 lpq event should enqueue");
+
+    let t2_report = sample_agent_search_report("t2-pattern", TruthLayer::T2);
+    let t2_event = RuminationTriggerEvent::from_agent_search_report(
+        RuminationTriggerKind::IdleWindow,
+        subject_ref,
+        &t2_report,
+        "2026-04-16T17:10:00Z",
+        "2026-04-16",
+        None,
+        Some("lpq-t2".to_string()),
+    )
+    .expect("t2 lpq event should normalize");
+    service.schedule(t2_event).expect("t2 lpq event should enqueue");
+
+    service
+        .drain_long_cycle("2026-04-16T17:20:00Z")
+        .expect("t3 long-cycle drain should succeed")
+        .expect("t3 long-cycle work should drain");
+    service
+        .drain_long_cycle("2026-04-16T17:21:00Z")
+        .expect("t2 long-cycle drain should succeed")
+        .expect("t2 long-cycle work should drain");
+
+    let candidates = repository
+        .list_rumination_candidates()
+        .expect("rumination candidates should load");
+    let promotion_candidates = candidates
+        .iter()
+        .filter(|candidate| {
+            candidate.candidate_kind == RuminationCandidateKind::PromotionCandidate
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(promotion_candidates.len(), 2);
+    assert!(
+        promotion_candidates
+            .iter()
+            .all(|candidate| candidate.governance_ref_id.is_some()),
+        "promotion candidates should persist canonical governance refs: {promotion_candidates:?}"
+    );
+
+    let pending_reviews = governance
+        .list_pending_reviews()
+        .expect("pending promotion reviews should load");
+    assert_eq!(pending_reviews.len(), 1);
+    assert_eq!(pending_reviews[0].source_record_id, "t3-hypothesis");
+    assert_eq!(pending_reviews[0].decision_state, PromotionDecisionState::Pending);
+
+    let pending_candidates = governance
+        .list_pending_candidates()
+        .expect("pending ontology candidates should load");
+    assert_eq!(pending_candidates.len(), 1);
+    assert_eq!(pending_candidates[0].source_record_id, "t2-pattern");
+    assert_eq!(
+        pending_candidates[0].candidate_state,
+        OntologyCandidateState::Pending
+    );
 }
