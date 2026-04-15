@@ -143,7 +143,7 @@ fn foundation_migration_bootstraps_clean_db() {
     let db = Database::open(&path).expect("fresh database should bootstrap");
 
     assert!(parent.exists(), "open should create parent directories");
-    assert_eq!(db.schema_version().expect("schema version"), 5);
+    assert_eq!(db.schema_version().expect("schema version"), 6);
 
     let names = table_names(&path);
     assert!(
@@ -173,11 +173,11 @@ fn foundation_migration_bootstraps_clean_db() {
 fn foundation_migration_reopen_is_idempotent() {
     let path = fresh_db_path("reopen");
     let first = Database::open(&path).expect("first open should succeed");
-    assert_eq!(first.schema_version().expect("first schema version"), 5);
+    assert_eq!(first.schema_version().expect("first schema version"), 6);
     drop(first);
 
     let second = Database::open(&path).expect("second open should succeed");
-    assert_eq!(second.schema_version().expect("second schema version"), 5);
+    assert_eq!(second.schema_version().expect("second schema version"), 6);
     let names = table_names(&path);
     assert!(names.contains(&"memory_records".to_string()));
     assert!(names.contains(&"memory_records_fts".to_string()));
@@ -321,7 +321,7 @@ fn rumination_schema_bootstraps_version_5_side_tables() {
     let path = fresh_db_path("rumination-schema");
     let db = Database::open(&path).expect("database should bootstrap");
 
-    assert_eq!(db.schema_version().expect("schema version"), 5);
+    assert_eq!(db.schema_version().expect("schema version"), 6);
 
     let names = table_names(&path);
     assert!(
@@ -442,5 +442,25 @@ fn rumination_schema_bootstraps_version_5_side_tables() {
         trigger_indexes.iter().any(|name| name.contains("dedupe"))
             && trigger_indexes.iter().any(|name| name.contains("cooldown")),
         "trigger-state table should expose dedupe/cooldown indexes: {trigger_indexes:?}"
+    );
+}
+
+#[test]
+fn embedding_foundation_schema_bootstraps_additive_vector_sidecars() {
+    let path = fresh_db_path("embedding-schema");
+    let names = table_names(&path);
+
+    assert!(
+        names.contains(&"record_embeddings".to_string()),
+        "embedding foundation should add record_embeddings additively: {names:?}"
+    );
+    assert!(
+        names.contains(&"record_embedding_index_state".to_string()),
+        "embedding foundation should add vector sidecar/index state additively: {names:?}"
+    );
+    assert!(
+        names.contains(&"memory_records".to_string())
+            && names.contains(&"memory_records_fts".to_string()),
+        "embedding foundation must preserve authority and lexical baseline tables: {names:?}"
     );
 }

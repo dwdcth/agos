@@ -4,6 +4,7 @@ use std::{
 };
 
 use agent_memos::{
+    core::config::{EmbeddingBackend, EmbeddingConfig},
     core::db::Database,
     ingest::{
         IngestRequest, IngestService,
@@ -229,4 +230,76 @@ fn ingest_persists_chunk_provenance_and_validity_metadata() {
     );
     assert_eq!(stored[0].id, report.record_ids[0]);
     assert_eq!(stored[1].id, report.record_ids[1]);
+}
+
+#[test]
+fn ingest_persists_chunk_aligned_embedding_sidecars() {
+    let path = fresh_db_path("embedding-sidecars");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let service = IngestService::with_embedding_config(
+        db.conn(),
+        ChunkConfig {
+            text_char_window: 64,
+            text_char_overlap: 0,
+            conversation_turn_window: 1,
+        },
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("hash-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    let report = service
+        .ingest(conversation_request())
+        .expect("embedding-enabled ingest should succeed");
+    let embeddings = MemoryRepository::new(db.conn())
+        .list_record_embeddings()
+        .expect("embedding sidecars should load");
+
+    assert_eq!(
+        embeddings.len(),
+        report.chunk_count,
+        "each persisted chunk should receive a chunk-aligned embedding sidecar"
+    );
+    assert!(
+        embeddings
+            .iter()
+            .all(|embedding| embedding.backend == EmbeddingBackend::Builtin),
+        "embedding rows should retain the configured backend"
+    );
+    assert!(
+        embeddings.iter().all(|embedding| embedding.model == "hash-16"),
+        "embedding rows should retain the configured model"
+    );
+    assert!(
+        embeddings.iter().all(|embedding| embedding.dimensions == 16),
+        "hash-16 should persist 16-dimensional vectors"
+    );
+    assert!(
+        embeddings
+            .iter()
+            .all(|embedding| report.record_ids.contains(&embedding.record_id)),
+        "embedding rows should stay keyed to the ingested authority records"
+    );
+}
+
+#[test]
+fn lexical_only_ingest_remains_usable_when_embeddings_are_disabled() {
+    let path = fresh_db_path("embedding-disabled");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let service = IngestService::new(db.conn());
+
+    let report = service
+        .ingest(plain_note_request())
+        .expect("lexical-only ingest should still succeed");
+    let embeddings = MemoryRepository::new(db.conn())
+        .list_record_embeddings()
+        .expect("embedding sidecars should load");
+
+    assert_eq!(report.chunk_count, 1);
+    assert!(
+        embeddings.is_empty(),
+        "disabled embeddings should not create sidecar rows"
+    );
 }

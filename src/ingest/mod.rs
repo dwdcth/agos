@@ -7,6 +7,7 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
+    core::config::{EmbeddingBackend, EmbeddingConfig},
     ingest::{
         chunk::{ChunkConfig, chunk_source, to_chunk_metadata},
         detect::{Format, detect_format},
@@ -17,7 +18,7 @@ use crate::{
             MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceKind, SourceRef,
             TruthLayer, ValidityWindow,
         },
-        repository::{MemoryRepository, RepositoryError},
+        repository::{MemoryRepository, RecordEmbedding, RepositoryError},
     },
 };
 
@@ -54,17 +55,27 @@ pub enum IngestError {
 pub struct IngestService<'db> {
     repository: MemoryRepository<'db>,
     chunk_config: ChunkConfig,
+    embedding_config: EmbeddingConfig,
 }
 
 impl<'db> IngestService<'db> {
     pub fn new(conn: &'db Connection) -> Self {
-        Self::with_chunk_config(conn, ChunkConfig::default())
+        Self::with_embedding_config(conn, ChunkConfig::default(), EmbeddingConfig::default())
     }
 
     pub fn with_chunk_config(conn: &'db Connection, chunk_config: ChunkConfig) -> Self {
+        Self::with_embedding_config(conn, chunk_config, EmbeddingConfig::default())
+    }
+
+    pub fn with_embedding_config(
+        conn: &'db Connection,
+        chunk_config: ChunkConfig,
+        embedding_config: EmbeddingConfig,
+    ) -> Self {
         Self {
             repository: MemoryRepository::new(conn),
             chunk_config,
+            embedding_config,
         }
     }
 
@@ -113,6 +124,9 @@ impl<'db> IngestService<'db> {
             };
             record_ids.push(record.id.clone());
             self.repository.insert_record(&record)?;
+            if let Some(embedding) = self.build_embedding(&record) {
+                self.repository.insert_record_embedding(&embedding)?;
+            }
         }
 
         Ok(IngestReport {
@@ -122,6 +136,65 @@ impl<'db> IngestService<'db> {
             record_ids,
         })
     }
+}
+
+impl IngestService<'_> {
+    fn build_embedding(&self, record: &MemoryRecord) -> Option<RecordEmbedding> {
+        if !matches!(self.embedding_config.backend, EmbeddingBackend::Builtin) {
+            return None;
+        }
+
+        let model = self.embedding_config.model.as_ref()?;
+        let dimensions = parse_builtin_dimensions(model);
+        let embedding = builtin_embedding(&record.content_text, dimensions);
+        let timestamp = record.timestamp.recorded_at.clone();
+        let source_text_hash = record
+            .chunk
+            .as_ref()
+            .map(|chunk| chunk.content_hash.clone())
+            .unwrap_or_else(|| "inline-text".to_string());
+
+        Some(RecordEmbedding {
+            record_id: record.id.clone(),
+            backend: EmbeddingBackend::Builtin,
+            model: model.clone(),
+            dimensions: dimensions as u32,
+            embedding,
+            source_text_hash,
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
+        })
+    }
+}
+
+fn parse_builtin_dimensions(model: &str) -> usize {
+    model
+        .rsplit('-')
+        .next()
+        .and_then(|suffix| suffix.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(16)
+}
+
+fn builtin_embedding(text: &str, dimensions: usize) -> Vec<f32> {
+    let mut values = vec![0.0f32; dimensions];
+    for (index, byte) in text.bytes().enumerate() {
+        let slot = (usize::from(byte) + index) % dimensions;
+        values[slot] += f32::from(byte) / 255.0;
+    }
+
+    let magnitude = values
+        .iter()
+        .map(|value| value * value)
+        .sum::<f32>()
+        .sqrt();
+    if magnitude > 0.0 {
+        for value in &mut values {
+            *value /= magnitude;
+        }
+    }
+
+    values
 }
 
 fn build_record_id(

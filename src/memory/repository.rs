@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::core::config::EmbeddingBackend;
 use crate::memory::record::{
     ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope,
     SourceKind, SourceRef, TruthLayer, ValidityWindow,
@@ -17,6 +18,18 @@ use crate::memory::truth::{
 pub struct ScopeCount {
     pub scope: Scope,
     pub count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecordEmbedding {
+    pub record_id: String,
+    pub backend: EmbeddingBackend,
+    pub model: String,
+    pub dimensions: u32,
+    pub embedding: Vec<f32>,
+    pub source_text_hash: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -396,6 +409,81 @@ impl<'db> MemoryRepository<'db> {
         }
 
         Ok(records)
+    }
+
+    pub fn insert_record_embedding(
+        &self,
+        embedding: &RecordEmbedding,
+    ) -> Result<(), RepositoryError> {
+        self.conn.execute(
+            r#"
+            INSERT INTO record_embeddings (
+                record_id,
+                backend,
+                model,
+                dimensions,
+                embedding_json,
+                source_text_hash,
+                created_at,
+                updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(record_id) DO UPDATE SET
+                backend = excluded.backend,
+                model = excluded.model,
+                dimensions = excluded.dimensions,
+                embedding_json = excluded.embedding_json,
+                source_text_hash = excluded.source_text_hash,
+                updated_at = excluded.updated_at
+            "#,
+            params![
+                &embedding.record_id,
+                embedding.backend.as_str(),
+                &embedding.model,
+                embedding.dimensions,
+                serde_json::to_string(&embedding.embedding)?,
+                &embedding.source_text_hash,
+                &embedding.created_at,
+                &embedding.updated_at,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn list_record_embeddings(&self) -> Result<Vec<RecordEmbedding>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                record_id,
+                backend,
+                model,
+                dimensions,
+                embedding_json,
+                source_text_hash,
+                created_at,
+                updated_at
+            FROM record_embeddings
+            ORDER BY record_id ASC
+            "#,
+        )?;
+
+        let mut rows = statement.query([])?;
+        let mut embeddings = Vec::new();
+        while let Some(row) = rows.next()? {
+            embeddings.push(RecordEmbedding {
+                record_id: row.get(0)?,
+                backend: parse_embedding_backend(&row.get::<_, String>(1)?)?,
+                model: row.get(2)?,
+                dimensions: row.get::<_, u32>(3)?,
+                embedding: serde_json::from_str(&row.get::<_, String>(4)?)?,
+                source_text_hash: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            });
+        }
+
+        Ok(embeddings)
     }
 
     pub fn get_t3_state(&self, record_id: &str) -> Result<Option<T3State>, RepositoryError> {
@@ -1951,6 +2039,18 @@ fn parse_truth_layer(value: &str) -> Result<TruthLayer, RepositoryError> {
         field: "truth_layer",
         value: value.to_string(),
     })
+}
+
+fn parse_embedding_backend(value: &str) -> Result<EmbeddingBackend, RepositoryError> {
+    match value {
+        "disabled" => Ok(EmbeddingBackend::Disabled),
+        "reserved" => Ok(EmbeddingBackend::Reserved),
+        "builtin" => Ok(EmbeddingBackend::Builtin),
+        other => Err(RepositoryError::InvalidEnum {
+            field: "embedding_backend",
+            value: other.to_string(),
+        }),
+    }
 }
 
 fn serialize_rumination_candidate_payload(
