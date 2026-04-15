@@ -7,9 +7,9 @@ use thiserror::Error;
 
 use crate::{
     cognition::{
+        action::{ActionCandidate, ActionKind},
         assembly::{
-            SelfStateProvider, WorkingMemoryAssembler, WorkingMemoryAssemblyError,
-            WorkingMemoryRequest,
+            ActionSeed, SelfStateProvider, WorkingMemoryAssembler, WorkingMemoryRequest,
         },
         metacog::MetacognitionService,
         report::DecisionReport,
@@ -81,6 +81,64 @@ impl AgentSearchRequest {
     pub fn with_branch_value(mut self, branch_value: AgentSearchBranchValue) -> Self {
         self.branch_values.push(branch_value);
         self
+    }
+
+    pub fn with_working_memory_limit(mut self, limit: usize) -> Self {
+        self.working_memory = self.working_memory.with_limit(limit);
+        self
+    }
+
+    pub fn developer_defaults(query: impl Into<String>) -> Self {
+        let query = query.into();
+        let working_memory = WorkingMemoryRequest::new(query.clone())
+            .with_active_goal(format!("produce a cited decision-support report for: {query}"))
+            .with_action_seed(ActionSeed::new(
+                ActionCandidate::new(ActionKind::Epistemic, "collect more evidence")
+                    .with_intent("retrieve stronger support before acting"),
+            ))
+            .with_action_seed(ActionSeed::new(
+                ActionCandidate::new(ActionKind::Instrumental, "take the leading action")
+                    .with_intent("act only if citations and gates remain green"),
+            ))
+            .with_action_seed(ActionSeed::new(
+                ActionCandidate::new(ActionKind::Regulative, "pause and request clarification")
+                    .with_intent("insert a safe regulating step when evidence is weak"),
+            ));
+
+        Self::new(working_memory)
+            .with_branch_value(AgentSearchBranchValue::new(
+                ActionKind::Epistemic,
+                "collect more evidence",
+                ValueVector {
+                    goal_progress: 0.40,
+                    information_gain: 0.95,
+                    risk_avoidance: 0.60,
+                    resource_efficiency: 0.50,
+                    agent_robustness: 0.75,
+                },
+            ))
+            .with_branch_value(AgentSearchBranchValue::new(
+                ActionKind::Instrumental,
+                "take the leading action",
+                ValueVector {
+                    goal_progress: 0.90,
+                    information_gain: 0.35,
+                    risk_avoidance: 0.50,
+                    resource_efficiency: 0.85,
+                    agent_robustness: 0.65,
+                },
+            ))
+            .with_branch_value(AgentSearchBranchValue::new(
+                ActionKind::Regulative,
+                "pause and request clarification",
+                ValueVector {
+                    goal_progress: 0.35,
+                    information_gain: 0.40,
+                    risk_avoidance: 0.98,
+                    resource_efficiency: 0.45,
+                    agent_robustness: 0.98,
+                },
+            ))
     }
 
     fn bounded_queries(&self) -> Vec<String> {
@@ -176,6 +234,10 @@ impl<R, A, S, G> AgentSearchOrchestrator<R, A, S, G> {
     }
 }
 
+pub trait AgentSearchRunner {
+    fn run(&self, request: &AgentSearchRequest) -> Result<AgentSearchReport, AgentSearchError>;
+}
+
 impl<R, A, S, G> AgentSearchOrchestrator<R, A, S, G>
 where
     R: RetrievalPort,
@@ -183,7 +245,7 @@ where
     S: ScoringPort,
     G: GatingPort,
 {
-    pub fn run(&self, request: &AgentSearchRequest) -> Result<AgentSearchReport, AgentSearchError> {
+    fn execute(&self, request: &AgentSearchRequest) -> Result<AgentSearchReport, AgentSearchError> {
         let retrieval_steps = request
             .bounded_queries()
             .into_iter()
@@ -228,6 +290,18 @@ where
             working_memory,
             decision,
         })
+    }
+}
+
+impl<R, A, S, G> AgentSearchRunner for AgentSearchOrchestrator<R, A, S, G>
+where
+    R: RetrievalPort,
+    A: AssemblyPort,
+    S: ScoringPort,
+    G: GatingPort,
+{
+    fn run(&self, request: &AgentSearchRequest) -> Result<AgentSearchReport, AgentSearchError> {
+        self.execute(request)
     }
 }
 

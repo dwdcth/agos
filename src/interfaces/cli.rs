@@ -5,6 +5,11 @@ use clap::{Parser, Subcommand};
 use serde_json::json;
 
 use crate::{
+    agent::{
+        orchestration::{AgentSearchOrchestrator, AgentSearchReport, AgentSearchRequest},
+        rig_adapter::RigAgentSearchAdapter,
+    },
+    cognition::{assembly::MinimalSelfStateProvider, value::ValueConfig},
     core::{
         app::AppContext,
         config::Config,
@@ -78,6 +83,17 @@ pub enum Commands {
         json: bool,
         #[arg(long)]
         trace: bool,
+    },
+    AgentSearch {
+        query: String,
+        #[arg(long = "follow-up")]
+        follow_up_queries: Vec<String>,
+        #[arg(long = "top-k", default_value_t = SearchRequest::DEFAULT_LIMIT)]
+        top_k: usize,
+        #[arg(long = "max-steps", default_value_t = AgentSearchRequest::DEFAULT_MAX_STEPS)]
+        max_steps: usize,
+        #[arg(long)]
+        json: bool,
     },
     Inspect {
         #[command(subcommand)]
@@ -153,6 +169,22 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
                 trace,
             },
         ),
+        Commands::AgentSearch {
+            query,
+            follow_up_queries,
+            top_k,
+            max_steps,
+            json,
+        } => agent_search_command(
+            &app,
+            AgentSearchCommand {
+                query,
+                follow_up_queries,
+                top_k,
+                max_steps,
+                json,
+            },
+        ),
         Commands::Inspect { command } => inspect_command(&app, command),
     }
 }
@@ -185,6 +217,15 @@ struct SearchCommand {
     to: Option<String>,
     json: bool,
     trace: bool,
+}
+
+#[derive(Debug, Clone)]
+struct AgentSearchCommand {
+    query: String,
+    follow_up_queries: Vec<String>,
+    top_k: usize,
+    max_steps: usize,
+    json: bool,
 }
 
 fn init_command(app: &AppContext) -> Result<ExitCode> {
@@ -328,6 +369,28 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
     Ok(ExitCode::SUCCESS)
 }
 
+fn agent_search_command(app: &AppContext, command: AgentSearchCommand) -> Result<ExitCode> {
+    let db = Database::open(app.db_path())?;
+    let mut request = AgentSearchRequest::developer_defaults(command.query)
+        .with_working_memory_limit(command.top_k)
+        .with_max_steps(command.max_steps);
+    for query in command.follow_up_queries {
+        request = request.with_follow_up_query(query);
+    }
+
+    let orchestrator = AgentSearchOrchestrator::with_services(
+        db.conn(),
+        MinimalSelfStateProvider,
+        ValueConfig::default(),
+    );
+    let adapter = RigAgentSearchAdapter::new(orchestrator);
+    let runtime = tokio::runtime::Runtime::new()?;
+    let report = runtime.block_on(adapter.run(&request))?;
+
+    println!("{}", render_agent_search_report(&report, command.json)?);
+    Ok(ExitCode::SUCCESS)
+}
+
 fn inspect_command(app: &AppContext, command: InspectCommands) -> Result<ExitCode> {
     match command {
         InspectCommands::Schema => inspect_schema_command(app),
@@ -351,6 +414,44 @@ fn inspect_schema_command(app: &AppContext) -> Result<ExitCode> {
     println!("  index_readiness: {}", report.index_readiness);
 
     Ok(ExitCode::SUCCESS)
+}
+
+pub fn render_agent_search_report(report: &AgentSearchReport, json: bool) -> Result<String> {
+    if json {
+        return Ok(serde_json::to_string_pretty(report)?);
+    }
+
+    let selected_branch = report
+        .decision
+        .selected_branch
+        .as_ref()
+        .map(|branch| branch.branch.candidate.summary.as_str())
+        .unwrap_or("none");
+    let mut output = vec![
+        format!("executed_steps: {}", report.executed_steps),
+        format!("step_limit: {}", report.step_limit),
+        format!("gate_decision: {}", gate_label(report.decision.gate.decision)),
+        format!("selected_branch: {selected_branch}"),
+        format!("citations: {}", report.citations.len()),
+    ];
+
+    for citation in &report.citations {
+        output.push(format!(
+            "  - {} [{}:{}]",
+            citation.source_uri,
+            citation.anchor.chunk_index + 1,
+            citation.anchor.chunk_count
+        ));
+    }
+
+    if !report.decision.gate.diagnostics.is_empty() {
+        output.push("diagnostics:".to_string());
+        for diagnostic in &report.decision.gate.diagnostics {
+            output.push(format!("  - {diagnostic}"));
+        }
+    }
+
+    Ok(output.join("\n"))
 }
 
 fn format_filters(filters: &SearchFilters) -> String {
@@ -380,4 +481,13 @@ fn parse_truth_layer_arg(value: &str) -> std::result::Result<TruthLayer, String>
 
 fn parse_source_kind_arg(value: &str) -> std::result::Result<SourceKind, String> {
     SourceKind::parse(value).ok_or_else(|| format!("unsupported source kind: {value}"))
+}
+
+fn gate_label(decision: crate::cognition::metacog::GateDecision) -> &'static str {
+    match decision {
+        crate::cognition::metacog::GateDecision::Warning => "warning",
+        crate::cognition::metacog::GateDecision::SoftVeto => "soft_veto",
+        crate::cognition::metacog::GateDecision::HardVeto => "hard_veto",
+        crate::cognition::metacog::GateDecision::Escalate => "escalate",
+    }
 }
