@@ -28,12 +28,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. Developer can start the Rust application and initialize the local SQLite store with deterministic setup steps.
   2. Developer can inspect schema version, dependency loading state, and index readiness from a CLI status command.
   3. Typed memory records with source, timestamp, scope, and truth metadata exist as first-class storage structures.
-**Plans**: 3 plans
+**Plans**: 4 plans
 
 Plans:
 - [x] 01-01: Bootstrap the Rust project structure and shared `core` module
 - [x] 01-02: Implement SQLite schema, migrations, and typed memory base entities
 - [x] 01-03: Add startup checks, status reporting, and developer inspection commands
+- [x] 01-04: Close verification gaps in status and init diagnostics
 
 ### Phase 2: Ingest And Lightweight Retrieval
 **Goal**: 打通普通检索主线，使系统可以在不依赖 LLM 和模型文件的前提下 ingest 资料并执行中文词法检索 + 轻量关键词加权排序。
@@ -109,7 +110,7 @@ Embedding retrieval is planned as a later optional extension that can coexist wi
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation Kernel | 3/3 | Complete | 2026-04-15 |
+| 1. Foundation Kernel | 4/4 | Complete | 2026-04-15 |
 | 2. Ingest And Lightweight Retrieval | 0/3 | Not started | - |
 | 3. Truth Layer Governance | 0/3 | Not started | - |
 | 4. Working Memory And Agent Search | 0/3 | Not started | - |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-04-15T10:14:29.748Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-04-15T10:52:19.576Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 4
+  completed_plans: 4
   percent: 100
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 ## Current Position
 
 Phase: 01 (foundation-kernel) — VERIFYING
-Plan: 3 of 3
+Plan: 4 of 4
 Status: Phase complete — ready for verification
 Last activity: 2026-04-15
 
@@ -36,24 +36,25 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 3
-- Average duration: 5min
+- Total plans completed: 4
+- Average duration: 4min
 - Total execution time: 0.3 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 3 | 15min | 5min |
+| 01 | 4 | 17min | 4min |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01, 01-02, 01-03
+- Last 5 plans: 01-01, 01-02, 01-03, 01-04
 - Trend: Stable
 
 | Phase 01 P01 | 4min | 2 tasks | 9 files |
 | Phase 01 P02 | 5min | 2 tasks | 11 files |
 | Phase 01 P03 | 6min | 2 tasks | 8 files |
+| Phase 01 P04 | 2min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase 01]: Kept status side-effect free so missing database/schema state stays visible instead of being hidden by implicit initialization.
 - [Phase 01]: Applied command-path-sensitive doctor rules: init blocks only invalid mode/backend pairs, while doctor also flags reserved embedding runtimes as non-ready.
 - [Phase 01]: Made dependency loading and index readiness explicit capability states rather than folding them into a single boolean.
+- [Phase 01]: Kept corrupted or non-SQLite db_path handling inside StatusReport so status stays exit-0 and the three-mode retrieval contract remains unchanged.
+- [Phase 01]: Reused post-bootstrap StatusReport and DoctorReport snapshots for init output so warnings stay truthful without weakening preflight blocking rules.
 
 ### Pending Todos
 
@@ -95,6 +98,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T10:14:29.744Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-04-15T10:52:19.572Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None
