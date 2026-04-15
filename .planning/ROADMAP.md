@@ -64,7 +64,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: Add truth-layer metadata, repositories, and query semantics
+- [x] 03-01: Add truth-layer metadata, repositories, and query semantics
 - [ ] 03-02: Implement T3 provenance/revocability rules and promotion gate models
 - [ ] 03-03: Add T2-to-T1 candidate handling and governance-oriented service APIs
 

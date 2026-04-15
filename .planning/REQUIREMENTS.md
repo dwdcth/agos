@@ -27,8 +27,8 @@
 
 ### Truth Layers
 
-- [ ] **TRU-01**: System distinguishes T1, T2, and T3 records in storage and service APIs instead of treating all memory as one undifferentiated blob.
-- [ ] **TRU-02**: T3 records carry explicit provenance, confidence, and revocability markers so private working hypotheses remain auditable.
+- [x] **TRU-01**: System distinguishes T1, T2, and T3 records in storage and service APIs instead of treating all memory as one undifferentiated blob.
+- [x] **TRU-02**: T3 records carry explicit provenance, confidence, and revocability markers so private working hypotheses remain auditable.
 - [ ] **TRU-03**: System can promote a T3 structure toward T2 only through an explicit gate that records evidence review and metacognitive approval state.
 - [ ] **TRU-04**: System can create T2-to-T1 ontology candidates without automatically rewriting the shared ontology layer.
 
@@ -96,8 +96,8 @@
 | RET-03 | Phase 2 | Complete |
 | RET-04 | Phase 2 | Complete |
 | RET-05 | Phase 2 | Complete |
-| TRU-01 | Phase 3 | Pending |
-| TRU-02 | Phase 3 | Pending |
+| TRU-01 | Phase 3 | Complete |
+| TRU-02 | Phase 3 | Complete |
 | TRU-03 | Phase 3 | Pending |
 | TRU-04 | Phase 3 | Pending |
 | COG-01 | Phase 4 | Pending |

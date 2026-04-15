@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-04-15T13:44:06.353Z"
+status: executing
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-04-15T14:44:03.295Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
+  total_plans: 11
+  completed_plans: 9
+  percent: 82
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-15)
 
 **Core value:** 当 agent 需要回忆历史决策、证据、模式或当前认知状态时，系统必须能快速给出带出处、带时间性、带状态约束的正确记忆。
-**Current focus:** Phase 02 — ingest-and-lightweight-retrieval
+**Current focus:** Phase 03 — truth-layer-governance
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 03 (truth-layer-governance) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-04-15
 
-Progress: [██████████] 100%
+Progress: [████████░░] 82%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [██████████] 100%
 | Phase 02 P02 | 13min | 2 tasks | 13 files |
 | Phase 02 P03 | 9min | 2 tasks | 12 files |
 | Phase 02 P04 | 2min | 2 tasks | 2 files |
+| Phase 03 P01 | 10min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,9 @@ Recent decisions affecting current work:
 - [Phase 02]: Kept CLI ingest/search as synchronous wrappers over library services, preserving no-Rig and no-LLM ordinary retrieval.
 - [Phase 02]: Replaced stale lexical-only readiness notes with Phase 2 lexical-first wording while preserving deferred semantic modes.
 - [Phase 02]: Finalized Plan 02-04 from existing implementation commits and re-ran focused status verification before updating metadata.
+- [Phase 03]: Kept memory_records and memory_records_fts as the single authority backbone, and layered truth governance into additive side tables instead of splitting T1/T2/T3 into separate content stores.
+- [Phase 03]: Inserted default T3 governance rows at repository write time so T3 records cannot silently exist without confidence and revocation state.
+- [Phase 03]: Exposed typed TruthRecord projections from MemoryRepository while leaving the Phase 2 lexical retrieval path on the existing authority-table contract.
 
 ### Pending Todos
 
@@ -113,6 +117,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T13:21:43.169Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-04-15T14:44:03.290Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
