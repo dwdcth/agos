@@ -361,6 +361,18 @@ impl<'db> TruthGovernanceService<'db> {
         self.repository.get_truth_record(record_id).map_err(Into::into)
     }
 
+    pub fn list_pending_reviews(&self) -> Result<Vec<PromotionReview>, TruthGovernanceError> {
+        self.repository
+            .list_pending_promotion_reviews()
+            .map_err(Into::into)
+    }
+
+    pub fn list_pending_candidates(&self) -> Result<Vec<OntologyCandidate>, TruthGovernanceError> {
+        self.repository
+            .list_pending_ontology_candidates()
+            .map_err(Into::into)
+    }
+
     fn require_active_t3_source(
         &self,
         record_id: &str,

@@ -344,6 +344,35 @@ impl<'db> MemoryRepository<'db> {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    pub fn list_pending_promotion_reviews(&self) -> Result<Vec<PromotionReview>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                review_id,
+                source_record_id,
+                target_layer,
+                result_trigger_state,
+                evidence_review_state,
+                consensus_check_state,
+                metacog_approval_state,
+                decision_state,
+                review_notes_json,
+                approved_at,
+                created_at,
+                updated_at
+            FROM truth_promotion_reviews
+            WHERE decision_state = ?1
+            ORDER BY updated_at DESC, review_id DESC
+            "#,
+        )?;
+        let rows = statement.query_map(
+            [PromotionDecisionState::Pending.as_str()],
+            map_promotion_review_row,
+        )?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
     pub fn update_promotion_review(
         &self,
         review: &PromotionReview,
@@ -464,6 +493,38 @@ impl<'db> MemoryRepository<'db> {
             "#,
         )?;
         let rows = statement.query_map([source_record_id], map_ontology_candidate_row)?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn list_pending_ontology_candidates(
+        &self,
+    ) -> Result<Vec<OntologyCandidate>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                candidate_id,
+                source_record_id,
+                basis_record_ids_json,
+                proposed_structure_json,
+                time_stability_state,
+                agent_reproducibility_state,
+                context_invariance_state,
+                predictive_utility_state,
+                structural_review_state,
+                candidate_state,
+                decided_at,
+                created_at,
+                updated_at
+            FROM truth_ontology_candidates
+            WHERE candidate_state = ?1
+            ORDER BY updated_at DESC, candidate_id DESC
+            "#,
+        )?;
+        let rows = statement.query_map(
+            [OntologyCandidateState::Pending.as_str()],
+            map_ontology_candidate_row,
+        )?;
 
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
