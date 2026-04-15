@@ -80,7 +80,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: Implement attention-to-working-memory assembly services
+- [x] 04-01: Implement attention-to-working-memory assembly services
 - [ ] 04-02: Implement value scoring and metacognitive gating over candidate actions
 - [ ] 04-03: Integrate Rig-based agent-search orchestration on top of ordinary retrieval
 

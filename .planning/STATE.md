@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-04-15T15:19:40.428Z"
+status: executing
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-04-15T16:37:17.155Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
-  percent: 100
+  total_plans: 14
+  completed_plans: 12
+  percent: 86
 ---
 
 # Project State
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-15)
 
 **Core value:** 当 agent 需要回忆历史决策、证据、模式或当前认知状态时，系统必须能快速给出带出处、带时间性、带状态约束的正确记忆。
-**Current focus:** Phase 03 — truth-layer-governance
+**Current focus:** Phase 04 — working-memory-and-agent-search
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 04 (working-memory-and-agent-search) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-04-15
 
 Progress: [██████████] 100%
@@ -65,6 +65,7 @@ Progress: [██████████] 100%
 | Phase 03 P02 | 8min | 2 tasks | 5 files |
 | Phase 03 P03 | 4min | 2 tasks | 3 files |
 | Phase 03 P03 | 4min | 2 tasks | 3 files |
+| Phase 04 P01 | 8min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,9 @@ Recent decisions affecting current work:
 - [Phase 03]: Kept T2 to T1 evolution candidate-only by persisting ontology proposals in truth_ontology_candidates without mutating T1 authority rows.
 - [Phase 03]: Validated basis-record references during candidate creation so governance proposals remain auditable and non-dangling.
 - [Phase 03]: Exposed pending reviews and pending candidates as repository-backed governance queues instead of overloading ordinary retrieval APIs.
+- [Phase 04]: Kept WorkingMemory runtime-only and immutable, with builder validation preventing partial present-state execution.
+- [Phase 04]: Made self_state a minimal provider seam fed by request-local flags and selected TruthRecord projections instead of a new durable self-model subsystem.
+- [Phase 04]: Materialized branch evidence directly from cited retrieval fragments so Phase 2 provenance and Phase 3 truth context remain attached inside the control field.
 
 ### Pending Todos
 
@@ -126,6 +130,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T15:09:56.735Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-04-15T16:37:17.150Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
