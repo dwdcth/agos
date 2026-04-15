@@ -48,7 +48,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: Implement source normalization, chunking, and ingest persistence
+- [x] 02-01: Implement source normalization, chunking, and ingest persistence
 - [ ] 02-02: Implement `libsimple` lexical recall and Rust lightweight scoring rules
 - [ ] 02-03: Implement explainable rerank, filtering, citations, and ordinary retrieval APIs
 

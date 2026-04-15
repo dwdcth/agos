@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 01-04-PLAN.md
-last_updated: "2026-04-15T10:52:19.576Z"
+status: executing
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-04-15T12:07:07.652Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
+  total_plans: 7
+  completed_plans: 5
+  percent: 71
 ---
 
 # Project State
@@ -21,40 +21,42 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-15)
 
 **Core value:** 当 agent 需要回忆历史决策、证据、模式或当前认知状态时，系统必须能快速给出带出处、带时间性、带状态约束的正确记忆。
-**Current focus:** Phase 01 — foundation-kernel
+**Current focus:** Phase 02 — ingest-and-lightweight-retrieval
 
 ## Current Position
 
-Phase: 01 (foundation-kernel) — VERIFYING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
+Phase: 02 (ingest-and-lightweight-retrieval) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-04-15
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 71%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 4
-- Average duration: 4min
-- Total execution time: 0.3 hours
+- Total plans completed: 5
+- Average duration: 5min
+- Total execution time: 0.4 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 4 | 17min | 4min |
+| 02 | 1 | 9min | 9min |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01, 01-02, 01-03, 01-04
+- Last 5 plans: 01-01, 01-02, 01-03, 01-04, 02-01
 - Trend: Stable
 
 | Phase 01 P01 | 4min | 2 tasks | 9 files |
 | Phase 01 P02 | 5min | 2 tasks | 11 files |
 | Phase 01 P03 | 6min | 2 tasks | 8 files |
 | Phase 01 P04 | 2min | 2 tasks | 3 files |
+| Phase 02 P01 | 9min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -78,6 +80,9 @@ Recent decisions affecting current work:
 - [Phase 01]: Made dependency loading and index readiness explicit capability states rather than folding them into a single boolean.
 - [Phase 01]: Kept corrupted or non-SQLite db_path handling inside StatusReport so status stays exit-0 and the three-mode retrieval contract remains unchanged.
 - [Phase 01]: Reused post-bootstrap StatusReport and DoctorReport snapshots for init output so warnings stay truthful without weakening preflight blocking rules.
+- [Phase 02]: Kept memory_records as the only authority store and added chunk and validity metadata additively for ingest.
+- [Phase 02]: Implemented ingest as synchronous detect -> normalize -> chunk -> persist services so ordinary retrieval remains usable without Rig, embeddings, or async runtime changes.
+- [Phase 02]: Stored nullable valid_from and valid_to separately from recorded_at so later retrieval plans can filter and cite validity windows explicitly.
 
 ### Pending Todos
 
@@ -98,6 +103,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T10:52:19.572Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-04-15T12:07:07.648Z
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None

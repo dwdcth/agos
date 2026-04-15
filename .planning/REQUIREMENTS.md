@@ -13,8 +13,8 @@
 
 ### Ingest
 
-- [ ] **ING-01**: Developer can ingest notes, documents, and conversation-like text into normalized memory units suitable for indexing.
-- [ ] **ING-02**: System can chunk ingested content while preserving source linkage and chunk provenance.
+- [x] **ING-01**: Developer can ingest notes, documents, and conversation-like text into normalized memory units suitable for indexing.
+- [x] **ING-02**: System can chunk ingested content while preserving source linkage and chunk provenance.
 - [ ] **ING-03**: System can persist lexical and scoring metadata needed for lightweight retrieval without requiring embeddings or model files.
 
 ### Retrieval
@@ -88,8 +88,8 @@
 | FND-01 | Phase 1 | Complete |
 | FND-02 | Phase 1 | Complete |
 | FND-03 | Phase 1 | Complete |
-| ING-01 | Phase 2 | Pending |
-| ING-02 | Phase 2 | Pending |
+| ING-01 | Phase 2 | Complete |
+| ING-02 | Phase 2 | Complete |
 | ING-03 | Phase 2 | Pending |
 | RET-01 | Phase 2 | Pending |
 | RET-02 | Phase 2 | Pending |
