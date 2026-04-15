@@ -178,6 +178,54 @@ fn init_creates_database_and_inspect_schema_reports_foundation_state() {
 }
 
 #[test]
+fn status_reports_non_sqlite_db_as_not_ready() {
+    let dir = unique_temp_dir("status-bad-db");
+    let db_path = dir.join("data").join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    fs::create_dir_all(db_path.parent().expect("db path should have parent"))
+        .expect("db parent should exist");
+    fs::write(&db_path, b"not a sqlite database").expect("bad db fixture should be written");
+    write_config(&config_path, &db_path, "embedding_only", "reserved");
+
+    let output = run_cli(&config_path, &["status"]);
+    let text = stdout(&output);
+
+    assert!(
+        output.status.success(),
+        "status should stay informational for a non-sqlite file: stdout={text} stderr={}",
+        stderr(&output)
+    );
+    assert!(
+        text.contains("configured_mode: embedding_only"),
+        "status should preserve configured mode: {text}"
+    );
+    assert!(
+        text.contains("effective_mode: embedding_only"),
+        "status should preserve effective mode: {text}"
+    );
+    assert!(
+        text.contains("schema_state: missing"),
+        "status should report explicit non-ready schema state: {text}"
+    );
+    assert!(
+        text.contains("base_table_state: missing"),
+        "status should report explicit non-ready base table state: {text}"
+    );
+    assert!(
+        text.contains("index_readiness: not_applicable"),
+        "status should still report index readiness for embedding_only: {text}"
+    );
+    assert!(
+        text.contains("ready: false"),
+        "status should report not ready for a bad db file: {text}"
+    );
+    assert!(
+        text.contains("schema inspection failed for existing database file"),
+        "status should explain inspection failure in notes: {text}"
+    );
+}
+
+#[test]
 fn init_allows_reserved_modes_but_rejects_invalid_runtime_requests() {
     let reserved_dir = unique_temp_dir("init-reserved");
     let reserved_db_path = reserved_dir.join("data").join("agent-memos.sqlite");
