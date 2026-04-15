@@ -27,6 +27,16 @@ pub enum EmbeddingBackend {
     Builtin,
 }
 
+impl EmbeddingBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Reserved => "reserved",
+            Self::Builtin => "builtin",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct RetrievalConfig {
