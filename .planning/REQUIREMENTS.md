@@ -8,7 +8,7 @@
 ### Foundation
 
 - [x] **FND-01**: Developer can initialize a local-first Rust application with a SQLite database, schema migrations, and deterministic startup checks for retrieval dependencies.
-- [ ] **FND-02**: System can persist typed memory records with source, timestamp, scope, record type, truth-layer metadata, and provenance fields.
+- [x] **FND-02**: System can persist typed memory records with source, timestamp, scope, record type, truth-layer metadata, and provenance fields.
 - [ ] **FND-03**: Developer can inspect system health and index status from a CLI surface without requiring an LLM.
 
 ### Ingest
@@ -86,7 +86,7 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | FND-01 | Phase 1 | Complete |
-| FND-02 | Phase 1 | Pending |
+| FND-02 | Phase 1 | Complete |
 | FND-03 | Phase 1 | Pending |
 | ING-01 | Phase 2 | Pending |
 | ING-02 | Phase 2 | Pending |
