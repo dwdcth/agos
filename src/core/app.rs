@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 
-use crate::core::config::{Config, RetrievalMode};
+use crate::core::config::{Config, EmbeddingBackend, RetrievalMode};
 
 #[derive(Debug, Clone)]
 pub struct AppContext {
@@ -39,25 +39,41 @@ pub struct RuntimeReadiness {
 impl RuntimeReadiness {
     pub fn from_config(config: &Config) -> Self {
         match config.retrieval.mode {
-            RetrievalMode::LexicalOnly => Self {
-                configured_mode: RetrievalMode::LexicalOnly,
-                effective_mode: RetrievalMode::LexicalOnly,
-                ready: true,
-                notes: vec![
+            RetrievalMode::LexicalOnly => {
+                let mut notes = vec![
                     "lexical_only uses the Phase 2 lexical-first baseline".to_string(),
                     "lexical dependency loading and index readiness are provided by the lexical path after initialization"
                         .to_string(),
-                ],
-            },
+                ];
+
+                match (config.embedding.backend, config.embedding.model.as_deref()) {
+                    (EmbeddingBackend::Disabled, _) => {}
+                    (EmbeddingBackend::Reserved, _) => notes.push(
+                        "embedding foundation remains reserved until the optional semantic substrate is implemented"
+                            .to_string(),
+                    ),
+                    (EmbeddingBackend::Builtin, Some(model)) => notes.push(format!(
+                        "builtin embedding backend is configured with model '{model}' as an optional second-channel foundation"
+                    )),
+                    (EmbeddingBackend::Builtin, None) => notes.push(
+                        "builtin embedding backend is configured, but no embedding model is set yet"
+                            .to_string(),
+                    ),
+                }
+
+                Self {
+                    configured_mode: RetrievalMode::LexicalOnly,
+                    effective_mode: RetrievalMode::LexicalOnly,
+                    ready: true,
+                    notes,
+                }
+            }
             RetrievalMode::EmbeddingOnly => Self {
                 configured_mode: RetrievalMode::EmbeddingOnly,
                 effective_mode: RetrievalMode::EmbeddingOnly,
                 ready: false,
                 notes: vec![
-                    format!(
-                        "embedding_only is configured, but backend {:?} is reserved for a later phase",
-                        config.embedding.backend
-                    ),
+                    embedding_only_note(config),
                     "semantic retrieval remains explicit instead of collapsing to a boolean flag"
                         .to_string(),
                 ],
@@ -69,12 +85,49 @@ impl RuntimeReadiness {
                 notes: vec![
                     "hybrid is configured with lexical as the primary explanation channel"
                         .to_string(),
-                    format!(
-                        "embedding backend {:?} is reserved until semantic retrieval lands",
-                        config.embedding.backend
-                    ),
+                    hybrid_note(config),
                 ],
             },
+        }
+    }
+}
+
+fn embedding_only_note(config: &Config) -> String {
+    match (config.embedding.backend, config.embedding.model.as_deref()) {
+        (EmbeddingBackend::Disabled, _) => {
+            "embedding_only is configured, but a non-disabled embedding backend is required"
+                .to_string()
+        }
+        (EmbeddingBackend::Reserved, _) => {
+            "embedding_only is configured, but the embedding substrate is still reserved until a later phase"
+                .to_string()
+        }
+        (EmbeddingBackend::Builtin, Some(model)) => format!(
+            "embedding_only is configured with builtin model '{model}', but semantic-primary retrieval remains gated until dual-channel retrieval lands"
+        ),
+        (EmbeddingBackend::Builtin, None) => {
+            "embedding_only is configured for the builtin backend, but no embedding model is set"
+                .to_string()
+        }
+    }
+}
+
+fn hybrid_note(config: &Config) -> String {
+    match (config.embedding.backend, config.embedding.model.as_deref()) {
+        (EmbeddingBackend::Disabled, _) => {
+            "hybrid is configured, but an embedding backend is required for the secondary path"
+                .to_string()
+        }
+        (EmbeddingBackend::Reserved, _) => {
+            "embedding backend Reserved remains foundation-only until dual-channel retrieval lands"
+                .to_string()
+        }
+        (EmbeddingBackend::Builtin, Some(model)) => format!(
+            "builtin embedding model '{model}' is configured, but hybrid fusion remains gated until the dual-channel retrieval phase"
+        ),
+        (EmbeddingBackend::Builtin, None) => {
+            "hybrid is configured for the builtin backend, but no embedding model is set"
+                .to_string()
         }
     }
 }
@@ -136,9 +189,9 @@ mod tests {
                 mode: RetrievalMode::EmbeddingOnly,
             },
             embedding: EmbeddingConfig {
-                backend: EmbeddingBackend::Reserved,
-                model: Some("future-model".to_string()),
-                endpoint: Some("http://localhost:11434".to_string()),
+                backend: EmbeddingBackend::Builtin,
+                model: Some("hash-64".to_string()),
+                endpoint: None,
             },
         };
 
@@ -157,7 +210,7 @@ mod tests {
             embedding_readiness
                 .notes
                 .iter()
-                .any(|note| note.contains("reserved for a later phase")),
+                .any(|note| note.contains("semantic-primary retrieval remains gated")),
             "embedding_only should stay explicitly deferred: {:?}",
             embedding_readiness.notes
         );
@@ -168,9 +221,9 @@ mod tests {
                 mode: RetrievalMode::Hybrid,
             },
             embedding: EmbeddingConfig {
-                backend: EmbeddingBackend::Reserved,
-                model: Some("future-model".to_string()),
-                endpoint: Some("http://localhost:11434".to_string()),
+                backend: EmbeddingBackend::Builtin,
+                model: Some("hash-64".to_string()),
+                endpoint: None,
             },
         };
 
@@ -182,7 +235,7 @@ mod tests {
             hybrid_readiness
                 .notes
                 .iter()
-                .any(|note| note.contains("reserved until semantic retrieval lands")),
+                .any(|note| note.contains("hybrid fusion remains gated")),
             "hybrid should keep semantic capability deferred: {:?}",
             hybrid_readiness.notes
         );

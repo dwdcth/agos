@@ -18,8 +18,25 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 }
 
 fn write_config(path: &Path, db_path: &Path, mode: &str, backend: &str) {
+    write_config_with_embedding(path, db_path, mode, backend, None, None);
+}
+
+fn write_config_with_embedding(
+    path: &Path,
+    db_path: &Path,
+    mode: &str,
+    backend: &str,
+    model: Option<&str>,
+    endpoint: Option<&str>,
+) {
     let parent = path.parent().expect("config path should have parent");
     fs::create_dir_all(parent).expect("config parent should exist");
+    let model_line = model
+        .map(|value| format!("model = \"{value}\"\n"))
+        .unwrap_or_default();
+    let endpoint_line = endpoint
+        .map(|value| format!("endpoint = \"{value}\"\n"))
+        .unwrap_or_default();
     fs::write(
         path,
         format!(
@@ -31,6 +48,7 @@ mode = "{mode}"
 
 [embedding]
 backend = "{backend}"
+{model_line}{endpoint_line}
 "#,
             db_path.display()
         ),
@@ -405,4 +423,125 @@ fn diagnostic_commands_remain_informational_while_operational_gate_uses_same_con
         "operational gate should surface the same diagnostic reason for broken local db files: {}",
         stdout(&bad_search)
     );
+}
+
+#[test]
+fn embedding_foundation_status_reports_backend_readiness_truthfully() {
+    for (name, model, embedding_state, expected_note) in [
+        (
+            "builtin-ready",
+            Some("hash-64"),
+            "ready",
+            "optional second-channel foundation",
+        ),
+        (
+            "builtin-missing-model",
+            None,
+            "deferred",
+            "no embedding model is set yet",
+        ),
+    ] {
+        let dir = unique_temp_dir(name);
+        let db_path = dir.join("agent-memos.sqlite");
+        let config_path = dir.join("config.toml");
+        Database::open(&db_path).expect("database should bootstrap for status");
+        write_config_with_embedding(
+            &config_path,
+            &db_path,
+            "lexical_only",
+            "builtin",
+            model,
+            None,
+        );
+
+        let output = run_cli(&config_path, &["status"]);
+        let text = stdout(&output);
+        assert!(
+            output.status.success(),
+            "status should stay informational for lexical_only+builtin: stdout={text} stderr={}",
+            stderr(&output)
+        );
+        assert!(
+            text.contains("configured_mode: lexical_only"),
+            "status should preserve lexical-only configured mode: {text}"
+        );
+        assert!(
+            text.contains("embedding_backend: builtin"),
+            "status should render the builtin backend label: {text}"
+        );
+        assert!(
+            text.contains(&format!("embedding_dependency_state: {embedding_state}")),
+            "status should reflect builtin backend readiness truthfully: {text}"
+        );
+        assert!(
+            text.contains(expected_note),
+            "status notes should explain builtin embedding readiness state: {text}"
+        );
+        assert!(
+            text.contains("ready: true"),
+            "builtin foundation should not break lexical-only readiness: {text}"
+        );
+    }
+}
+
+#[test]
+fn embedding_foundation_doctor_preserves_lexical_first_contract() {
+    let lexical_dir = unique_temp_dir("embedding-foundation-lexical");
+    let lexical_db_path = lexical_dir.join("agent-memos.sqlite");
+    let lexical_config_path = lexical_dir.join("config.toml");
+    Database::open(&lexical_db_path).expect("database should bootstrap");
+    write_config_with_embedding(
+        &lexical_config_path,
+        &lexical_db_path,
+        "lexical_only",
+        "builtin",
+        Some("hash-64"),
+        None,
+    );
+
+    let lexical_doctor = run_cli(&lexical_config_path, &["doctor"]);
+    assert!(
+        lexical_doctor.status.success(),
+        "doctor should keep lexical-only green when builtin embedding is optional foundation: stdout={} stderr={}",
+        stdout(&lexical_doctor),
+        stderr(&lexical_doctor)
+    );
+
+    for (name, mode, expected) in [
+        (
+            "embedding-foundation-only",
+            "embedding_only",
+            "embedding_only foundation is configured, but semantic retrieval is not enabled until Phase 9",
+        ),
+        (
+            "hybrid-foundation-only",
+            "hybrid",
+            "hybrid foundation is configured, but dual-channel retrieval is not enabled until Phase 9",
+        ),
+    ] {
+        let dir = unique_temp_dir(name);
+        let db_path = dir.join("agent-memos.sqlite");
+        let config_path = dir.join("config.toml");
+        Database::open(&db_path).expect("database should bootstrap");
+        write_config_with_embedding(
+            &config_path,
+            &db_path,
+            mode,
+            "builtin",
+            Some("hash-64"),
+            None,
+        );
+
+        let output = run_cli(&config_path, &["doctor"]);
+        let text = stdout(&output);
+        assert!(
+            !output.status.success(),
+            "doctor should block semantic-primary foundation-only modes {mode}: stdout={text} stderr={}",
+            stderr(&output)
+        );
+        assert!(
+            text.contains(expected),
+            "doctor should explain that Phase 8 only establishes the foundation for {mode}: {text}"
+        );
+    }
 }

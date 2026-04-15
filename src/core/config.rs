@@ -24,6 +24,7 @@ pub enum EmbeddingBackend {
     #[default]
     Disabled,
     Reserved,
+    Builtin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -110,7 +111,11 @@ mod tests {
 
     #[test]
     fn config_parses_all_supported_modes() {
-        for mode in ["lexical_only", "embedding_only", "hybrid"] {
+        for (mode, backend) in [
+            ("lexical_only", "disabled"),
+            ("embedding_only", "builtin"),
+            ("hybrid", "reserved"),
+        ] {
             let config = toml::from_str::<Config>(&format!(
                 r#"
 db_path = "/tmp/agent-memos.db"
@@ -119,7 +124,7 @@ db_path = "/tmp/agent-memos.db"
 mode = "{mode}"
 
 [embedding]
-backend = "disabled"
+backend = "{backend}"
 "#
             ))
             .expect("supported mode should parse");

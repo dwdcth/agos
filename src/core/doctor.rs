@@ -51,6 +51,20 @@ impl DoctorReport {
             }
         }
 
+        if semantic_runtime_is_still_foundation_only(command_path) {
+            match (status.configured_mode, status.embedding_backend) {
+                (RetrievalMode::EmbeddingOnly, EmbeddingBackend::Builtin) => failures.push(
+                    "embedding_only foundation is configured, but semantic retrieval is not enabled until Phase 9"
+                        .to_string(),
+                ),
+                (RetrievalMode::Hybrid, EmbeddingBackend::Builtin) => failures.push(
+                    "hybrid foundation is configured, but dual-channel retrieval is not enabled until Phase 9"
+                        .to_string(),
+                ),
+                _ => {}
+            }
+        }
+
         if requires_operational_readiness(command_path) {
             failures.extend(operational_readiness_failures(status));
         }
@@ -115,6 +129,13 @@ fn requires_operational_readiness(command_path: CommandPath) -> bool {
     matches!(
         command_path,
         CommandPath::Ingest | CommandPath::Search | CommandPath::AgentSearch
+    )
+}
+
+fn semantic_runtime_is_still_foundation_only(command_path: CommandPath) -> bool {
+    matches!(
+        command_path,
+        CommandPath::Doctor | CommandPath::Ingest | CommandPath::Search | CommandPath::AgentSearch
     )
 }
 

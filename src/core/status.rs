@@ -94,8 +94,11 @@ impl StatusReport {
             RetrievalMode::EmbeddingOnly => CapabilityState::NotApplicable,
         };
 
-        let embedding_dependency_state =
-            embedding_dependency_state(app.config.retrieval.mode, app.config.embedding.backend);
+        let embedding_dependency_state = embedding_dependency_state(
+            app.config.retrieval.mode,
+            app.config.embedding.backend,
+            app.config.embedding.model.as_deref(),
+        );
         let index_readiness = match app.config.retrieval.mode {
             RetrievalMode::LexicalOnly => inspection.lexical_index_state,
             RetrievalMode::EmbeddingOnly => CapabilityState::NotApplicable,
@@ -260,16 +263,30 @@ fn inspect_database(path: &Path) -> Result<DatabaseInspection> {
 fn embedding_dependency_state(
     mode: RetrievalMode,
     backend: EmbeddingBackend,
+    model: Option<&str>,
 ) -> CapabilityState {
-    match (mode, backend) {
-        (RetrievalMode::LexicalOnly, EmbeddingBackend::Disabled) => CapabilityState::Disabled,
-        (RetrievalMode::LexicalOnly, EmbeddingBackend::Reserved) => CapabilityState::Deferred,
-        (RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid, EmbeddingBackend::Disabled) => {
+    match (mode, backend, model) {
+        (RetrievalMode::LexicalOnly, EmbeddingBackend::Disabled, _) => CapabilityState::Disabled,
+        (RetrievalMode::LexicalOnly, EmbeddingBackend::Reserved, _) => CapabilityState::Deferred,
+        (RetrievalMode::LexicalOnly, EmbeddingBackend::Builtin, Some(_)) => CapabilityState::Ready,
+        (RetrievalMode::LexicalOnly, EmbeddingBackend::Builtin, None) => CapabilityState::Deferred,
+        (RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid, EmbeddingBackend::Disabled, _) => {
             CapabilityState::Missing
         }
         (
             RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
             EmbeddingBackend::Reserved,
+            _,
+        ) => CapabilityState::Deferred,
+        (
+            RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
+            EmbeddingBackend::Builtin,
+            Some(_),
+        ) => CapabilityState::Ready,
+        (
+            RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
+            EmbeddingBackend::Builtin,
+            None,
         ) => CapabilityState::Deferred,
     }
 }
@@ -286,5 +303,6 @@ pub fn embedding_backend_label(backend: EmbeddingBackend) -> &'static str {
     match backend {
         EmbeddingBackend::Disabled => "disabled",
         EmbeddingBackend::Reserved => "reserved",
+        EmbeddingBackend::Builtin => "builtin",
     }
 }
