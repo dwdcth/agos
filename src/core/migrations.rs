@@ -6,6 +6,8 @@ const INGEST_FOUNDATION_SQL: &str = include_str!("../../migrations/0002_ingest_f
 const LEXICAL_SIDECAR_SQL: &str = include_str!("../../migrations/0003_lexical_sidecar.sql");
 const TRUTH_LAYER_GOVERNANCE_SQL: &str =
     include_str!("../../migrations/0004_truth_layer_governance.sql");
+const RUMINATION_WRITEBACK_SQL: &str =
+    include_str!("../../migrations/0005_rumination_writeback.sql");
 
 pub fn apply_migrations(conn: &mut Connection) -> Result<(), rusqlite_migration::Error> {
     migrations().to_latest(conn)
@@ -25,5 +27,8 @@ fn migrations() -> Migrations<'static> {
         M::up(TRUTH_LAYER_GOVERNANCE_SQL)
             .foreign_key_check()
             .comment("truth governance"),
+        M::up(RUMINATION_WRITEBACK_SQL)
+            .foreign_key_check()
+            .comment("rumination and adaptive write-back"),
     ])
 }

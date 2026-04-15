@@ -143,7 +143,7 @@ fn foundation_migration_bootstraps_clean_db() {
     let db = Database::open(&path).expect("fresh database should bootstrap");
 
     assert!(parent.exists(), "open should create parent directories");
-    assert_eq!(db.schema_version().expect("schema version"), 4);
+    assert_eq!(db.schema_version().expect("schema version"), 5);
 
     let names = table_names(&path);
     assert!(
@@ -173,11 +173,11 @@ fn foundation_migration_bootstraps_clean_db() {
 fn foundation_migration_reopen_is_idempotent() {
     let path = fresh_db_path("reopen");
     let first = Database::open(&path).expect("first open should succeed");
-    assert_eq!(first.schema_version().expect("first schema version"), 4);
+    assert_eq!(first.schema_version().expect("first schema version"), 5);
     drop(first);
 
     let second = Database::open(&path).expect("second open should succeed");
-    assert_eq!(second.schema_version().expect("second schema version"), 4);
+    assert_eq!(second.schema_version().expect("second schema version"), 5);
     let names = table_names(&path);
     assert!(names.contains(&"memory_records".to_string()));
     assert!(names.contains(&"memory_records_fts".to_string()));
@@ -314,4 +314,133 @@ fn memory_repository_reads_preserve_metadata_shape() {
     assert!(matches!(counts[0].scope, Scope::Project));
     assert_eq!(counts[0].count, 1);
     assert_eq!(repo.count_records().expect("count should succeed"), 1);
+}
+
+#[test]
+fn rumination_schema_bootstraps_version_5_side_tables() {
+    let path = fresh_db_path("rumination-schema");
+    let db = Database::open(&path).expect("database should bootstrap");
+
+    assert_eq!(db.schema_version().expect("schema version"), 5);
+
+    let names = table_names(&path);
+    assert!(
+        names.contains(&"spq_queue_items".to_string())
+            && names.contains(&"lpq_queue_items".to_string())
+            && names.contains(&"rumination_trigger_state".to_string())
+            && names.contains(&"local_adaptation_entries".to_string())
+            && names.contains(&"rumination_candidates".to_string()),
+        "phase 5 side tables should exist: {names:?}"
+    );
+    assert!(
+        names.contains(&"memory_records".to_string())
+            && names.contains(&"memory_records_fts".to_string())
+            && names.contains(&"truth_promotion_reviews".to_string())
+            && names.contains(&"truth_ontology_candidates".to_string()),
+        "phase 5 migration must stay additive over authority, lexical, and governance tables: {names:?}"
+    );
+
+    let spq_columns = table_columns(&path, "spq_queue_items");
+    let lpq_columns = table_columns(&path, "lpq_queue_items");
+    let trigger_state_columns = table_columns(&path, "rumination_trigger_state");
+    let local_adaptation_columns = table_columns(&path, "local_adaptation_entries");
+    let candidate_columns = table_columns(&path, "rumination_candidates");
+
+    let mirrored_queue_columns = vec![
+        "item_id",
+        "trigger_kind",
+        "status",
+        "subject_ref",
+        "dedupe_key",
+        "cooldown_key",
+        "budget_bucket",
+        "priority",
+        "budget_cost",
+        "attempt_count",
+        "cooldown_until",
+        "next_eligible_at",
+        "payload_json",
+        "evidence_refs_json",
+        "source_report_json",
+        "last_error",
+        "created_at",
+        "updated_at",
+        "processed_at",
+    ];
+
+    for column in mirrored_queue_columns {
+        assert!(
+            spq_columns.contains(&column.to_string()) && lpq_columns.contains(&column.to_string()),
+            "spq/lpq queue tables should mirror explicit scheduling columns, missing {column}: spq={spq_columns:?} lpq={lpq_columns:?}"
+        );
+    }
+
+    for column in [
+        "queue_tier",
+        "trigger_kind",
+        "dedupe_key",
+        "cooldown_key",
+        "budget_bucket",
+        "budget_window_started_at",
+        "budget_spent",
+        "cooldown_until",
+        "last_enqueued_at",
+        "last_seen_at",
+        "last_decision",
+        "last_item_id",
+        "updated_at",
+    ] {
+        assert!(
+            trigger_state_columns.contains(&column.to_string()),
+            "trigger-state throttle ledger missing {column}: {trigger_state_columns:?}"
+        );
+    }
+
+    for column in [
+        "entry_id",
+        "subject_ref",
+        "target_kind",
+        "key",
+        "value_json",
+        "source_queue_item_id",
+        "created_at",
+        "updated_at",
+    ] {
+        assert!(
+            local_adaptation_columns.contains(&column.to_string()),
+            "local adaptation ledger missing {column}: {local_adaptation_columns:?}"
+        );
+    }
+
+    for column in [
+        "candidate_id",
+        "source_queue_item_id",
+        "candidate_kind",
+        "subject_ref",
+        "payload_json",
+        "evidence_refs_json",
+        "status",
+        "created_at",
+        "updated_at",
+    ] {
+        assert!(
+            candidate_columns.contains(&column.to_string()),
+            "rumination candidates table missing {column}: {candidate_columns:?}"
+        );
+    }
+
+    let spq_indexes = table_indexes(&path, "spq_queue_items");
+    let lpq_indexes = table_indexes(&path, "lpq_queue_items");
+    let trigger_indexes = table_indexes(&path, "rumination_trigger_state");
+
+    assert!(
+        spq_indexes.iter().any(|name| name.contains("ready"))
+            && lpq_indexes.iter().any(|name| name.contains("ready")),
+        "queue tables should expose ready-to-claim indexes: spq={spq_indexes:?} lpq={lpq_indexes:?}"
+    );
+    assert!(
+        trigger_indexes.iter().any(|name| name.contains("dedupe"))
+            && trigger_indexes.iter().any(|name| name.contains("cooldown")),
+        "trigger-state table should expose dedupe/cooldown indexes: {trigger_indexes:?}"
+    );
 }
