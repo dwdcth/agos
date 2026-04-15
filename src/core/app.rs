@@ -44,8 +44,8 @@ impl RuntimeReadiness {
                 effective_mode: RetrievalMode::LexicalOnly,
                 ready: true,
                 notes: vec![
-                    "lexical_only remains the Phase 1 foundation default".to_string(),
-                    "lexical retrieval dependency loading and index creation are deferred to a later phase"
+                    "lexical_only uses the Phase 2 lexical-first baseline".to_string(),
+                    "lexical dependency loading and index readiness are provided by the lexical path after initialization"
                         .to_string(),
                 ],
             },
