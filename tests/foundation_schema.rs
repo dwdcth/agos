@@ -143,7 +143,7 @@ fn foundation_migration_bootstraps_clean_db() {
     let db = Database::open(&path).expect("fresh database should bootstrap");
 
     assert!(parent.exists(), "open should create parent directories");
-    assert_eq!(db.schema_version().expect("schema version"), 3);
+    assert_eq!(db.schema_version().expect("schema version"), 4);
 
     let names = table_names(&path);
     assert!(
@@ -153,6 +153,13 @@ fn foundation_migration_bootstraps_clean_db() {
     assert!(
         names.contains(&"memory_records_fts".to_string()),
         "lexical sidecar should exist: {names:?}"
+    );
+    assert!(
+        names.contains(&"truth_t3_state".to_string())
+            && names.contains(&"truth_promotion_reviews".to_string())
+            && names.contains(&"truth_promotion_evidence".to_string())
+            && names.contains(&"truth_ontology_candidates".to_string()),
+        "truth-governance side tables should exist: {names:?}"
     );
     assert!(
         !names.iter().any(|name| {
@@ -166,14 +173,15 @@ fn foundation_migration_bootstraps_clean_db() {
 fn foundation_migration_reopen_is_idempotent() {
     let path = fresh_db_path("reopen");
     let first = Database::open(&path).expect("first open should succeed");
-    assert_eq!(first.schema_version().expect("first schema version"), 3);
+    assert_eq!(first.schema_version().expect("first schema version"), 4);
     drop(first);
 
     let second = Database::open(&path).expect("second open should succeed");
-    assert_eq!(second.schema_version().expect("second schema version"), 3);
+    assert_eq!(second.schema_version().expect("second schema version"), 4);
     let names = table_names(&path);
     assert!(names.contains(&"memory_records".to_string()));
     assert!(names.contains(&"memory_records_fts".to_string()));
+    assert!(names.contains(&"truth_t3_state".to_string()));
 }
 
 #[test]
@@ -182,6 +190,7 @@ fn foundation_schema_stays_additive_with_ingest_columns_and_indexes() {
     let names = table_names(&path);
     let columns = table_columns(&path, "memory_records");
     let indexes = table_indexes(&path, "memory_records");
+    let t3_indexes = table_indexes(&path, "truth_t3_state");
     let triggers = object_names(&path, "trigger");
 
     assert!(
@@ -203,6 +212,10 @@ fn foundation_schema_stays_additive_with_ingest_columns_and_indexes() {
             && indexes.contains(&"idx_memory_records_source_chunk_order".to_string())
             && indexes.contains(&"idx_memory_records_validity_window".to_string()),
         "memory_records should retain phase 1 indexes and add ingest indexes: {indexes:?}"
+    );
+    assert!(
+        t3_indexes.contains(&"idx_truth_t3_state_revocation_state".to_string()),
+        "truth t3 state should expose governance indexes: {t3_indexes:?}"
     );
     assert!(
         triggers.contains(&"memory_records_ai".to_string())
