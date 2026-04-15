@@ -11,6 +11,14 @@ use crate::core::{
     config::{EmbeddingBackend, RetrievalMode},
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DatabaseInspection {
+    schema_version: Option<u32>,
+    schema_state: CapabilityState,
+    base_table_state: CapabilityState,
+    note: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapabilityState {
     Ready,
@@ -60,14 +68,22 @@ impl StatusReport {
     pub fn collect(app: &AppContext) -> Result<Self> {
         let db_path = app.db_path().to_path_buf();
         let db_exists = db_path.exists();
-        let (schema_version, schema_state, base_table_state) = if db_exists {
-            inspect_database(&db_path)?
+        let inspection = if db_exists {
+            inspect_database(&db_path).unwrap_or_else(|error| DatabaseInspection {
+                schema_version: None,
+                schema_state: CapabilityState::Missing,
+                base_table_state: CapabilityState::Missing,
+                note: Some(format!(
+                    "schema inspection failed for existing database file: {error:#}"
+                )),
+            })
         } else {
-            (
-                None,
-                CapabilityState::Missing,
-                CapabilityState::Missing,
-            )
+            DatabaseInspection {
+                schema_version: None,
+                schema_state: CapabilityState::Missing,
+                base_table_state: CapabilityState::Missing,
+                note: None,
+            }
         };
 
         let lexical_dependency_state = match app.config.retrieval.mode {
@@ -87,30 +103,33 @@ impl StatusReport {
         };
 
         let mut readiness_notes = app.readiness.notes.clone();
+        if let Some(note) = inspection.note {
+            readiness_notes.push(note);
+        }
         if !db_exists {
             readiness_notes.push(
                 "database has not been initialized yet; run `agent-memos init` to create the Phase 1 schema"
                     .to_string(),
             );
-        } else if !matches!(base_table_state, CapabilityState::Ready) {
+        } else if !matches!(inspection.base_table_state, CapabilityState::Ready) {
             readiness_notes
                 .push("foundation base tables are incomplete or missing".to_string());
         }
 
         let ready = app.readiness.ready
-            && matches!(schema_state, CapabilityState::Ready)
-            && matches!(base_table_state, CapabilityState::Ready);
+            && matches!(inspection.schema_state, CapabilityState::Ready)
+            && matches!(inspection.base_table_state, CapabilityState::Ready);
 
         Ok(Self {
             db_path,
-            schema_version,
+            schema_version: inspection.schema_version,
             configured_mode: app.readiness.configured_mode,
             effective_mode: app.readiness.effective_mode,
             embedding_backend: app.config.embedding.backend,
-            schema_state,
+            schema_state: inspection.schema_state,
             lexical_dependency_state,
             embedding_dependency_state,
-            base_table_state,
+            base_table_state: inspection.base_table_state,
             index_readiness,
             ready,
             readiness_notes,
@@ -169,7 +188,7 @@ impl StatusReport {
     }
 }
 
-fn inspect_database(path: &Path) -> Result<(Option<u32>, CapabilityState, CapabilityState)> {
+fn inspect_database(path: &Path) -> Result<DatabaseInspection> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| format!("failed to inspect sqlite database at {}", path.display()))?;
     let schema_version = conn
@@ -195,7 +214,12 @@ fn inspect_database(path: &Path) -> Result<(Option<u32>, CapabilityState, Capabi
         CapabilityState::Missing
     };
 
-    Ok((Some(schema_version), schema_state, base_table_state))
+    Ok(DatabaseInspection {
+        schema_version: Some(schema_version),
+        schema_state,
+        base_table_state,
+        note: None,
+    })
 }
 
 fn embedding_dependency_state(
