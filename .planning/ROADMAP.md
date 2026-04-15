@@ -95,9 +95,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: Implement SPQ and LPQ scheduling with bounded triggers
-- [ ] 05-02: Implement short-cycle write-back into self/risk state
-- [ ] 05-03: Implement long-cycle write-back for skill extraction and promotion candidates
+- [ ] 05-01-PLAN.md — Implement SPQ and LPQ scheduling with bounded triggers
+- [ ] 05-02-PLAN.md — Implement short-cycle write-back into self/risk state
+- [ ] 05-03-PLAN.md — Implement long-cycle write-back for skill extraction and promotion candidates
 
 ## Progress
 
