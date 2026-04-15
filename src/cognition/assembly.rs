@@ -15,7 +15,7 @@ use crate::{
         },
         truth::TruthRecord,
     },
-    search::{SearchError, SearchFilters, SearchRequest, SearchService},
+    search::{SearchError, SearchFilters, SearchRequest, SearchResult, SearchService},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +59,7 @@ pub struct WorkingMemoryRequest {
     pub readiness_flags: Vec<String>,
     pub action_seeds: Vec<ActionSeed>,
     pub local_adaptation_entries: Vec<LocalAdaptationEntry>,
+    pub integrated_results: Vec<SearchResult>,
 }
 
 impl WorkingMemoryRequest {
@@ -78,6 +79,7 @@ impl WorkingMemoryRequest {
             readiness_flags: Vec::new(),
             action_seeds: Vec::new(),
             local_adaptation_entries: Vec::new(),
+            integrated_results: Vec::new(),
         }
     }
 
@@ -136,6 +138,11 @@ impl WorkingMemoryRequest {
         local_adaptation_entries: Vec<LocalAdaptationEntry>,
     ) -> Self {
         self.local_adaptation_entries = local_adaptation_entries;
+        self
+    }
+
+    pub fn with_integrated_results(mut self, integrated_results: Vec<SearchResult>) -> Self {
+        self.integrated_results = integrated_results;
         self
     }
 
@@ -243,14 +250,32 @@ where
         } else {
             request.clone()
         };
-        let search_request = SearchRequest::new(overlay_request.query.clone())
-            .with_limit(overlay_request.limit)
-            .with_filters(overlay_request.filters.clone());
-        let search_response = self.search.search(&search_request)?;
+        let mut merged_results = if overlay_request.integrated_results.is_empty() {
+            let search_request = SearchRequest::new(overlay_request.query.clone())
+                .with_limit(overlay_request.limit)
+                .with_filters(overlay_request.filters.clone());
+            self.search.search(&search_request)?.results
+        } else {
+            overlay_request.integrated_results.clone()
+        };
 
-        let mut truths = Vec::with_capacity(search_response.results.len());
-        let mut world_fragments = Vec::with_capacity(search_response.results.len());
-        for result in search_response.results {
+        if !overlay_request.integrated_results.is_empty() {
+            let search_request = SearchRequest::new(overlay_request.query.clone())
+                .with_limit(overlay_request.limit)
+                .with_filters(overlay_request.filters.clone());
+            for result in self.search.search(&search_request)?.results {
+                if !merged_results
+                    .iter()
+                    .any(|existing| existing.record.id == result.record.id)
+                {
+                    merged_results.push(result);
+                }
+            }
+        }
+
+        let mut truths = Vec::with_capacity(merged_results.len());
+        let mut world_fragments = Vec::with_capacity(merged_results.len());
+        for result in merged_results {
             let truth = self
                 .repository
                 .get_truth_record(&result.record.id)?
