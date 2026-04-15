@@ -128,8 +128,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: Merge follow-up retrieval evidence into working-memory assembly
-- [ ] 07-02: Propagate follow-up evidence into scoring, gates, and structured agent-search reports
+- [x] 07-01: Merge follow-up retrieval evidence into working-memory assembly
+- [x] 07-02: Propagate follow-up evidence into scoring, gates, and structured agent-search reports
 
 ## Progress
 
