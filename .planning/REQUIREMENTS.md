@@ -64,6 +64,7 @@
 - **EXT-01**: System can support cross-project tunnel discovery or multi-wing memory routing.
 - **EXT-02**: System can support richer visualization or inspection tooling for truth layers and working-memory state.
 - **EXT-03**: System can enable `sqlite-vec` semantic recall as an optional extension behind the same retrieval interface.
+- **EXT-04**: System can let lexical-first retrieval and embedding-based retrieval coexist under one search API, with embedding used for recall expansion or rerank rather than replacing the lexical baseline.
 
 ### Advanced Governance
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Agent Memos 的首个里程碑按五个阶段推进：先建立 Rust + SQLite 的本地认知底座，再交付 ingest 与 lexical-first 普通检索链路，然后把 T1/T2/T3 真值分层固化进数据模型，之后接入 working memory 与 Rig agent search，最后再补上元认知写回与双队列反刍。这样可以先把 deterministic retrieval 做对，再把 cognition 和 learning 叠上去，避免项目过早退化成“高级聊天检索”。
+Agent Memos 的首个里程碑按五个阶段推进：先建立 Rust + SQLite 的本地认知底座，再交付 ingest 与 lexical-first 普通检索链路，然后把 T1/T2/T3 真值分层固化进数据模型，之后接入 working memory 与 Rig agent search，最后再补上元认知写回与双队列反刍。这样可以先把 deterministic retrieval 做对，再把 cognition 和 learning 叠上去，避免项目过早退化成“高级聊天检索”。后续如果 lexical-first 路线暴露语义召回盲区，再在同一检索接口下追加 embedding / `sqlite-vec` 通道，让两者并存。
 
 ## Phases
 
@@ -102,6 +102,10 @@ Plans:
 
 **Execution Order:**
 Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+
+**Retrieval Evolution Note:**
+v1 uses lexical-first retrieval as the stable baseline.
+Embedding retrieval is planned as a later optional extension that can coexist with the lexical path for recall expansion or rerank.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|

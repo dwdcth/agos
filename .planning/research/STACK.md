@@ -95,6 +95,11 @@ cargo add sqlite-vec@0.1
 - Add a thin `sqlite-vec` adapter behind the same retrieval interface
 - Because semantic retrieval should be an extension, not a schema-defining prerequisite
 
+**If lexical and semantic retrieval need to coexist:**
+- Keep lexical retrieval as baseline recall and explanation source
+- Use embedding retrieval only for recall expansion or reranking on the same candidate/result contract
+- Because coexistence is useful, but replacing the lexical baseline would reduce debuggability
+
 **If agent search needs Rig-native retrieval adapters later:**
 - Add a thin `rig` adapter module over the internal search/working-memory services
 - Because the core ranking and truth-layer semantics should stay stable even if agent tooling changes

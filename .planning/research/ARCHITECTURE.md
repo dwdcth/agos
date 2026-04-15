@@ -36,7 +36,7 @@
 |-----------|----------------|------------------------|
 | `core` | Own config, DB access, types, IDs, migrations, shared errors | Similar to `reference/mempal/src/core` |
 | `memory` | Own typed memory schema, truth layers, promotion rules | Domain-specific models and repository services |
-| `search` | Own lexical retrieval, lightweight scoring, optional semantic extension, filters, citations | Lexical-first query pipeline over SQLite |
+| `search` | Own lexical retrieval, lightweight scoring, optional semantic extension, filters, citations | Lexical-first query pipeline over SQLite with room for a semantic side-channel |
 | `agent` | Own Rig integration, tool routing, multi-step retrieval orchestration | Rig agents and tool wrappers over internal services |
 | `cognition` | Own attention, working memory, value, metacognition, rumination logic | Pure domain modules with minimal IO |
 | `interfaces` | Expose CLI / API / MCP without owning domain logic | Thin handlers calling services |
@@ -167,7 +167,7 @@ write-back to self / skill / world / truth promotion candidates
 ### Key Data Flows
 
 1. **Ingest flow:** source material → normalization → chunking / typing → lexical indexing and metadata persistence → SQLite persisted memory records.
-2. **Ordinary retrieval flow:** query → lexical recall → BM25/TF-IDF-style weighting and bonus scoring → filters → citations.
+2. **Ordinary retrieval flow:** query → lexical recall → BM25/TF-IDF-style weighting and bonus scoring → optional semantic expansion/rerank → filters → citations.
 3. **Agent search flow:** user goal → ordinary retrieval calls → follow-up retrieval / verification → working memory package.
 4. **Learning flow:** action result / correction → SPQ or LPQ routing → bounded write-back.
 

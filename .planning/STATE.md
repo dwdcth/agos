@@ -43,6 +43,7 @@ Recent decisions affecting current work:
 - [Init]: Ordinary retrieval and agent search remain separate product lines.
 - [Init]: `reference/mempal` is only a code-style and module-splitting reference, not a domain-model reference.
 - [Init]: Retrieval baseline is fixed to SQLite + `libsimple` + Rust lightweight keyword weighting, with `sqlite-vec` downgraded to an optional extension and `rig` reserved for agent orchestration.
+- [Init]: Lexical-first retrieval and embedding retrieval are allowed to coexist later, but embedding stays in a secondary role unless proven necessary.
 
 ### Pending Todos
 
@@ -51,6 +52,7 @@ None yet.
 ### Blockers/Concerns
 
 - `libsimple`, Rust-side score composition, and `rig` integration details need phase-level verification before implementation starts.
+- If semantic retrieval is added later, the merge contract with lexical-first retrieval must stay explicit and testable.
 - Truth-layer minimum schema should be locked early in Phase 1/2 to avoid later refactors.
 
 ## Deferred Items

@@ -9,7 +9,7 @@
 
 这个项目不是普通的 RAG 工具，而是一个把“检索”和“认知”明确拆开的记忆认知底座。`doc/` 中的 0415 理论文档决定了它至少要同时满足两件事：一是提供可靠、可解释、可追溯的 ordinary retrieval；二是在此之上提供基于智能体的搜索，将 recall 组织成工作记忆、候选行动与后续写回。
 
-从实现视角看，最稳的做法是采用 `reference/mempal` 那种 Rust 单二进制、本地 SQLite、模块化拆分的工程骨架，但不要直接复制它的领域模型。检索基线不再把语义向量作为前提，而是优先采用 `libsimple` + FTS5 + Rust 轻量关键词权重；`sqlite-vec` 仅保留为后续可选扩展。当前项目的差异化不在于“再做一个 memory search”，而在于 T1/T2/T3、工作记忆、元认知 veto、双队列反刍这些认知结构必须成为一等公民。
+从实现视角看，最稳的做法是采用 `reference/mempal` 那种 Rust 单二进制、本地 SQLite、模块化拆分的工程骨架，但不要直接复制它的领域模型。检索基线不再把语义向量作为前提，而是优先采用 `libsimple` + FTS5 + Rust 轻量关键词权重；`sqlite-vec` 仅保留为后续可选扩展。两者不是二选一，后续完全可以并存在同一检索接口里，由 lexical-first 负责稳定基线，embedding 通道负责 recall expansion 或 rerank。当前项目的差异化不在于“再做一个 memory search”，而在于 T1/T2/T3、工作记忆、元认知 veto、双队列反刍这些认知结构必须成为一等公民。
 
 ## Key Findings
 
@@ -23,7 +23,7 @@
 - `libsimple ~0.9`：中文和拼音全文检索，是普通检索体验的关键
 - Rust 轻量 scorer：承接 BM25/TF-IDF 风格关键词权重、情绪 bonus、importance 和 recency bonus
 - `rig-core`：agent 搜索、工具编排、模型抽象
-- `sqlite-vec`：后续可选语义扩展，不是首发依赖
+- `sqlite-vec`：后续可选语义扩展，不是首发依赖，但可以与 lexical-first 路径并存
 
 ### Expected Features
 
@@ -123,6 +123,7 @@ Phases with standard patterns (skip research-phase):
 ### Gaps to Address
 
 - Rust 轻量 scorer 的具体公式需要在 Phase 1 明确为“FTS5 BM25 + bonus rules”还是“显式 TF-IDF/BM25 混合”
+- 如果后续引入 embedding 检索，需要提前定义它与 lexical path 的合并契约，是 recall expansion、candidate rerank，还是双通道并排行为
 - Rig 是否直接接内置 SQLite adapter，还是先走自定义工具层，需要在 Phase 3 定稿
 - T1/T2/T3 的最小 schema 粒度需要在 Phase 2 明确到字段级
 
