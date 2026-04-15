@@ -4,6 +4,8 @@ use rusqlite_migration::{M, Migrations};
 const FOUNDATION_SCHEMA_SQL: &str = include_str!("../../migrations/0001_foundation.sql");
 const INGEST_FOUNDATION_SQL: &str = include_str!("../../migrations/0002_ingest_foundation.sql");
 const LEXICAL_SIDECAR_SQL: &str = include_str!("../../migrations/0003_lexical_sidecar.sql");
+const TRUTH_LAYER_GOVERNANCE_SQL: &str =
+    include_str!("../../migrations/0004_truth_layer_governance.sql");
 
 pub fn apply_migrations(conn: &mut Connection) -> Result<(), rusqlite_migration::Error> {
     migrations().to_latest(conn)
@@ -20,5 +22,8 @@ fn migrations() -> Migrations<'static> {
         M::up(LEXICAL_SIDECAR_SQL)
             .foreign_key_check()
             .comment("lexical fts sidecar"),
+        M::up(TRUTH_LAYER_GOVERNANCE_SQL)
+            .foreign_key_check()
+            .comment("truth governance"),
     ])
 }
