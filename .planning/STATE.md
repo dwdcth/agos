@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-04-15T18:47:17.329Z"
+status: verifying
+stopped_at: Completed 05-03-PLAN.md
+last_updated: "2026-04-15T19:04:06.113Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 17
-  completed_plans: 16
-  percent: 94
+  completed_plans: 17
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 
 ## Current Position
 
-Phase: 05 (rumination-and-adaptive-write-back) — EXECUTING
+Phase: 05 (rumination-and-adaptive-write-back) — COMPLETE
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-16
 
-Progress: [█████████░] 94%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -71,6 +71,7 @@ Progress: [█████████░] 94%
 | Phase 04 P03 | 10min | 2 tasks | 8 files |
 | Phase 05 P01 | 12min | 2 tasks | 7 files |
 | Phase 05 P02 | 9min | 2 tasks | 5 files |
+| Phase 05 P03 | 8min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Local adaptive write-back persists typed ledger rows with trigger kind and evidence refs inside payload envelopes instead of touching shared truth tables.
 - [Phase 05]: Self-state overlays load through a base-plus-adaptive SelfStateProvider composition fed by subject-scoped repository reads during assembly.
 - [Phase 05]: Short-cycle processing claims SPQ only and translates user correction, action failure, and metacognitive veto into local self_state, risk_boundary, and private_t3 entries.
+- [Phase 05]: Kept all three LPQ outputs on one RuminationCandidate contract and stored governance ref IDs inside the durable candidate payload instead of introducing a separate long-cycle schema.
+- [Phase 05]: Classified promotion candidates by source truth layer: T3 evidence creates pending promotion reviews with attached evidence, while T2 evidence creates pending ontology candidates.
+- [Phase 05]: Completed LPQ items only after candidate persistence and any required governance bridge succeeded, so long-cycle work stays auditable and non-self-approving.
 
 ### Pending Todos
 
@@ -147,6 +151,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T18:47:17.325Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-04-15T19:03:51.982Z
+Stopped at: Completed 05-03-PLAN.md
 Resume file: None

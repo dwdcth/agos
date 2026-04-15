@@ -50,7 +50,7 @@
 
 - [x] **LRN-01**: System can route write-back work into short-cycle and long-cycle queues instead of treating all learning as one batch process.
 - [x] **LRN-02**: Short-cycle write-back can update self-model or risk-boundary state from action outcomes and user correction without directly mutating shared truth.
-- [ ] **LRN-03**: Long-cycle write-back can produce skill templates, shared-fact promotion candidates, or value-adjustment candidates from accumulated evidence.
+- [x] **LRN-03**: Long-cycle write-back can produce skill templates, shared-fact promotion candidates, or value-adjustment candidates from accumulated evidence.
 
 ## v2 Requirements
 
@@ -110,7 +110,7 @@
 | AGT-04 | Phase 4 | Complete |
 | LRN-01 | Phase 5 | Complete |
 | LRN-02 | Phase 5 | Complete |
-| LRN-03 | Phase 5 | Pending |
+| LRN-03 | Phase 5 | Complete |
 
 **Coverage:**
 - v1 requirements: 26 total

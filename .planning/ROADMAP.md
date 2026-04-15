@@ -15,8 +15,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation Kernel** - 建立 Rust 应用骨架、SQLite 底座与基础状态检查
 - [x] **Phase 2: Ingest And Lightweight Retrieval** - 交付普通检索主线，打通 ingest、中文词法检索、轻量关键词权重与可解释返回
 - [x] **Phase 3: Truth Layer Governance** - 把 T1/T2/T3 分层和受控晋升规则落到数据模型与服务边界
-- [ ] **Phase 4: Working Memory And Agent Search** - 接入 Rig 智能体搜索、工作记忆装配、价值评分与元认知监督
-- [ ] **Phase 5: Rumination And Adaptive Write-back** - 实现短周期/长周期反刍队列与受控写回
+- [x] **Phase 4: Working Memory And Agent Search** - 接入 Rig 智能体搜索、工作记忆装配、价值评分与元认知监督
+- [x] **Phase 5: Rumination And Adaptive Write-back** - 实现短周期/长周期反刍队列与受控写回
 
 ## Phase Details
 
@@ -97,7 +97,7 @@ Plans:
 Plans:
 - [x] 05-01-PLAN.md — Implement SPQ and LPQ scheduling with bounded triggers
 - [x] 05-02-PLAN.md — Implement short-cycle write-back into self/risk state
-- [ ] 05-03-PLAN.md — Implement long-cycle write-back for skill extraction and promotion candidates
+- [x] 05-03-PLAN.md — Implement long-cycle write-back for skill extraction and promotion candidates
 
 ## Progress
 
@@ -113,5 +113,5 @@ Embedding retrieval is planned as a later optional extension that can coexist wi
 | 1. Foundation Kernel | 4/4 | Complete | 2026-04-15 |
 | 2. Ingest And Lightweight Retrieval | 3/3 | Complete | 2026-04-15 |
 | 3. Truth Layer Governance | 3/3 | Complete | 2026-04-15 |
-| 4. Working Memory And Agent Search | 1/3 | In progress | - |
-| 5. Rumination And Adaptive Write-back | 2/3 | In progress | - |
+| 4. Working Memory And Agent Search | 3/3 | Complete | 2026-04-16 |
+| 5. Rumination And Adaptive Write-back | 3/3 | Complete | 2026-04-16 |
