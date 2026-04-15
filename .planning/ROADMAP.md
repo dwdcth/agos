@@ -114,4 +114,4 @@ Embedding retrieval is planned as a later optional extension that can coexist wi
 | 2. Ingest And Lightweight Retrieval | 3/3 | Complete | 2026-04-15 |
 | 3. Truth Layer Governance | 3/3 | Complete | 2026-04-15 |
 | 4. Working Memory And Agent Search | 1/3 | In progress | - |
-| 5. Rumination And Adaptive Write-back | 0/3 | Not started | - |
+| 5. Rumination And Adaptive Write-back | 2/3 | In progress | - |
