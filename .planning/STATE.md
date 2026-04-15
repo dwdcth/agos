@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-04-15T17:19:40.340Z"
+status: executing
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-04-15T18:30:44.948Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 14
-  completed_plans: 14
-  percent: 100
+  total_plans: 17
+  completed_plans: 15
+  percent: 88
 ---
 
 # Project State
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-15)
 
 **Core value:** 当 agent 需要回忆历史决策、证据、模式或当前认知状态时，系统必须能快速给出带出处、带时间性、带状态约束的正确记忆。
-**Current focus:** Phase 04 — working-memory-and-agent-search
+**Current focus:** Phase 05 — rumination-and-adaptive-write-back
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 05 (rumination-and-adaptive-write-back) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-04-15
 
 Progress: [█████████░] 86%
@@ -69,6 +69,7 @@ Progress: [█████████░] 86%
 | Phase 04 P01 | 8min | 2 tasks | 6 files |
 | Phase 04 P02 | 5min | 2 tasks | 5 files |
 | Phase 04 P03 | 10min | 2 tasks | 8 files |
+| Phase 05 P01 | 12min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -119,6 +120,9 @@ Recent decisions affecting current work:
 - [Phase 04]: Kept multi-step retrieval bounded by explicit max_steps and step_limit fields so AGT-02 stays deterministic and locally testable.
 - [Phase 04]: Used RigBoundary plus RigAgentSearchAdapter as the only Rig-facing seam, with no truth writes, semantic retrieval, or rumination authority exposed.
 - [Phase 04]: Added AgentSearchRequest::developer_defaults inside internal orchestration so CLI invocation can stay usable without moving candidate generation or gate semantics into Rig.
+- [Phase 05]: Persisted SPQ and LPQ as separate mirrored queue tables to keep short-cycle and long-cycle work explicit and auditable.
+- [Phase 05]: Stored dedupe, cooldown, and budget outcomes in rumination_trigger_state instead of inferring them from queue history.
+- [Phase 05]: Normalized DecisionReport and AgentSearchReport into queue payloads while keeping scheduling synchronous and local-first.
 
 ### Pending Todos
 
@@ -139,6 +143,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T17:11:32.847Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-04-15T18:30:44.942Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
