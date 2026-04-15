@@ -43,6 +43,22 @@ fn table_names(path: &Path) -> Vec<String> {
         .expect("table names should decode")
 }
 
+fn object_names(path: &Path, object_type: &str) -> Vec<String> {
+    let db = Database::open(path).expect("database should open");
+    let mut statement = db
+        .conn()
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type = ?1 AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .expect("object list statement should prepare");
+
+    statement
+        .query_map([object_type], |row| row.get::<_, String>(0))
+        .expect("object list query should run")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("object names should decode")
+}
+
 fn table_columns(path: &Path, table: &str) -> Vec<String> {
     let db = Database::open(path).expect("database should open");
     let mut statement = db
@@ -118,18 +134,22 @@ fn foundation_migration_bootstraps_clean_db() {
     let db = Database::open(&path).expect("fresh database should bootstrap");
 
     assert!(parent.exists(), "open should create parent directories");
-    assert_eq!(db.schema_version().expect("schema version"), 2);
+    assert_eq!(db.schema_version().expect("schema version"), 3);
 
     let names = table_names(&path);
-    assert_eq!(names, vec!["memory_records"]);
+    assert!(
+        names.contains(&"memory_records".to_string()),
+        "authority table should exist: {names:?}"
+    );
+    assert!(
+        names.contains(&"memory_records_fts".to_string()),
+        "lexical sidecar should exist: {names:?}"
+    );
     assert!(
         !names.iter().any(|name| {
-            name.contains("fts")
-                || name.contains("vec")
-                || name.contains("rig")
-                || name.contains("search")
+            name.contains("vec") || name.contains("rig")
         }),
-        "phase 1 schema must not introduce later-phase tables: {names:?}"
+        "lexical plan should not introduce semantic or agent tables: {names:?}"
     );
 }
 
@@ -137,12 +157,14 @@ fn foundation_migration_bootstraps_clean_db() {
 fn foundation_migration_reopen_is_idempotent() {
     let path = fresh_db_path("reopen");
     let first = Database::open(&path).expect("first open should succeed");
-    assert_eq!(first.schema_version().expect("first schema version"), 2);
+    assert_eq!(first.schema_version().expect("first schema version"), 3);
     drop(first);
 
     let second = Database::open(&path).expect("second open should succeed");
-    assert_eq!(second.schema_version().expect("second schema version"), 2);
-    assert_eq!(table_names(&path), vec!["memory_records"]);
+    assert_eq!(second.schema_version().expect("second schema version"), 3);
+    let names = table_names(&path);
+    assert!(names.contains(&"memory_records".to_string()));
+    assert!(names.contains(&"memory_records_fts".to_string()));
 }
 
 #[test]
@@ -151,12 +173,12 @@ fn foundation_schema_stays_additive_with_ingest_columns_and_indexes() {
     let names = table_names(&path);
     let columns = table_columns(&path, "memory_records");
     let indexes = table_indexes(&path, "memory_records");
+    let triggers = object_names(&path, "trigger");
 
     assert!(
         names.contains(&"memory_records".to_string()),
         "foundation schema should include memory_records"
     );
-    assert_eq!(names.len(), 1, "phase 2 ingest foundation should keep only authority tables");
     assert!(
         columns.contains(&"chunk_index".to_string())
             && columns.contains(&"chunk_count".to_string())
@@ -173,12 +195,54 @@ fn foundation_schema_stays_additive_with_ingest_columns_and_indexes() {
             && indexes.contains(&"idx_memory_records_validity_window".to_string()),
         "memory_records should retain phase 1 indexes and add ingest indexes: {indexes:?}"
     );
+    assert!(
+        triggers.contains(&"memory_records_ai".to_string())
+            && triggers.contains(&"memory_records_ad".to_string())
+            && triggers.contains(&"memory_records_au".to_string()),
+        "lexical sidecar should stay synchronized via triggers: {triggers:?}"
+    );
 
     let schema_dump = fs::read_to_string(&path).err();
     assert!(
         schema_dump.is_some(),
         "sqlite file should remain binary; schema must be inspected through sqlite metadata"
     );
+}
+
+#[test]
+fn lexical_sidecar_rebuilds_from_authority_rows() {
+    let path = fresh_db_path("lexical-rebuild");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let repo = MemoryRepository::new(db.conn());
+    let record = sample_record();
+
+    repo.insert_record(&record)
+        .expect("record should insert cleanly");
+
+    let initial_count: i64 = db
+        .conn()
+        .query_row("SELECT COUNT(*) FROM memory_records_fts", [], |row| row.get(0))
+        .expect("fts row count should load");
+    assert_eq!(initial_count, 1, "triggers should index inserted authority rows");
+
+    db.conn()
+        .execute("DELETE FROM memory_records_fts", [])
+        .expect("fts rows should be clearable for rebuild");
+    let cleared_count: i64 = db
+        .conn()
+        .query_row("SELECT COUNT(*) FROM memory_records_fts", [], |row| row.get(0))
+        .expect("cleared fts row count should load");
+    assert_eq!(cleared_count, 0, "fts rows should be cleared before rebuild");
+
+    db.conn()
+        .execute("INSERT INTO memory_records_fts(memory_records_fts) VALUES('rebuild')", [])
+        .expect("fts rebuild helper should succeed");
+
+    let rebuilt_count: i64 = db
+        .conn()
+        .query_row("SELECT COUNT(*) FROM memory_records_fts", [], |row| row.get(0))
+        .expect("rebuilt fts row count should load");
+    assert_eq!(rebuilt_count, 1, "rebuild should repopulate from authority rows");
 }
 
 #[test]
