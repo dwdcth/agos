@@ -1,10 +1,11 @@
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use thiserror::Error;
 
 use crate::memory::record::{
-    ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordType, Scope, SourceKind, SourceRef,
-    RecordTimestamp, TruthLayer, ValidityWindow,
+    ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope,
+    SourceKind, SourceRef, TruthLayer, ValidityWindow,
 };
+use crate::memory::truth::{T3Confidence, T3RevocationState, T3State, TruthRecord};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeCount {
@@ -19,12 +20,11 @@ pub enum RepositoryError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error("invalid {field} stored in database: {value}")]
-    InvalidEnum {
-        field: &'static str,
-        value: String,
-    },
+    InvalidEnum { field: &'static str, value: String },
     #[error("incomplete chunk metadata stored for record {record_id}")]
     IncompleteChunkMetadata { record_id: String },
+    #[error("missing t3 governance state for record {record_id}")]
+    MissingT3State { record_id: String },
 }
 
 pub struct MemoryRepository<'db> {
@@ -95,6 +95,29 @@ impl<'db> MemoryRepository<'db> {
                 &record.timestamp.updated_at,
             ],
         )?;
+
+        if matches!(record.truth_layer, TruthLayer::T3) {
+            self.conn.execute(
+                r#"
+                INSERT INTO truth_t3_state (
+                    record_id,
+                    confidence,
+                    revocation_state,
+                    revoked_at,
+                    revocation_reason,
+                    shared_conflict_note,
+                    last_reviewed_at
+                )
+                VALUES (?1, ?2, ?3, NULL, NULL, NULL, NULL)
+                ON CONFLICT(record_id) DO NOTHING
+                "#,
+                params![
+                    &record.id,
+                    T3Confidence::Medium.as_str(),
+                    T3RevocationState::Active.as_str(),
+                ],
+            )?;
+        }
 
         Ok(())
     }
@@ -167,6 +190,51 @@ impl<'db> MemoryRepository<'db> {
         }
 
         Ok(records)
+    }
+
+    pub fn get_t3_state(&self, record_id: &str) -> Result<Option<T3State>, RepositoryError> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT
+                    record_id,
+                    confidence,
+                    revocation_state,
+                    revoked_at,
+                    revocation_reason,
+                    shared_conflict_note,
+                    last_reviewed_at,
+                    created_at,
+                    updated_at
+                FROM truth_t3_state
+                WHERE record_id = ?1
+                "#,
+                [record_id],
+                map_t3_state_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn get_truth_record(&self, id: &str) -> Result<Option<TruthRecord>, RepositoryError> {
+        let Some(base) = self.get_record(id)? else {
+            return Ok(None);
+        };
+
+        let truth_record = match base.truth_layer {
+            TruthLayer::T1 => TruthRecord::T1 { base },
+            TruthLayer::T2 => TruthRecord::T2 { base },
+            TruthLayer::T3 => TruthRecord::T3 {
+                t3_state: Some(self.get_t3_state(id)?.ok_or_else(|| {
+                    RepositoryError::MissingT3State {
+                        record_id: id.to_string(),
+                    }
+                })?),
+                base,
+            },
+        };
+
+        Ok(Some(truth_record))
     }
 
     pub fn count_records(&self) -> Result<u64, RepositoryError> {
@@ -259,6 +327,32 @@ fn map_chunk_metadata(
             record_id: record_id.to_string(),
         }),
     }
+}
+
+fn map_t3_state_row(row: &rusqlite::Row<'_>) -> Result<T3State, rusqlite::Error> {
+    Ok(T3State {
+        record_id: row.get(0)?,
+        confidence: T3Confidence::parse(&row.get::<_, String>(1)?).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                1,
+                rusqlite::types::Type::Text,
+                "invalid t3 confidence".into(),
+            )
+        })?,
+        revocation_state: T3RevocationState::parse(&row.get::<_, String>(2)?).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                2,
+                rusqlite::types::Type::Text,
+                "invalid t3 revocation state".into(),
+            )
+        })?,
+        revoked_at: row.get(3)?,
+        revocation_reason: row.get(4)?,
+        shared_conflict_note: row.get(5)?,
+        last_reviewed_at: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
+    })
 }
 
 fn parse_source_kind(value: &str) -> Result<SourceKind, RepositoryError> {

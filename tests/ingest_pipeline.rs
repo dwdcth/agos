@@ -9,7 +9,7 @@ use agent_memos::{
         IngestRequest, IngestService,
         chunk::{ChunkConfig, chunk_source},
         detect::{Format, detect_format},
-        normalize::{NormalizedSource, normalize_source},
+        normalize::normalize_source,
     },
     memory::{
         record::{ChunkAnchor, RecordType, Scope, SourceKind, TruthLayer},
