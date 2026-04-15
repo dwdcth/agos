@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation Kernel** - 建立 Rust 应用骨架、SQLite 底座与基础状态检查
 - [x] **Phase 2: Ingest And Lightweight Retrieval** - 交付普通检索主线，打通 ingest、中文词法检索、轻量关键词权重与可解释返回
-- [ ] **Phase 3: Truth Layer Governance** - 把 T1/T2/T3 分层和受控晋升规则落到数据模型与服务边界
+- [x] **Phase 3: Truth Layer Governance** - 把 T1/T2/T3 分层和受控晋升规则落到数据模型与服务边界
 - [ ] **Phase 4: Working Memory And Agent Search** - 接入 Rig 智能体搜索、工作记忆装配、价值评分与元认知监督
 - [ ] **Phase 5: Rumination And Adaptive Write-back** - 实现短周期/长周期反刍队列与受控写回
 
@@ -66,7 +66,7 @@ Plans:
 Plans:
 - [x] 03-01: Add truth-layer metadata, repositories, and query semantics
 - [x] 03-02: Implement T3 provenance/revocability rules and promotion gate models
-- [ ] 03-03: Add T2-to-T1 candidate handling and governance-oriented service APIs
+- [x] 03-03: Add T2-to-T1 candidate handling and governance-oriented service APIs
 
 ### Phase 4: Working Memory And Agent Search
 **Goal**: 在 ordinary retrieval 之上接入 Rig 智能体搜索，并把 working memory、value、metacognition 变成可执行服务。
@@ -112,6 +112,6 @@ Embedding retrieval is planned as a later optional extension that can coexist wi
 |-------|----------------|--------|-----------|
 | 1. Foundation Kernel | 4/4 | Complete | 2026-04-15 |
 | 2. Ingest And Lightweight Retrieval | 3/3 | Complete | 2026-04-15 |
-| 3. Truth Layer Governance | 2/3 | In Progress | - |
+| 3. Truth Layer Governance | 3/3 | Complete | 2026-04-15 |
 | 4. Working Memory And Agent Search | 0/3 | Not started | - |
 | 5. Rumination And Adaptive Write-back | 0/3 | Not started | - |
