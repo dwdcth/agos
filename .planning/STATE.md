@@ -30,7 +30,7 @@ Plan: 2 of 3
 Status: Ready to execute
 Last activity: 2026-04-15
 
-Progress: [██████████] 100%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
