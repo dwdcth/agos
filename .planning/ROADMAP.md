@@ -39,9 +39,9 @@
 **Plans**: 3 plans
 
 Plans:
-- [ ] 08-01: Add embedding backend config, readiness, and storage contracts
-- [ ] 08-02: Persist embeddings for ingested records or chunks
-- [ ] 08-03: Add optional vector sidecar/index bootstrap and maintenance path
+- [x] 08-01: Add embedding backend config, readiness, and storage contracts
+- [x] 08-02: Persist embeddings for ingested records or chunks
+- [x] 08-03: Add optional vector sidecar/index bootstrap and maintenance path
 
 ### Phase 9: Dual-Channel Retrieval Fusion
 **Goal**: 在 ordinary retrieval 中引入 lexical-first + embedding second-channel 的 recall / fusion / rerank，使 dual-channel 结果仍然保持 explainable。
