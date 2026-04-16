@@ -59,6 +59,126 @@ pub struct Config {
     pub embedding: EmbeddingConfig,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct RootRuntimeConfig {
+    pub store: RootStoreConfig,
+    pub llm: RootLlmConfig,
+    pub embedding: RootEmbeddingRuntimeConfig,
+    pub vector: RootVectorConfig,
+}
+
+impl RootRuntimeConfig {
+    pub fn load_from(path: &Path) -> Result<Self, ConfigError> {
+        let contents = fs::read_to_string(path).map_err(|source| ConfigError::Read {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        toml::from_str(&contents).map_err(ConfigError::Parse)
+    }
+
+    pub fn retrieval_mode_variants(&self) -> Vec<RetrievalModeVariant> {
+        vec![
+            RetrievalModeVariant {
+                name: "lexical_only".to_string(),
+                db_path: self.store.sqlite_path.clone(),
+                mode: RetrievalMode::LexicalOnly,
+                embedding_backend: EmbeddingBackend::Disabled,
+                llm: self.llm.clone(),
+                embedding: Some(self.embedding.clone()),
+                vector: Some(self.vector.clone()),
+            },
+            RetrievalModeVariant {
+                name: "embedding_only".to_string(),
+                db_path: self.store.sqlite_path.clone(),
+                mode: RetrievalMode::EmbeddingOnly,
+                embedding_backend: EmbeddingBackend::Builtin,
+                llm: self.llm.clone(),
+                embedding: Some(self.embedding.clone()),
+                vector: Some(self.vector.clone()),
+            },
+            RetrievalModeVariant {
+                name: "hybrid".to_string(),
+                db_path: self.store.sqlite_path.clone(),
+                mode: RetrievalMode::Hybrid,
+                embedding_backend: EmbeddingBackend::Builtin,
+                llm: self.llm.clone(),
+                embedding: Some(self.embedding.clone()),
+                vector: Some(self.vector.clone()),
+            },
+        ]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct RootStoreConfig {
+    pub backend: String,
+    pub sqlite_path: String,
+    pub wal_mode: bool,
+}
+
+impl Default for RootStoreConfig {
+    fn default() -> Self {
+        Self {
+            backend: "sqlite".to_string(),
+            sqlite_path: DEFAULT_DB_PATH.to_string(),
+            wal_mode: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct RootLlmConfig {
+    pub provider: String,
+    pub model: String,
+    pub api_base: Option<String>,
+    pub api_key: Option<String>,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<u32>,
+    pub timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct RootEmbeddingRuntimeConfig {
+    pub provider: String,
+    pub model: String,
+    pub api_base: Option<String>,
+    pub api_key: Option<String>,
+    pub dimensions: Option<u32>,
+    pub batch_size: Option<u32>,
+    pub timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VectorBackend {
+    #[default]
+    None,
+    SqliteVec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct RootVectorConfig {
+    pub backend: VectorBackend,
+    pub table: String,
+    pub similarity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RetrievalModeVariant {
+    pub name: String,
+    pub db_path: String,
+    pub mode: RetrievalMode,
+    pub embedding_backend: EmbeddingBackend,
+    pub llm: RootLlmConfig,
+    pub embedding: Option<RootEmbeddingRuntimeConfig>,
+    pub vector: Option<RootVectorConfig>,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
