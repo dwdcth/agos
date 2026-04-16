@@ -1,10 +1,13 @@
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use agent_memos::{
     core::{config::{EmbeddingBackend, EmbeddingConfig, RetrievalMode, RootRuntimeConfig, VectorBackend}, db::Database},
     ingest::{IngestRequest, IngestService},
     memory::record::{RecordType, Scope, TruthLayer},
-    search::{QueryStrategy, SearchRequest, SearchService},
+    search::{ChannelContribution, QueryStrategy, SearchRequest, SearchService},
 };
 
 #[test]
@@ -61,6 +64,17 @@ fn generated_mode_matrix_covers_lexical_embedding_and_hybrid() {
     assert_eq!(variants[2].embedding_backend, EmbeddingBackend::Builtin);
 }
 
+fn fresh_db_path(name: &str) -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock before unix epoch")
+        .as_nanos();
+    std::env::temp_dir()
+        .join("agent-memos-dual-channel-tests")
+        .join(format!("{name}-{unique}"))
+        .join("dual-channel.sqlite")
+}
+
 fn ingest_record(
     service: &IngestService<'_>,
     source_uri: &str,
@@ -89,9 +103,7 @@ fn mode_specific_search_behaviors_match_generated_configs() {
         .expect("root config.toml should parse for retrieval tests");
     let variants = config.retrieval_mode_variants();
 
-    let db_path = std::env::temp_dir()
-        .join("agent-memos-dual-channel-tests")
-        .join("mode-specific.sqlite");
+    let db_path = fresh_db_path("mode-specific");
     let db = Database::open(&db_path).expect("database should open");
     let ingest = IngestService::with_embedding_config(
         db.conn(),
@@ -169,9 +181,7 @@ fn hybrid_search_merges_lexical_and_embedding_candidates_by_record_identity() {
         .find(|variant| variant.mode == RetrievalMode::Hybrid)
         .expect("hybrid variant should exist");
 
-    let db_path = std::env::temp_dir()
-        .join("agent-memos-dual-channel-tests")
-        .join("hybrid-dedupe.sqlite");
+    let db_path = fresh_db_path("hybrid-dedupe");
     let db = Database::open(&db_path).expect("database should open");
     let ingest = IngestService::with_embedding_config(
         db.conn(),
@@ -217,5 +227,61 @@ fn hybrid_search_merges_lexical_and_embedding_candidates_by_record_identity() {
             .query_strategies
             .contains(&QueryStrategy::Embedding),
         "deduped result should preserve embedding contribution"
+    );
+}
+
+#[test]
+fn result_trace_reports_channel_contribution() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config.toml should parse for retrieval tests");
+    let variants = config.retrieval_mode_variants();
+
+    let db_path = fresh_db_path("trace-contribution");
+    let db = Database::open(&db_path).expect("database should open");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(
+                variants[1]
+                    .embedding
+                    .as_ref()
+                    .expect("embedding config")
+                    .model
+                    .clone(),
+            ),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        "memo://project/shared-trace",
+        "retrieval fusion semantic retrieval fusion citations",
+        "2026-04-16T12:00:00Z",
+    );
+
+    let lexical = SearchService::with_variant(db.conn(), &variants[0])
+        .search(&SearchRequest::new("citations"))
+        .expect("lexical-only search should succeed");
+    let embedding = SearchService::with_variant(db.conn(), &variants[1])
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("embedding-only search should succeed");
+    let hybrid = SearchService::with_variant(db.conn(), &variants[2])
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("hybrid search should succeed");
+
+    assert_eq!(
+        lexical.results[0].trace.channel_contribution,
+        ChannelContribution::LexicalOnly
+    );
+    assert_eq!(
+        embedding.results[0].trace.channel_contribution,
+        ChannelContribution::EmbeddingOnly
+    );
+    assert_eq!(
+        hybrid.results[0].trace.channel_contribution,
+        ChannelContribution::Hybrid
     );
 }

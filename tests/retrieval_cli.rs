@@ -106,7 +106,7 @@ fn ingest_record(service: &IngestService<'_>, record: FixtureRecord<'_>) {
 fn library_search_returns_citations_and_filter_trace() {
     let path = fresh_db_path("library-shape");
     let db = Database::open(&path).expect("database should open");
-    assert_eq!(db.schema_version().expect("schema version"), 5);
+    assert_eq!(db.schema_version().expect("schema version"), 6);
     let ingest = IngestService::new(db.conn());
 
     ingest_record(
@@ -324,6 +324,10 @@ fn cli_ingest_and_search_emit_json_reports() {
     assert_eq!(
         search_json["results"][0]["trace"]["applied_filters"]["record_type"],
         "decision"
+    );
+    assert_eq!(
+        search_json["results"][0]["trace"]["channel_contribution"],
+        "lexical_only"
     );
 }
 

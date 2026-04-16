@@ -35,8 +35,8 @@ use agent_memos::{
         },
     },
     search::{
-        Citation, ResultTrace, ScoreBreakdown, SearchFilters, SearchRequest, SearchResponse,
-        SearchResult,
+        ChannelContribution, Citation, ResultTrace, ScoreBreakdown, SearchFilters,
+        SearchRequest, SearchResponse, SearchResult,
     },
 };
 use serde_json::Value;
@@ -96,6 +96,7 @@ fn sample_result(record: MemoryRecord, query: &str, snippet: &str) -> SearchResu
         trace: ResultTrace {
             matched_query: query.to_string(),
             query_strategies: Vec::new(),
+            channel_contribution: ChannelContribution::LexicalOnly,
             applied_filters: SearchFilters::default(),
         },
     }

@@ -26,7 +26,9 @@ use agent_memos::{
         repository::{MemoryRepository, RuminationCandidateKind},
         truth::{OntologyCandidateState, PromotionDecisionState},
     },
-    search::{Citation, ResultTrace, ScoreBreakdown, SearchFilters, SearchResult},
+    search::{
+        ChannelContribution, Citation, ResultTrace, ScoreBreakdown, SearchFilters, SearchResult,
+    },
 };
 
 fn fresh_db_path(name: &str) -> PathBuf {
@@ -92,6 +94,7 @@ fn sample_result(record: MemoryRecord, query: &str, snippet: &str) -> SearchResu
         trace: ResultTrace {
             matched_query: query.to_string(),
             query_strategies: Vec::new(),
+            channel_contribution: ChannelContribution::LexicalOnly,
             applied_filters: SearchFilters::default(),
         },
     }

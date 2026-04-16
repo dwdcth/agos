@@ -27,7 +27,7 @@ use agent_memos::{
         },
         repository::MemoryRepository,
     },
-    search::{Citation, ResultTrace, ScoreBreakdown, SearchFilters},
+    search::{ChannelContribution, Citation, ResultTrace, ScoreBreakdown, SearchFilters},
 };
 
 fn fresh_db_path(name: &str) -> PathBuf {
@@ -125,6 +125,7 @@ fn sample_fragment(record_id: &str, source_uri: &str) -> EvidenceFragment {
         trace: ResultTrace {
             matched_query: "rig boundary".to_string(),
             query_strategies: Vec::new(),
+            channel_contribution: ChannelContribution::LexicalOnly,
             applied_filters: SearchFilters::default(),
         },
         score: ScoreBreakdown {

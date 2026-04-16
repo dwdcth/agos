@@ -24,7 +24,10 @@ use agent_memos::{
         repository::MemoryRepository,
         truth::TruthRecord,
     },
-    search::{Citation, ResultTrace, ScoreBreakdown, SearchRequest, SearchResult, SearchService},
+    search::{
+        ChannelContribution, Citation, ResultTrace, ScoreBreakdown, SearchRequest, SearchResult,
+        SearchService,
+    },
 };
 
 fn sample_present_frame() -> PresentFrame {
@@ -112,6 +115,7 @@ fn synthetic_result(record_id: &str, source_uri: &str, query: &str, snippet: &st
         trace: ResultTrace {
             matched_query: query.to_string(),
             query_strategies: Vec::new(),
+            channel_contribution: ChannelContribution::LexicalOnly,
             applied_filters: Default::default(),
         },
     }

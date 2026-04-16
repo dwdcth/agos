@@ -16,7 +16,7 @@ use crate::{
 pub use citation::{Citation, CitationAnchor, CitationError};
 pub use filter::{AppliedFilters, SearchFilters};
 pub use lexical::{LexicalCandidate, LexicalSearchError, QueryStrategy};
-pub use rerank::ResultTrace;
+pub use rerank::{ChannelContribution, ResultTrace};
 pub use score::ScoreBreakdown;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
