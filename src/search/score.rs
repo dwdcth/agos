@@ -146,6 +146,7 @@ fn sorted_strategies(mut strategies: Vec<QueryStrategy>) -> Vec<QueryStrategy> {
     strategies.sort_by_key(|strategy| match strategy {
         QueryStrategy::Jieba => 0,
         QueryStrategy::Simple => 1,
+        QueryStrategy::Embedding => 2,
     });
     strategies
 }

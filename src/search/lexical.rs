@@ -88,6 +88,7 @@ const SIMPLE_SQL: &str = r#"
 pub enum QueryStrategy {
     Jieba,
     Simple,
+    Embedding,
 }
 
 #[derive(Debug, Clone, PartialEq)]
