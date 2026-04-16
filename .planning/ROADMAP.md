@@ -54,9 +54,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 09-01: Add embedding second-channel recall on top of the existing search contract
-- [ ] 09-02: Implement lexical-first fusion, dedupe, and rerank logic
-- [ ] 09-03: Extend result traces to explain dual-channel contribution
+- [x] 09-01: Add embedding second-channel recall on top of the existing search contract
+- [x] 09-02: Implement lexical-first fusion, dedupe, and rerank logic
+- [x] 09-03: Extend result traces to explain dual-channel contribution
 
 ### Phase 10: Dual-Channel Diagnostics And Service Compatibility
 **Goal**: 把 dual-channel retrieval 的状态诊断、CLI/library surface 和 agent-search 兼容性补齐，确保新通道不会破坏现有 ordinary retrieval / agent-search 边界。
