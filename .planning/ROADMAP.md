@@ -22,9 +22,9 @@
 
 ### 🚧 v1.1 Embedding Second-Channel Retrieval
 
-- [ ] **Phase 8: Embedding Backend And Index Foundation** - 增加可选 embedding backend、embedding 持久化与 vector sidecar/index 基础能力
-- [ ] **Phase 9: Dual-Channel Retrieval Fusion** - 实现 lexical-first + embedding second-channel 的 recall / fusion / rerank
-- [ ] **Phase 10: Dual-Channel Diagnostics And Service Compatibility** - 对 dual-channel search 的 trace、状态诊断与 agent-search 兼容性做收尾
+- [x] **Phase 8: Embedding Backend And Index Foundation** - 增加可选 embedding backend、embedding 持久化与 vector sidecar/index 基础能力 (completed 2026-04-16)
+- [x] **Phase 9: Dual-Channel Retrieval Fusion** - 实现 lexical-first + embedding second-channel 的 recall / fusion / rerank (completed 2026-04-16)
+- [x] **Phase 10: Dual-Channel Diagnostics And Service Compatibility** - 对 dual-channel search 的 trace、状态诊断与 agent-search 兼容性做收尾 (completed 2026-04-17)
 
 ## Phase Details
 
@@ -69,8 +69,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 10-01: Extend dual-channel diagnostics and operator surfaces
-- [ ] 10-02: Ensure ordinary retrieval and agent-search compatibility over the same dual-channel service
+- [x] 10-01: Extend dual-channel diagnostics and operator surfaces
+- [x] 10-02: Ensure ordinary retrieval and agent-search compatibility over the same dual-channel service
 
 ## Progress
 
@@ -83,6 +83,6 @@ Plans:
 | 5. Rumination And Adaptive Write-back | v1.0 | 3/3 | Complete | 2026-04-16 |
 | 6. Runtime Gate Enforcement | v1.0 | 2/2 | Complete | 2026-04-16 |
 | 7. Follow-up Evidence Integration | v1.0 | 2/2 | Complete | 2026-04-16 |
-| 8. Embedding Backend And Index Foundation | v1.1 | 0/3 | Not started | - |
-| 9. Dual-Channel Retrieval Fusion | v1.1 | 0/3 | Not started | - |
-| 10. Dual-Channel Diagnostics And Service Compatibility | v1.1 | 0/2 | Not started | - |
+| 8. Embedding Backend And Index Foundation | v1.1 | 3/3 | Complete | 2026-04-16 |
+| 9. Dual-Channel Retrieval Fusion | v1.1 | 3/3 | Complete | 2026-04-16 |
+| 10. Dual-Channel Diagnostics And Service Compatibility | v1.1 | 2/2 | Complete    | 2026-04-17 |
