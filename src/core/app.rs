@@ -144,7 +144,10 @@ fn resolve_home_path(path: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::config::{Config, EmbeddingBackend, EmbeddingConfig, RetrievalConfig};
+    use crate::core::config::{
+        Config, EmbeddingBackend, EmbeddingConfig, RetrievalConfig, RootVectorConfig,
+        VectorBackend,
+    };
 
     use super::*;
 
@@ -159,6 +162,11 @@ mod tests {
                 backend: EmbeddingBackend::Disabled,
                 model: None,
                 endpoint: None,
+            },
+            vector: RootVectorConfig {
+                backend: VectorBackend::None,
+                table: String::new(),
+                similarity: String::new(),
             },
         };
 
@@ -193,6 +201,11 @@ mod tests {
                 model: Some("hash-64".to_string()),
                 endpoint: None,
             },
+            vector: RootVectorConfig {
+                backend: VectorBackend::SqliteVec,
+                table: "object_embeddings_vec".to_string(),
+                similarity: "cosine".to_string(),
+            },
         };
 
         let embedding_readiness = RuntimeReadiness::from_config(&embedding_only);
@@ -224,6 +237,11 @@ mod tests {
                 backend: EmbeddingBackend::Builtin,
                 model: Some("hash-64".to_string()),
                 endpoint: None,
+            },
+            vector: RootVectorConfig {
+                backend: VectorBackend::SqliteVec,
+                table: "object_embeddings_vec".to_string(),
+                similarity: "cosine".to_string(),
             },
         };
 

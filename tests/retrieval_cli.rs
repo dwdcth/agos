@@ -7,6 +7,7 @@ use std::{
 };
 
 use agent_memos::{
+    core::config::{EmbeddingBackend, EmbeddingConfig, RootRuntimeConfig},
     core::db::Database,
     ingest::{IngestRequest, IngestService},
     memory::record::{RecordType, Scope, TruthLayer},
@@ -36,8 +37,29 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 }
 
 fn write_config(path: &Path, db_path: &Path) {
+    write_config_with_mode(path, db_path, "lexical_only", "disabled", None, None);
+}
+
+fn write_config_with_mode(
+    path: &Path,
+    db_path: &Path,
+    mode: &str,
+    backend: &str,
+    model: Option<&str>,
+    vector_backend: Option<&str>,
+) {
     let parent = path.parent().expect("config path should have parent");
     fs::create_dir_all(parent).expect("config parent should exist");
+    let model_line = model
+        .map(|value| format!("model = \"{value}\"\n"))
+        .unwrap_or_default();
+    let vector_block = vector_backend
+        .map(|backend| {
+            format!(
+                "\n[vector]\nbackend = \"{backend}\"\ntable = \"object_embeddings_vec\"\nsimilarity = \"cosine\"\n"
+            )
+        })
+        .unwrap_or_default();
     fs::write(
         path,
         format!(
@@ -45,10 +67,11 @@ fn write_config(path: &Path, db_path: &Path) {
 db_path = "{}"
 
 [retrieval]
-mode = "lexical_only"
+mode = "{mode}"
 
 [embedding]
-backend = "disabled"
+backend = "{backend}"
+{model_line}{vector_block}
 "#,
             db_path.display()
         ),
@@ -392,5 +415,81 @@ fn cli_search_text_output_renders_citation_summary() {
     assert!(
         text.contains("filters:"),
         "text output should expose applied filters and trace context: {text}"
+    );
+}
+
+#[test]
+fn search_surface_respects_dual_channel_mode_selection() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("mode-selection");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/mode-selection",
+            source_label: "mode selection memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:00:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let lexical_output = run_cli(
+        &config_path,
+        &["search", "citations", "--mode", "lexical_only", "--json"],
+    );
+    let lexical_json: Value =
+        serde_json::from_str(&stdout(&lexical_output)).expect("lexical search should emit json");
+    assert_eq!(
+        lexical_json["results"][0]["trace"]["channel_contribution"],
+        "lexical_only"
+    );
+
+    let embedding_output = run_cli(
+        &config_path,
+        &["search", "retrieval fusion", "--mode", "embedding_only", "--json"],
+    );
+    let embedding_json: Value = serde_json::from_str(&stdout(&embedding_output))
+        .expect("embedding search should emit json");
+    assert_eq!(
+        embedding_json["results"][0]["trace"]["channel_contribution"],
+        "embedding_only"
+    );
+
+    let hybrid_output = run_cli(
+        &config_path,
+        &["search", "retrieval fusion", "--mode", "hybrid", "--json"],
+    );
+    let hybrid_json: Value =
+        serde_json::from_str(&stdout(&hybrid_output)).expect("hybrid search should emit json");
+    assert_eq!(
+        hybrid_json["results"][0]["trace"]["channel_contribution"],
+        "hybrid"
     );
 }

@@ -57,6 +57,7 @@ pub struct Config {
     pub db_path: String,
     pub retrieval: RetrievalConfig,
     pub embedding: EmbeddingConfig,
+    pub vector: RootVectorConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Default)]
@@ -185,6 +186,7 @@ impl Default for Config {
             db_path: DEFAULT_DB_PATH.to_string(),
             retrieval: RetrievalConfig::default(),
             embedding: EmbeddingConfig::default(),
+            vector: RootVectorConfig::default(),
         }
     }
 }
@@ -236,6 +238,7 @@ mod tests {
 
         assert_eq!(config.retrieval.mode, RetrievalMode::LexicalOnly);
         assert_eq!(config.embedding.backend, EmbeddingBackend::Disabled);
+        assert_eq!(config.vector.backend, VectorBackend::None);
         assert_eq!(config.db_path, DEFAULT_DB_PATH);
     }
 

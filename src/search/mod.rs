@@ -9,7 +9,7 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
-    core::config::{EmbeddingBackend, RetrievalMode, RetrievalModeVariant, VectorBackend},
+    core::config::{Config, EmbeddingBackend, RetrievalMode, RetrievalModeVariant, VectorBackend},
     memory::{record::MemoryRecord, repository::{MemoryRepository, RepositoryError}},
 };
 
@@ -110,6 +110,21 @@ impl<'db> SearchService<'db> {
                 .as_ref()
                 .map(|cfg| cfg.backend)
                 .unwrap_or(VectorBackend::None),
+        }
+    }
+
+    pub fn with_runtime_config(
+        conn: &'db Connection,
+        config: &Config,
+        mode_override: Option<RetrievalMode>,
+    ) -> Self {
+        Self {
+            lexical: lexical::LexicalSearch::new(conn),
+            repository: MemoryRepository::new(conn),
+            mode: mode_override.unwrap_or(config.retrieval.mode),
+            embedding_backend: config.embedding.backend,
+            embedding_model: config.embedding.model.clone(),
+            vector_backend: config.vector.backend,
         }
     }
 

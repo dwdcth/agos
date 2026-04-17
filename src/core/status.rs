@@ -190,6 +190,8 @@ impl StatusReport {
                 embedding_backend_label(self.embedding_backend)
             ),
             format!("  ready: {}", self.ready),
+            format!("  active_channels: {}", active_channels_label(self)),
+            format!("  gated_channels: {}", gated_channels_label(self)),
             "dependencies:".to_string(),
             format!(
                 "  lexical_dependency_state: {}",
@@ -216,6 +218,63 @@ impl StatusReport {
         }
 
         lines.join("\n")
+    }
+}
+
+fn active_channels_label(report: &StatusReport) -> &'static str {
+    match report.configured_mode {
+        RetrievalMode::LexicalOnly => "lexical",
+        RetrievalMode::EmbeddingOnly => {
+            if matches!(report.embedding_dependency_state, CapabilityState::Ready)
+                && matches!(report.embedding_index_readiness, CapabilityState::Ready)
+            {
+                "embedding"
+            } else {
+                "none"
+            }
+        }
+        RetrievalMode::Hybrid => {
+            if matches!(report.embedding_dependency_state, CapabilityState::Ready)
+                && matches!(report.embedding_index_readiness, CapabilityState::Ready)
+            {
+                "lexical,embedding"
+            } else {
+                "lexical"
+            }
+        }
+    }
+}
+
+fn gated_channels_label(report: &StatusReport) -> &'static str {
+    match report.configured_mode {
+        RetrievalMode::LexicalOnly => {
+            if matches!(report.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::Reserved)
+                && (!matches!(report.embedding_dependency_state, CapabilityState::Ready)
+                    || !matches!(report.embedding_index_readiness, CapabilityState::Ready))
+            {
+                "embedding"
+            } else {
+                "none"
+            }
+        }
+        RetrievalMode::EmbeddingOnly => {
+            if matches!(report.embedding_dependency_state, CapabilityState::Ready)
+                && matches!(report.embedding_index_readiness, CapabilityState::Ready)
+            {
+                "none"
+            } else {
+                "embedding"
+            }
+        }
+        RetrievalMode::Hybrid => {
+            if matches!(report.embedding_dependency_state, CapabilityState::Ready)
+                && matches!(report.embedding_index_readiness, CapabilityState::Ready)
+            {
+                "none"
+            } else {
+                "embedding"
+            }
+        }
     }
 }
 

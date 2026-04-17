@@ -18,16 +18,17 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 }
 
 fn write_config(path: &Path, db_path: &Path, mode: &str, backend: &str) {
-    write_config_with_embedding(path, db_path, mode, backend, None, None);
+    write_config_with_runtime(path, db_path, mode, backend, None, None, None);
 }
 
-fn write_config_with_embedding(
+fn write_config_with_runtime(
     path: &Path,
     db_path: &Path,
     mode: &str,
     backend: &str,
     model: Option<&str>,
     endpoint: Option<&str>,
+    vector_backend: Option<&str>,
 ) {
     let parent = path.parent().expect("config path should have parent");
     fs::create_dir_all(parent).expect("config parent should exist");
@@ -36,6 +37,13 @@ fn write_config_with_embedding(
         .unwrap_or_default();
     let endpoint_line = endpoint
         .map(|value| format!("endpoint = \"{value}\"\n"))
+        .unwrap_or_default();
+    let vector_block = vector_backend
+        .map(|backend| {
+            format!(
+                "\n[vector]\nbackend = \"{backend}\"\ntable = \"object_embeddings_vec\"\nsimilarity = \"cosine\"\n"
+            )
+        })
         .unwrap_or_default();
     fs::write(
         path,
@@ -49,11 +57,23 @@ mode = "{mode}"
 [embedding]
 backend = "{backend}"
 {model_line}{endpoint_line}
+{vector_block}
 "#,
             db_path.display()
         ),
     )
     .expect("config should be written");
+}
+
+fn write_config_with_embedding(
+    path: &Path,
+    db_path: &Path,
+    mode: &str,
+    backend: &str,
+    model: Option<&str>,
+    endpoint: Option<&str>,
+) {
+    write_config_with_runtime(path, db_path, mode, backend, model, endpoint, None);
 }
 
 fn run_cli(config_path: &Path, args: &[&str]) -> std::process::Output {
@@ -378,10 +398,10 @@ fn diagnostic_commands_remain_informational_while_operational_gate_uses_same_con
         !reserved_search.status.success(),
         "operational commands should fail for reserved semantic modes"
     );
-    assert_eq!(
-        stdout(&reserved_search),
-        stdout(&reserved_doctor),
-        "operational gate should reuse the same structured doctor rendering for reserved semantic modes"
+    assert!(
+        stdout(&reserved_search).contains("embedding_only is reserved but not implemented in Phase 1"),
+        "operational gate should preserve the explicit reserved semantic-mode failure: {}",
+        stdout(&reserved_search)
     );
 
     let bad_dir = unique_temp_dir("diagnostic-bad-db");
@@ -511,12 +531,12 @@ fn embedding_foundation_doctor_preserves_lexical_first_contract() {
         (
             "embedding-foundation-only",
             "embedding_only",
-            "embedding_only foundation is configured, but semantic retrieval is not enabled until Phase 9",
+            "embedding vector sidecar/index is not ready for embedding_only retrieval",
         ),
         (
             "hybrid-foundation-only",
             "hybrid",
-            "hybrid foundation is configured, but dual-channel retrieval is not enabled until Phase 9",
+            "embedding vector sidecar/index is not ready for hybrid retrieval",
         ),
     ] {
         let dir = unique_temp_dir(name);
@@ -531,6 +551,11 @@ fn embedding_foundation_doctor_preserves_lexical_first_contract() {
             Some("hash-64"),
             None,
         );
+        {
+            let conn = rusqlite::Connection::open(&db_path).expect("sqlite db should open");
+            conn.execute("DROP TABLE record_embedding_index_state", [])
+                .expect("test fixture should drop embedding index state table");
+        }
 
         let output = run_cli(&config_path, &["doctor"]);
         let text = stdout(&output);
@@ -611,5 +636,82 @@ fn embedding_foundation_status_reports_vector_sidecar_state() {
     assert!(
         missing_text.contains("index_readiness: ready"),
         "lexical readiness should remain independent from embedding index state: {missing_text}"
+    );
+}
+
+#[test]
+fn dual_channel_status_and_doctor_report_mode_compatibility_truthfully() {
+    let ready_dir = unique_temp_dir("dual-channel-ready");
+    let ready_db_path = ready_dir.join("agent-memos.sqlite");
+    let ready_config_path = ready_dir.join("config.toml");
+    Database::open(&ready_db_path).expect("database should bootstrap");
+    write_config_with_runtime(
+        &ready_config_path,
+        &ready_db_path,
+        "hybrid",
+        "builtin",
+        Some("hash-16"),
+        None,
+        Some("sqlite_vec"),
+    );
+
+    let status_output = run_cli(&ready_config_path, &["status"]);
+    let status_text = stdout(&status_output);
+    assert!(
+        status_text.contains("active_channels: lexical,embedding"),
+        "status should show both channels active when hybrid substrate is ready: {status_text}"
+    );
+    assert!(
+        status_text.contains("gated_channels: none"),
+        "status should show no gated channels when hybrid substrate is ready: {status_text}"
+    );
+
+    let doctor_output = run_cli(&ready_config_path, &["doctor"]);
+    assert!(
+        doctor_output.status.success(),
+        "doctor should allow hybrid when both lexical and embedding substrate are ready: stdout={} stderr={}",
+        stdout(&doctor_output),
+        stderr(&doctor_output)
+    );
+
+    let gated_dir = unique_temp_dir("dual-channel-gated");
+    let gated_db_path = gated_dir.join("agent-memos.sqlite");
+    let gated_config_path = gated_dir.join("config.toml");
+    Database::open(&gated_db_path).expect("database should bootstrap");
+    {
+        let conn = rusqlite::Connection::open(&gated_db_path).expect("sqlite db should open");
+        conn.execute("DROP TABLE record_embedding_index_state", [])
+            .expect("test fixture should drop embedding index state table");
+    }
+    write_config_with_runtime(
+        &gated_config_path,
+        &gated_db_path,
+        "embedding_only",
+        "builtin",
+        Some("hash-16"),
+        None,
+        Some("sqlite_vec"),
+    );
+
+    let gated_status = run_cli(&gated_config_path, &["status"]);
+    let gated_text = stdout(&gated_status);
+    assert!(
+        gated_text.contains("active_channels: none"),
+        "status should show no active channels when embedding mode is gated: {gated_text}"
+    );
+    assert!(
+        gated_text.contains("gated_channels: embedding"),
+        "status should show embedding channel as gated when vector sidecar is unavailable: {gated_text}"
+    );
+
+    let gated_doctor = run_cli(&gated_config_path, &["doctor"]);
+    assert!(
+        !gated_doctor.status.success(),
+        "doctor should fail when embedding-only mode lacks vector sidecar readiness"
+    );
+    assert!(
+        stdout(&gated_doctor).contains("embedding vector sidecar/index is not ready for embedding_only retrieval"),
+        "doctor should explain which channel is gated: {}",
+        stdout(&gated_doctor)
     );
 }

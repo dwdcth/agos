@@ -51,22 +51,23 @@ impl DoctorReport {
             }
         }
 
-        if semantic_runtime_is_still_foundation_only(command_path) {
-            match (status.configured_mode, status.embedding_backend) {
-                (RetrievalMode::EmbeddingOnly, EmbeddingBackend::Builtin) => failures.push(
-                    "embedding_only foundation is configured, but semantic retrieval is not enabled until Phase 9"
-                        .to_string(),
-                ),
-                (RetrievalMode::Hybrid, EmbeddingBackend::Builtin) => failures.push(
-                    "hybrid foundation is configured, but dual-channel retrieval is not enabled until Phase 9"
-                        .to_string(),
-                ),
-                _ => {}
-            }
-        }
-
         if requires_operational_readiness(command_path) {
             failures.extend(operational_readiness_failures(status));
+        }
+
+        if matches!(command_path, CommandPath::Doctor) {
+            failures.extend(doctor_mode_readiness_failures(status));
+        }
+
+        if matches!(status.configured_mode, RetrievalMode::LexicalOnly)
+            && matches!(status.embedding_backend, EmbeddingBackend::Builtin)
+            && matches!(status.embedding_dependency_state, CapabilityState::Ready)
+            && matches!(status.embedding_index_readiness, CapabilityState::Ready)
+        {
+            warnings.push(
+                "embedding second channel is ready but inactive because retrieval.mode=lexical_only"
+                    .to_string(),
+            );
         }
 
         if matches!(status.schema_state, CapabilityState::Missing) {
@@ -132,18 +133,7 @@ fn requires_operational_readiness(command_path: CommandPath) -> bool {
     )
 }
 
-fn semantic_runtime_is_still_foundation_only(command_path: CommandPath) -> bool {
-    matches!(
-        command_path,
-        CommandPath::Doctor | CommandPath::Ingest | CommandPath::Search | CommandPath::AgentSearch
-    )
-}
-
 fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
-    if !matches!(status.configured_mode, RetrievalMode::LexicalOnly) {
-        return Vec::new();
-    }
-
     let mut failures = Vec::new();
 
     if matches!(status.schema_state, CapabilityState::Missing) {
@@ -157,8 +147,37 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
         failures.push("foundation base tables are incomplete or missing".to_string());
     }
 
-    if matches!(status.index_readiness, CapabilityState::Missing) {
-        failures.push("lexical sidecar indexes are missing or incomplete".to_string());
+    match status.configured_mode {
+        RetrievalMode::LexicalOnly => {
+            if matches!(status.index_readiness, CapabilityState::Missing) {
+                failures.push("lexical sidecar indexes are missing or incomplete".to_string());
+            }
+        }
+        RetrievalMode::EmbeddingOnly => {
+            if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
+                failures.push("embedding backend is not ready for embedding_only retrieval".to_string());
+            }
+            if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
+                failures.push(
+                    "embedding vector sidecar/index is not ready for embedding_only retrieval"
+                        .to_string(),
+                );
+            }
+        }
+        RetrievalMode::Hybrid => {
+            if matches!(status.index_readiness, CapabilityState::Missing) {
+                failures.push("lexical sidecar indexes are missing or incomplete".to_string());
+            }
+            if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
+                failures.push("embedding backend is not ready for hybrid retrieval".to_string());
+            }
+            if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
+                failures.push(
+                    "embedding vector sidecar/index is not ready for hybrid retrieval"
+                        .to_string(),
+                );
+            }
+        }
     }
 
     if let Some(note) = status
@@ -167,6 +186,38 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
         .find(|note| note.starts_with("schema inspection failed for existing database file"))
     {
         failures.push(note.clone());
+    }
+
+    failures
+}
+
+fn doctor_mode_readiness_failures(status: &StatusReport) -> Vec<String> {
+    let mut failures = Vec::new();
+
+    match status.configured_mode {
+        RetrievalMode::EmbeddingOnly => {
+            if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
+                failures.push("embedding backend is not ready for embedding_only retrieval".to_string());
+            }
+            if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
+                failures.push(
+                    "embedding vector sidecar/index is not ready for embedding_only retrieval"
+                        .to_string(),
+                );
+            }
+        }
+        RetrievalMode::Hybrid => {
+            if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
+                failures.push("embedding backend is not ready for hybrid retrieval".to_string());
+            }
+            if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
+                failures.push(
+                    "embedding vector sidecar/index is not ready for hybrid retrieval"
+                        .to_string(),
+                );
+            }
+        }
+        RetrievalMode::LexicalOnly => {}
     }
 
     failures

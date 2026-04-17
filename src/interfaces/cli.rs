@@ -12,7 +12,7 @@ use crate::{
     cognition::{assembly::MinimalSelfStateProvider, value::ValueConfig},
     core::{
         app::AppContext,
-        config::Config,
+        config::{Config, RetrievalConfig, RetrievalMode},
         db::Database,
         doctor::{CommandPath, DoctorReport},
         status::StatusReport,
@@ -65,6 +65,8 @@ pub enum Commands {
     },
     Search {
         query: String,
+        #[arg(long = "mode", value_name = "MODE", value_parser = parse_retrieval_mode_arg)]
+        mode: Option<RetrievalMode>,
         #[arg(long = "top-k", default_value_t = SearchRequest::DEFAULT_LIMIT)]
         top_k: usize,
         #[arg(long, value_name = "SCOPE", value_parser = parse_scope_arg)]
@@ -145,6 +147,7 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
         ),
         Commands::Search {
             query,
+            mode,
             top_k,
             scope,
             record_type,
@@ -158,6 +161,7 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
             &app,
             SearchCommand {
                 query,
+                mode,
                 top_k,
                 scope,
                 record_type,
@@ -208,6 +212,7 @@ struct IngestCommand {
 #[derive(Debug, Clone)]
 struct SearchCommand {
     query: String,
+    mode: Option<RetrievalMode>,
     top_k: usize,
     scope: Option<Scope>,
     record_type: Option<RecordType>,
@@ -311,12 +316,13 @@ fn ingest_command(app: &AppContext, command: IngestCommand) -> Result<ExitCode> 
 }
 
 fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> {
-    if let Some(exit_code) = operational_gate(app, CommandPath::Search)? {
+    let gate_app = override_mode_app(app, command.mode)?;
+    if let Some(exit_code) = operational_gate(&gate_app, CommandPath::Search)? {
         return Ok(exit_code);
     }
 
     let db = Database::open(app.db_path())?;
-    let service = SearchService::new(db.conn());
+    let service = SearchService::with_runtime_config(db.conn(), &gate_app.config, None);
     let response = service.search(
         &SearchRequest::new(command.query)
             .with_limit(command.top_k)
@@ -390,11 +396,8 @@ fn agent_search_command(app: &AppContext, command: AgentSearchCommand) -> Result
         request = request.with_follow_up_query(query);
     }
 
-    let orchestrator = AgentSearchOrchestrator::with_services(
-        db.conn(),
-        MinimalSelfStateProvider,
-        ValueConfig::default(),
-    );
+    let orchestrator =
+        AgentSearchOrchestrator::with_services(db.conn(), MinimalSelfStateProvider, ValueConfig::default());
     let adapter = RigAgentSearchAdapter::new(orchestrator);
     let runtime = tokio::runtime::Runtime::new()?;
     let report = runtime.block_on(adapter.run(&request))?;
@@ -412,6 +415,17 @@ fn operational_gate(app: &AppContext, command_path: CommandPath) -> Result<Optio
     } else {
         println!("{}", doctor.render_text());
         Ok(Some(ExitCode::FAILURE))
+    }
+}
+
+fn override_mode_app(app: &AppContext, mode: Option<RetrievalMode>) -> Result<AppContext> {
+    match mode {
+        Some(mode) => {
+            let mut config = app.config.clone();
+            config.retrieval = RetrievalConfig { mode };
+            AppContext::load(config)
+        }
+        None => Ok(app.clone()),
     }
 }
 
@@ -509,6 +523,15 @@ fn parse_truth_layer_arg(value: &str) -> std::result::Result<TruthLayer, String>
 
 fn parse_source_kind_arg(value: &str) -> std::result::Result<SourceKind, String> {
     SourceKind::parse(value).ok_or_else(|| format!("unsupported source kind: {value}"))
+}
+
+fn parse_retrieval_mode_arg(value: &str) -> std::result::Result<RetrievalMode, String> {
+    match value {
+        "lexical_only" => Ok(RetrievalMode::LexicalOnly),
+        "embedding_only" => Ok(RetrievalMode::EmbeddingOnly),
+        "hybrid" => Ok(RetrievalMode::Hybrid),
+        other => Err(format!("unsupported retrieval mode: {other}")),
+    }
 }
 
 fn gate_label(decision: crate::cognition::metacog::GateDecision) -> &'static str {
