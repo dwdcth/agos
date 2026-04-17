@@ -16,6 +16,7 @@ use crate::{
         value::{ScoredBranch, ValueConfig, ValueScorer, ValueVector},
         working_memory::WorkingMemory,
     },
+    core::config::Config,
     search::{Citation, SearchFilters, SearchRequest, SearchResponse, SearchService},
 };
 
@@ -321,6 +322,12 @@ impl<'db> SearchServicePort<'db> {
             search: SearchService::new(conn),
         }
     }
+
+    pub fn with_runtime_config(conn: &'db Connection, config: &Config) -> Self {
+        Self {
+            search: SearchService::with_runtime_config(conn, config, None),
+        }
+    }
 }
 
 impl RetrievalPort for SearchServicePort<'_> {
@@ -436,6 +443,20 @@ where
     pub fn with_services(conn: &'db Connection, self_state_provider: P, value_config: ValueConfig) -> Self {
         Self::new(
             SearchServicePort::new(conn),
+            WorkingMemoryAssemblyPort::new(conn, self_state_provider),
+            WorkingMemoryScoringPort::new(value_config),
+            MetacognitionPort::default(),
+        )
+    }
+
+    pub fn with_runtime_config(
+        conn: &'db Connection,
+        self_state_provider: P,
+        value_config: ValueConfig,
+        config: &Config,
+    ) -> Self {
+        Self::new(
+            SearchServicePort::with_runtime_config(conn, config),
             WorkingMemoryAssemblyPort::new(conn, self_state_provider),
             WorkingMemoryScoringPort::new(value_config),
             MetacognitionPort::default(),

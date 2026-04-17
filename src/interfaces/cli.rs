@@ -88,6 +88,8 @@ pub enum Commands {
     },
     AgentSearch {
         query: String,
+        #[arg(long = "mode", value_name = "MODE", value_parser = parse_retrieval_mode_arg)]
+        mode: Option<RetrievalMode>,
         #[arg(long = "follow-up")]
         follow_up_queries: Vec<String>,
         #[arg(long = "top-k", default_value_t = SearchRequest::DEFAULT_LIMIT)]
@@ -175,6 +177,7 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
         ),
         Commands::AgentSearch {
             query,
+            mode,
             follow_up_queries,
             top_k,
             max_steps,
@@ -183,6 +186,7 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
             &app,
             AgentSearchCommand {
                 query,
+                mode,
                 follow_up_queries,
                 top_k,
                 max_steps,
@@ -227,6 +231,7 @@ struct SearchCommand {
 #[derive(Debug, Clone)]
 struct AgentSearchCommand {
     query: String,
+    mode: Option<RetrievalMode>,
     follow_up_queries: Vec<String>,
     top_k: usize,
     max_steps: usize,
@@ -384,7 +389,8 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
 }
 
 fn agent_search_command(app: &AppContext, command: AgentSearchCommand) -> Result<ExitCode> {
-    if let Some(exit_code) = operational_gate(app, CommandPath::AgentSearch)? {
+    let gate_app = override_mode_app(app, command.mode)?;
+    if let Some(exit_code) = operational_gate(&gate_app, CommandPath::AgentSearch)? {
         return Ok(exit_code);
     }
 
@@ -396,8 +402,12 @@ fn agent_search_command(app: &AppContext, command: AgentSearchCommand) -> Result
         request = request.with_follow_up_query(query);
     }
 
-    let orchestrator =
-        AgentSearchOrchestrator::with_services(db.conn(), MinimalSelfStateProvider, ValueConfig::default());
+    let orchestrator = AgentSearchOrchestrator::with_runtime_config(
+        db.conn(),
+        MinimalSelfStateProvider,
+        ValueConfig::default(),
+        &gate_app.config,
+    );
     let adapter = RigAgentSearchAdapter::new(orchestrator);
     let runtime = tokio::runtime::Runtime::new()?;
     let report = runtime.block_on(adapter.run(&request))?;
