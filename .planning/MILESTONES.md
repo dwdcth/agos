@@ -1,5 +1,22 @@
 # Milestones
 
+## v1.1 milestone (Shipped: 2026-04-17)
+
+**Phases completed:** 3 phases, 8 plans, 16 tasks
+
+**Key accomplishments:**
+
+- Typed builtin embedding backend and truthful diagnostics without breaking lexical-first defaults
+- Additive chunk-aligned embedding persistence and vector-sidecar schema foundation
+- Operator-visible vector sidecar readiness and schema inspection for the embedding foundation
+- Config-derived lexical-only / embedding-only / hybrid retrieval mode matrix from the real `config.toml` contract
+- Shared `SearchService` dispatch for lexical-only, embedding-only, and hybrid retrieval
+- Explicit lexical / embedding / hybrid contribution traces without breaking ordinary retrieval consumers
+- Mode-aware `search` CLI and truthful dual-channel diagnostics for lexical, embedding, and hybrid retrieval
+- Agent-search now honors lexical-only, embedding-only, and hybrid retrieval modes through the shared ordinary retrieval seam
+
+---
+
 ## v1.0 milestone (Shipped: 2026-04-15)
 
 **Phases completed:** 7 phases, 21 plans, 34 tasks
