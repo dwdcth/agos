@@ -249,7 +249,7 @@ fn assembler_preserves_citations_truth_context_and_in_memory_runtime_only() {
         .assemble(&request)
         .expect("rebuilding should create a fresh working-memory frame");
 
-    assert_eq!(db.schema_version().expect("schema version"), 5);
+    assert_eq!(db.schema_version().expect("schema version"), 7);
     assert_eq!(
         MemoryRepository::new(db.conn())
             .count_records()

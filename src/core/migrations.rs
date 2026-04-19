@@ -10,6 +10,8 @@ const RUMINATION_WRITEBACK_SQL: &str =
     include_str!("../../migrations/0005_rumination_writeback.sql");
 const EMBEDDING_FOUNDATION_SQL: &str =
     include_str!("../../migrations/0006_embedding_foundation.sql");
+const LAYERED_MEMORY_DSL_SQL: &str =
+    include_str!("../../migrations/0007_layered_memory_dsl.sql");
 
 pub fn apply_migrations(conn: &mut Connection) -> Result<(), rusqlite_migration::Error> {
     migrations().to_latest(conn)
@@ -35,5 +37,8 @@ fn migrations() -> Migrations<'static> {
         M::up(EMBEDDING_FOUNDATION_SQL)
             .foreign_key_check()
             .comment("embedding backend and vector sidecars"),
+        M::up(LAYERED_MEMORY_DSL_SQL)
+            .foreign_key_check()
+            .comment("layered memory taxonomy and dsl records"),
     ])
 }

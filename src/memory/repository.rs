@@ -13,6 +13,7 @@ use crate::memory::truth::{
     PromotionDecisionState, PromotionEvidence, PromotionReview, ReviewGateState, T3Confidence,
     T3RevocationState, T3State, TruthRecord,
 };
+use crate::memory::store::{FactDslStore, FactDslStoreError, PersistedFactDslRecordV1};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeCount {
@@ -484,6 +485,38 @@ impl<'db> MemoryRepository<'db> {
         }
 
         Ok(embeddings)
+    }
+
+    pub fn list_fact_dsl_records(&self) -> Result<Vec<PersistedFactDslRecordV1>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                record_id,
+                domain,
+                topic,
+                aspect,
+                kind,
+                claim,
+                truth_layer,
+                source_ref,
+                why,
+                time_hint,
+                cond,
+                impact,
+                conf,
+                rel_json
+            FROM fact_dsl_records
+            ORDER BY record_id ASC
+            "#,
+        )?;
+
+        let mut rows = statement.query([])?;
+        let mut records = Vec::new();
+        while let Some(row) = rows.next()? {
+            records.push(map_fact_dsl_row(row)?);
+        }
+
+        Ok(records)
     }
 
     pub fn get_t3_state(&self, record_id: &str) -> Result<Option<T3State>, RepositoryError> {
@@ -1560,6 +1593,117 @@ impl<'db> MemoryRepository<'db> {
     }
 }
 
+impl FactDslStore for MemoryRepository<'_> {
+    fn put_fact_dsl(&self, persisted: &PersistedFactDslRecordV1) -> Result<(), FactDslStoreError> {
+        persisted.validate()?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO fact_dsl_records (
+                record_id,
+                domain,
+                topic,
+                aspect,
+                kind,
+                claim,
+                truth_layer,
+                source_ref,
+                why,
+                time_hint,
+                cond,
+                impact,
+                conf,
+                rel_json
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            ON CONFLICT(record_id) DO UPDATE SET
+                domain = excluded.domain,
+                topic = excluded.topic,
+                aspect = excluded.aspect,
+                kind = excluded.kind,
+                claim = excluded.claim,
+                truth_layer = excluded.truth_layer,
+                source_ref = excluded.source_ref,
+                why = excluded.why,
+                time_hint = excluded.time_hint,
+                cond = excluded.cond,
+                impact = excluded.impact,
+                conf = excluded.conf,
+                rel_json = excluded.rel_json
+            "#,
+            params![
+                &persisted.record_id,
+                &persisted.payload.domain,
+                &persisted.payload.topic,
+                &persisted.payload.aspect,
+                &persisted.payload.kind,
+                &persisted.payload.claim,
+                &persisted.payload.truth_layer,
+                &persisted.payload.source_ref,
+                &persisted.payload.why,
+                &persisted.payload.time,
+                &persisted.payload.cond,
+                &persisted.payload.impact,
+                &persisted.payload.conf,
+                persisted
+                    .payload
+                    .rel
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    fn get_fact_dsl(&self, record_id: &str) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                record_id,
+                domain,
+                topic,
+                aspect,
+                kind,
+                claim,
+                truth_layer,
+                source_ref,
+                why,
+                time_hint,
+                cond,
+                impact,
+                conf,
+                rel_json
+            FROM fact_dsl_records
+            WHERE record_id = ?1
+            "#,
+        )?;
+
+        let mut rows = statement.query([record_id])?;
+        match rows.next()? {
+            Some(row) => map_fact_dsl_row(row).map(Some).map_err(|error| FactDslStoreError::Store(error.to_string())),
+            None => Ok(None),
+        }
+    }
+
+    fn list_fact_dsls(&self) -> Result<Vec<PersistedFactDslRecordV1>, FactDslStoreError> {
+        self.list_fact_dsl_records()
+            .map_err(|error| FactDslStoreError::Store(error.to_string()))
+    }
+
+    fn delete_fact_dsl(&self, record_id: &str) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
+        let existing = self.get_fact_dsl(record_id)?;
+        if existing.is_some() {
+            self.conn.execute(
+                "DELETE FROM fact_dsl_records WHERE record_id = ?1",
+                [record_id],
+            )?;
+        }
+        Ok(existing)
+    }
+}
+
 fn map_record_row(row: &rusqlite::Row<'_>) -> Result<MemoryRecord, RepositoryError> {
     let source_kind = row.get::<_, String>(2)?;
     let scope = row.get::<_, String>(5)?;
@@ -2038,6 +2182,30 @@ fn parse_truth_layer(value: &str) -> Result<TruthLayer, RepositoryError> {
     TruthLayer::parse(value).ok_or_else(|| RepositoryError::InvalidEnum {
         field: "truth_layer",
         value: value.to_string(),
+    })
+}
+
+fn map_fact_dsl_row(row: &rusqlite::Row<'_>) -> Result<PersistedFactDslRecordV1, RepositoryError> {
+    Ok(PersistedFactDslRecordV1 {
+        record_id: row.get(0)?,
+        payload: crate::memory::dsl::FlatFactDslRecordV1 {
+            domain: row.get(1)?,
+            topic: row.get(2)?,
+            aspect: row.get(3)?,
+            kind: row.get(4)?,
+            claim: row.get(5)?,
+            truth_layer: row.get(6)?,
+            source_ref: row.get(7)?,
+            why: row.get(8)?,
+            time: row.get(9)?,
+            cond: row.get(10)?,
+            impact: row.get(11)?,
+            conf: row.get(12)?,
+            rel: row
+                .get::<_, Option<String>>(13)?
+                .map(|value| serde_json::from_str(&value))
+                .transpose()?,
+        },
     })
 }
 

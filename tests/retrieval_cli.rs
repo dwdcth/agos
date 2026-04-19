@@ -129,7 +129,7 @@ fn ingest_record(service: &IngestService<'_>, record: FixtureRecord<'_>) {
 fn library_search_returns_citations_and_filter_trace() {
     let path = fresh_db_path("library-shape");
     let db = Database::open(&path).expect("database should open");
-    assert_eq!(db.schema_version().expect("schema version"), 6);
+    assert_eq!(db.schema_version().expect("schema version"), 7);
     let ingest = IngestService::new(db.conn());
 
     ingest_record(

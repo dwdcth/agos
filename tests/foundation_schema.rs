@@ -143,7 +143,7 @@ fn foundation_migration_bootstraps_clean_db() {
     let db = Database::open(&path).expect("fresh database should bootstrap");
 
     assert!(parent.exists(), "open should create parent directories");
-    assert_eq!(db.schema_version().expect("schema version"), 6);
+    assert_eq!(db.schema_version().expect("schema version"), 7);
 
     let names = table_names(&path);
     assert!(
@@ -158,8 +158,9 @@ fn foundation_migration_bootstraps_clean_db() {
         names.contains(&"truth_t3_state".to_string())
             && names.contains(&"truth_promotion_reviews".to_string())
             && names.contains(&"truth_promotion_evidence".to_string())
-            && names.contains(&"truth_ontology_candidates".to_string()),
-        "truth-governance side tables should exist: {names:?}"
+            && names.contains(&"truth_ontology_candidates".to_string())
+            && names.contains(&"fact_dsl_records".to_string()),
+        "truth-governance and layered-memory side tables should exist: {names:?}"
     );
     assert!(
         !names.iter().any(|name| {
@@ -173,11 +174,11 @@ fn foundation_migration_bootstraps_clean_db() {
 fn foundation_migration_reopen_is_idempotent() {
     let path = fresh_db_path("reopen");
     let first = Database::open(&path).expect("first open should succeed");
-    assert_eq!(first.schema_version().expect("first schema version"), 6);
+    assert_eq!(first.schema_version().expect("first schema version"), 7);
     drop(first);
 
     let second = Database::open(&path).expect("second open should succeed");
-    assert_eq!(second.schema_version().expect("second schema version"), 6);
+    assert_eq!(second.schema_version().expect("second schema version"), 7);
     let names = table_names(&path);
     assert!(names.contains(&"memory_records".to_string()));
     assert!(names.contains(&"memory_records_fts".to_string()));
@@ -317,11 +318,11 @@ fn memory_repository_reads_preserve_metadata_shape() {
 }
 
 #[test]
-fn rumination_schema_bootstraps_version_5_side_tables() {
+fn rumination_schema_bootstraps_additive_phase_5_and_later_side_tables() {
     let path = fresh_db_path("rumination-schema");
     let db = Database::open(&path).expect("database should bootstrap");
 
-    assert_eq!(db.schema_version().expect("schema version"), 6);
+    assert_eq!(db.schema_version().expect("schema version"), 7);
 
     let names = table_names(&path);
     assert!(
@@ -336,8 +337,9 @@ fn rumination_schema_bootstraps_version_5_side_tables() {
         names.contains(&"memory_records".to_string())
             && names.contains(&"memory_records_fts".to_string())
             && names.contains(&"truth_promotion_reviews".to_string())
-            && names.contains(&"truth_ontology_candidates".to_string()),
-        "phase 5 migration must stay additive over authority, lexical, and governance tables: {names:?}"
+            && names.contains(&"truth_ontology_candidates".to_string())
+            && names.contains(&"fact_dsl_records".to_string()),
+        "phase 5+ migration chain must stay additive over authority, lexical, governance, and layered-memory tables: {names:?}"
     );
 
     let spq_columns = table_columns(&path, "spq_queue_items");
