@@ -7,7 +7,10 @@ use std::{
 };
 
 use agent_memos::{
-    core::config::{EmbeddingBackend, EmbeddingConfig, RootRuntimeConfig},
+    core::config::{
+        Config, EmbeddingBackend, EmbeddingConfig, RetrievalConfig, RetrievalMode,
+        RootRuntimeConfig, RootVectorConfig, VectorBackend,
+    },
     core::db::Database,
     ingest::{IngestRequest, IngestService},
     memory::record::{RecordType, Scope, TruthLayer},
@@ -6823,6 +6826,111 @@ fn search_surface_respects_dual_channel_mode_selection() {
     assert_eq!(
         hybrid_json["results"][0]["trace"]["channel_contribution"],
         "hybrid"
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_is_disabled()
+{
+    let path = fresh_db_path("runtime-config-embedding-disabled");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-embedding-disabled",
+            source_label: "runtime config embedding disabled memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T10:00:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Disabled,
+            model: None,
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(
+        db.conn(),
+        &config,
+        Some(RetrievalMode::EmbeddingOnly),
+    )
+    .search(&SearchRequest::new("baseline"))
+    .expect("embedding_only library search should succeed even when the embedding channel is disabled");
+
+    assert!(
+        response.results.is_empty(),
+        "embedding_only service-level search should return no results when the embedding channel is disabled instead of falling back to lexical recall"
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embedding_is_disabled() {
+    let path = fresh_db_path("runtime-config-hybrid-disabled");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-hybrid-disabled",
+            source_label: "runtime config hybrid disabled memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T10:05:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Disabled,
+            model: None,
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+        .search(&SearchRequest::new("baseline"))
+        .expect("hybrid library search should succeed when the embedding channel is disabled");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/runtime-config-hybrid-disabled"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "hybrid service-level search should degrade to lexical-only channel contribution when the embedding channel is unavailable"
     );
 }
 
