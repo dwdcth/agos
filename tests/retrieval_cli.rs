@@ -15,7 +15,10 @@ use agent_memos::{
     core::db::Database,
     ingest::{IngestRequest, IngestService},
     memory::repository::{MemoryRepository, RecordEmbedding},
-    memory::record::{RecordType, Scope, TruthLayer},
+    memory::record::{
+        MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceKind, SourceRef,
+        TruthLayer, ValidityWindow,
+    },
     search::{SearchFilters, SearchRequest, SearchService, lexical::MAX_RECALL_LIMIT},
 };
 use serde_json::Value;
@@ -128,6 +131,39 @@ fn ingest_record(service: &IngestService<'_>, record: FixtureRecord<'_>) {
             valid_to: record.valid_to.map(ToOwned::to_owned),
         })
         .expect("ingest should succeed");
+}
+
+fn malformed_record_without_chunk(
+    id: &str,
+    source_uri: &str,
+    source_label: &str,
+    content: &str,
+    recorded_at: &str,
+) -> MemoryRecord {
+    MemoryRecord {
+        id: id.to_string(),
+        source: SourceRef {
+            uri: source_uri.to_string(),
+            kind: SourceKind::Document,
+            label: Some(source_label.to_string()),
+        },
+        timestamp: RecordTimestamp {
+            recorded_at: recorded_at.to_string(),
+            created_at: recorded_at.to_string(),
+            updated_at: recorded_at.to_string(),
+        },
+        scope: Scope::Project,
+        record_type: RecordType::Decision,
+        truth_layer: TruthLayer::T2,
+        provenance: Provenance {
+            origin: "test".to_string(),
+            imported_via: Some("manual_repository_insert".to_string()),
+            derived_from: vec![source_uri.to_string()],
+        },
+        content_text: content.to_string(),
+        chunk: None,
+        validity: ValidityWindow::default(),
+    }
 }
 
 #[test]
@@ -261,6 +297,71 @@ fn library_search_returns_citations_and_filter_trace() {
         result.score.final_score >= result.score.lexical_base,
         "final score should keep lexical-first weighting while exposing bonuses: {:?}",
         result.score
+    );
+}
+
+#[test]
+fn library_search_rejects_records_missing_chunk_metadata_for_citation_output() {
+    let path = fresh_db_path("library-missing-chunk-metadata");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+    repository
+        .insert_record(&malformed_record_without_chunk(
+            "mem-missing-chunk-library",
+            "memo://project/missing-chunk-library",
+            "missing chunk library memo",
+            "missing chunk metadata should fail closed during citation output",
+            "2026-04-18T13:00:00Z",
+        ))
+        .expect("record insert should succeed even without chunk metadata");
+
+    let err = SearchService::new(db.conn())
+        .search(&SearchRequest::new("missing chunk metadata"))
+        .expect_err("library search should reject records that lack citation chunk metadata");
+
+    assert!(
+        err.to_string()
+            .contains("missing persisted chunk metadata required for citation output"),
+        "library error should explain the missing chunk metadata requirement: {err}"
+    );
+}
+
+#[test]
+fn cli_search_reports_missing_chunk_metadata_failure() {
+    let dir = unique_temp_dir("cli-missing-chunk-metadata");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config(&config_path, &db_path);
+
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "cli init should succeed before missing chunk metadata search check: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    MemoryRepository::new(db.conn())
+        .insert_record(&malformed_record_without_chunk(
+            "mem-missing-chunk-cli",
+            "memo://project/missing-chunk-cli",
+            "missing chunk cli memo",
+            "missing chunk metadata should fail closed during citation output",
+            "2026-04-18T13:05:00Z",
+        ))
+        .expect("record insert should succeed even without chunk metadata");
+
+    let output = run_cli(&config_path, &["search", "missing chunk metadata"]);
+    let combined = format!("{}\n{}", stdout(&output), stderr(&output));
+
+    assert!(
+        !output.status.success(),
+        "cli search should fail closed when citation chunk metadata is missing: {combined}"
+    );
+    assert!(
+        combined.contains("missing persisted chunk metadata required for citation output"),
+        "cli output should explain the missing chunk metadata requirement: {combined}"
     );
 }
 
