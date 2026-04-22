@@ -7846,6 +7846,112 @@ fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_backe
 }
 
 #[test]
+fn library_search_with_variant_uses_lexical_only_mode_when_embedding_backend_is_reserved() {
+    let path = fresh_db_path("variant-lexical-only-reserved");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-lexical-only-reserved",
+            source_label: "variant lexical_only reserved memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:30:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "lexical_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::LexicalOnly,
+        embedding_backend: EmbeddingBackend::Reserved,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("baseline"))
+        .expect("lexical_only variant search should still succeed when the embedding backend is reserved");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/variant-lexical-only-reserved"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "lexical_only variant search should preserve lexical-only channel contribution when the embedding backend is reserved"
+    );
+}
+
+#[test]
+fn library_search_with_variant_uses_lexical_only_mode_when_vector_backend_is_none() {
+    let path = fresh_db_path("variant-lexical-only-no-vector");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-lexical-only-no-vector",
+            source_label: "variant lexical_only no vector memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:35:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "lexical_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::LexicalOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::None,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("baseline"))
+        .expect("lexical_only variant search should still succeed when the vector backend is missing");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/variant-lexical-only-no-vector"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "lexical_only variant search should preserve lexical-only channel contribution when the vector backend is missing"
+    );
+}
+
+#[test]
 fn cli_search_embedding_only_fails_closed_when_embedding_backend_is_disabled() {
     let dir = unique_temp_dir("embedding-only-disabled-backend");
     let db_path = dir.join("agent-memos.sqlite");
