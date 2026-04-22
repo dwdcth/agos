@@ -7970,6 +7970,72 @@ fn library_search_with_runtime_config_uses_unsuffixed_builtin_model_as_16_dimens
 }
 
 #[test]
+fn library_search_with_runtime_config_uses_unsuffixed_builtin_model_for_hybrid_ready_path() {
+    let path = fresh_db_path("runtime-config-unsuffixed-builtin-model-hybrid");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-unsuffixed-builtin-model-hybrid",
+            source_label: "runtime config unsuffixed builtin hybrid memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:20:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::Hybrid,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("unsuffixed builtin model should still work for configured hybrid retrieval");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::Hybrid
+    );
+    assert_eq!(
+        response.results[0].trace.query_strategies,
+        vec![
+            agent_memos::search::QueryStrategy::Jieba,
+            agent_memos::search::QueryStrategy::Simple,
+            agent_memos::search::QueryStrategy::Structured,
+            agent_memos::search::QueryStrategy::Embedding,
+        ],
+        "unsuffixed builtin model should fall back to the default 16-dimensional embedding path for configured hybrid retrieval"
+    );
+}
+
+#[test]
 fn library_search_with_runtime_config_mode_override_can_force_lexical_only_when_embedding_is_ready()
 {
     let path = fresh_db_path("runtime-config-override-lexical-only");
@@ -9311,6 +9377,72 @@ fn library_search_with_variant_uses_unsuffixed_builtin_model_as_16_dimensions() 
         response.results[0].trace.query_strategies,
         vec![agent_memos::search::QueryStrategy::Embedding],
         "unsuffixed builtin model should fall back to the default 16-dimensional embedding path for variants"
+    );
+}
+
+#[test]
+fn library_search_with_variant_uses_unsuffixed_builtin_model_for_hybrid_ready_path() {
+    let path = fresh_db_path("variant-unsuffixed-builtin-model-hybrid");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-unsuffixed-builtin-model-hybrid",
+            source_label: "variant unsuffixed builtin hybrid memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:25:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("unsuffixed builtin model should still work for hybrid variant retrieval");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::Hybrid
+    );
+    assert_eq!(
+        response.results[0].trace.query_strategies,
+        vec![
+            agent_memos::search::QueryStrategy::Jieba,
+            agent_memos::search::QueryStrategy::Simple,
+            agent_memos::search::QueryStrategy::Structured,
+            agent_memos::search::QueryStrategy::Embedding,
+        ],
+        "unsuffixed builtin model should fall back to the default 16-dimensional embedding path for hybrid variants"
     );
 }
 
