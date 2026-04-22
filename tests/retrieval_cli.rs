@@ -7147,6 +7147,112 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_vector_b
 }
 
 #[test]
+fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_backend_is_reserved()
+{
+    let path = fresh_db_path("runtime-config-embedding-reserved");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-embedding-reserved",
+            source_label: "runtime config embedding reserved memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:00:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Reserved,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(
+        db.conn(),
+        &config,
+        Some(RetrievalMode::EmbeddingOnly),
+    )
+    .search(&SearchRequest::new("baseline"))
+    .expect("embedding_only library search should succeed even when the embedding backend is reserved");
+
+    assert!(
+        response.results.is_empty(),
+        "embedding_only service-level search should return no results when the embedding backend is reserved instead of falling back to lexical recall"
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embedding_backend_is_reserved()
+{
+    let path = fresh_db_path("runtime-config-hybrid-reserved");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-hybrid-reserved",
+            source_label: "runtime config hybrid reserved memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:05:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Reserved,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+        .search(&SearchRequest::new("baseline"))
+        .expect("hybrid library search should succeed when the embedding backend is reserved");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/runtime-config-hybrid-reserved"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "hybrid service-level search should degrade to lexical-only channel contribution when the embedding backend is reserved"
+    );
+}
+
+#[test]
 fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_sidecar_is_missing()
 {
     let path = fresh_db_path("variant-embedding-missing-sidecar");
@@ -7427,6 +7533,107 @@ fn library_search_with_variant_hybrid_falls_back_to_lexical_when_vector_backend_
         response.results[0].trace.channel_contribution,
         agent_memos::search::ChannelContribution::LexicalOnly,
         "hybrid variant search should degrade to lexical-only channel contribution when the vector backend is missing"
+    );
+}
+
+#[test]
+fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_backend_is_reserved()
+{
+    let path = fresh_db_path("variant-embedding-reserved");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-reserved",
+            source_label: "variant embedding reserved memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:10:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Reserved,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("baseline"))
+        .expect("embedding_only variant search should succeed even when the embedding backend is reserved");
+
+    assert!(
+        response.results.is_empty(),
+        "embedding_only variant search should return no results when the embedding backend is reserved instead of falling back to lexical recall"
+    );
+}
+
+#[test]
+fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_backend_is_reserved() {
+    let path = fresh_db_path("variant-hybrid-reserved");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-reserved",
+            source_label: "variant hybrid reserved memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:15:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Reserved,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("baseline"))
+        .expect("hybrid variant search should succeed when the embedding backend is reserved");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/variant-hybrid-reserved"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "hybrid variant search should degrade to lexical-only channel contribution when the embedding backend is reserved"
     );
 }
 
