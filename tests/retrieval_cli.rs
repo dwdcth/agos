@@ -9,7 +9,8 @@ use std::{
 use agent_memos::{
     core::config::{
         Config, EmbeddingBackend, EmbeddingConfig, RetrievalConfig, RetrievalMode,
-        RootRuntimeConfig, RootVectorConfig, VectorBackend,
+        RetrievalModeVariant, RootLlmConfig, RootRuntimeConfig, RootVectorConfig,
+        VectorBackend,
     },
     core::db::Database,
     ingest::{IngestRequest, IngestService},
@@ -6931,6 +6932,95 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
         response.results[0].trace.channel_contribution,
         agent_memos::search::ChannelContribution::LexicalOnly,
         "hybrid service-level search should degrade to lexical-only channel contribution when the embedding channel is unavailable"
+    );
+}
+
+#[test]
+fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_sidecar_is_missing()
+{
+    let path = fresh_db_path("variant-embedding-missing-sidecar");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-missing-sidecar",
+            source_label: "variant embedding missing sidecar memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T10:10:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: None,
+        vector: None,
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("baseline"))
+        .expect("embedding_only variant search should succeed even when the embedding sidecar is missing");
+
+    assert!(
+        response.results.is_empty(),
+        "embedding_only variant search should return no results when the embedding sidecar is unavailable instead of falling back to lexical recall"
+    );
+}
+
+#[test]
+fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_sidecar_is_missing() {
+    let path = fresh_db_path("variant-hybrid-missing-sidecar");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-missing-sidecar",
+            source_label: "variant hybrid missing sidecar memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T10:15:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: None,
+        vector: None,
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("baseline"))
+        .expect("hybrid variant search should succeed when the embedding sidecar is missing");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/variant-hybrid-missing-sidecar"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "hybrid variant search should degrade to lexical-only channel contribution when the embedding sidecar is unavailable"
     );
 }
 
