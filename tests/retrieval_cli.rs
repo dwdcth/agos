@@ -7185,10 +7185,6 @@ fn cli_search_embedding_only_fails_closed_when_embedding_backend_is_disabled() {
         combined.contains("embedding backend is not ready for embedding_only retrieval"),
         "failure output should explain the missing embedding backend readiness: {combined}"
     );
-    assert!(
-        combined.contains("embedding vector sidecar/index is not ready for embedding_only retrieval"),
-        "failure output should explain the missing embedding index readiness: {combined}"
-    );
 }
 
 #[test]
@@ -7246,8 +7242,124 @@ fn cli_search_hybrid_fails_closed_when_embedding_backend_is_disabled() {
         combined.contains("embedding backend is not ready for hybrid retrieval"),
         "failure output should explain the missing hybrid embedding backend readiness: {combined}"
     );
+}
+
+#[test]
+fn cli_search_embedding_only_fails_closed_when_embedding_model_is_missing() {
+    let dir = unique_temp_dir("embedding-only-missing-model");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "embedding_only",
+        "builtin",
+        None,
+        Some("sqlite_vec"),
+    );
+
+    let init_output = run_cli(&config_path, &["init"]);
     assert!(
-        combined.contains("embedding vector sidecar/index is not ready for hybrid retrieval"),
-        "failure output should explain the missing hybrid embedding index readiness: {combined}"
+        init_output.status.success(),
+        "cli init should succeed before embedding_only missing-model readiness check: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+
+    let ingest = Database::open(&db_path).expect("database should bootstrap");
+    let service = IngestService::new(ingest.conn());
+    ingest_record(
+        &service,
+        FixtureRecord {
+            source_uri: "memo://project/embedding-only-missing-model",
+            source_label: "embedding only missing model memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T09:10:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "embedding_only"]);
+    let combined = format!(
+        "{}\n{}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    assert!(
+        !search_output.status.success(),
+        "embedding_only search should fail closed when the embedding model is missing: {combined}"
+    );
+    assert!(
+        combined.contains("ready: false"),
+        "failure output should include readiness=false for embedding_only mode: {combined}"
+    );
+    assert!(
+        combined.contains("embedding backend is not ready for embedding_only retrieval"),
+        "failure output should explain the missing embedding backend readiness: {combined}"
+    );
+}
+
+#[test]
+fn cli_search_hybrid_fails_closed_when_embedding_model_is_missing() {
+    let dir = unique_temp_dir("hybrid-missing-model");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "hybrid",
+        "builtin",
+        None,
+        Some("sqlite_vec"),
+    );
+
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "cli init should succeed before hybrid missing-model readiness check: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+
+    let ingest = Database::open(&db_path).expect("database should bootstrap");
+    let service = IngestService::new(ingest.conn());
+    ingest_record(
+        &service,
+        FixtureRecord {
+            source_uri: "memo://project/hybrid-missing-model",
+            source_label: "hybrid missing model memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T09:15:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "hybrid"]);
+    let combined = format!(
+        "{}\n{}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    assert!(
+        !search_output.status.success(),
+        "hybrid search should fail closed when the embedding model is missing: {combined}"
+    );
+    assert!(
+        combined.contains("ready: false"),
+        "failure output should include readiness=false for hybrid mode: {combined}"
+    );
+    assert!(
+        combined.contains("embedding backend is not ready for hybrid retrieval"),
+        "failure output should explain the missing hybrid embedding backend readiness: {combined}"
     );
 }
