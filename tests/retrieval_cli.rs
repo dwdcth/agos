@@ -8012,6 +8012,66 @@ fn library_search_with_runtime_config_mode_override_can_force_embedding_only_whe
 }
 
 #[test]
+fn library_search_with_runtime_config_embedding_only_uses_truncated_raw_snippet_when_ready() {
+    let path = fresh_db_path("runtime-config-embedding-only-snippet-truncation");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    let content = "embedding snippets should preserve the original content surface even when they are routed through the second channel without lexical fallback and this sentence intentionally exceeds ninety six characters";
+    let expected_snippet = content.chars().take(96).collect::<String>();
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-embedding-only-snippet-truncation",
+            source_label: "runtime config embedding only snippet truncation memo",
+            content,
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:10:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(
+        db.conn(),
+        &config,
+        Some(RetrievalMode::EmbeddingOnly),
+    )
+    .search(&SearchRequest::new("semantic second channel"))
+    .expect("embedding_only search should succeed when the second channel is ready");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(response.results[0].snippet, expected_snippet);
+}
+
+#[test]
 fn library_search_with_runtime_config_uses_configured_hybrid_mode_when_embedding_is_ready() {
     let path = fresh_db_path("runtime-config-configured-hybrid-ready-embedding");
     let db = Database::open(&path).expect("database should bootstrap");

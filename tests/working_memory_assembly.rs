@@ -6345,6 +6345,60 @@ fn assembler_preserves_embedding_only_trace_on_fragments() {
 }
 
 #[test]
+fn assembler_preserves_embedding_only_truncated_snippet_on_fragments() {
+    let path = fresh_db_path("embedding-only-snippet-assembly");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    let content = "embedding snippets should preserve the original content surface even when they are routed through the second channel without lexical fallback and this sentence intentionally exceeds ninety six characters";
+    let expected_snippet = content.chars().take(96).collect::<String>();
+
+    ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/embedding-only-snippet".to_string(),
+            source_label: Some("embedding-only-snippet".to_string()),
+            source_kind: Some(SourceKind::Note),
+            content: content.to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T13:26:31Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("embedding-only snippet ingest should succeed");
+
+    let results = SearchService::with_runtime_config(
+        db.conn(),
+        &ready_embedding_config(RetrievalMode::LexicalOnly),
+        Some(RetrievalMode::EmbeddingOnly),
+    )
+    .search(&SearchRequest::new("semantic second channel").with_limit(1))
+    .expect("embedding-only search should succeed")
+    .results;
+
+    let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
+        .assemble(
+            &WorkingMemoryRequest::new("semantic second channel")
+                .with_limit(1)
+                .with_integrated_results(results),
+        )
+        .expect("assembly should preserve embedding-only snippet");
+
+    assert_eq!(working_memory.present.world_fragments.len(), 1);
+    let fragment = &working_memory.present.world_fragments[0];
+    assert_eq!(fragment.snippet, expected_snippet);
+}
+
+#[test]
 fn assembler_preserves_hybrid_trace_on_fragments() {
     let path = fresh_db_path("hybrid-trace-assembly");
     let db = Database::open(&path).expect("database should open");
