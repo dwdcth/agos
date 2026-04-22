@@ -7148,6 +7148,128 @@ fn cli_search_json_keeps_lexical_only_when_ready_embedding_channel_is_configured
 }
 
 #[test]
+fn cli_search_json_reports_exact_lexical_only_strategy_order_when_ready_embedding_is_configured() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("cli-json-default-lexical-ready-embedding-exact");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-json-default-lexical-ready-embedding-exact",
+            source_label: "cli json default lexical ready embedding exact memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:09:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--json"]);
+    let search_json: Value =
+        serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
+    let strategies = search_json["results"][0]["trace"]["query_strategies"]
+        .as_array()
+        .expect("query strategies should be an array");
+    assert_eq!(
+        strategies,
+        &vec![
+            Value::String("Jieba".to_string()),
+            Value::String("Simple".to_string()),
+            Value::String("Structured".to_string()),
+        ],
+        "default lexical_only config should preserve the exact lexical-only strategy ordering even when the embedding channel is ready"
+    );
+}
+
+#[test]
+fn cli_search_json_reports_exact_hybrid_strategy_order_when_ready() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("cli-json-hybrid-exact-strategies");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-json-hybrid-exact-strategies",
+            source_label: "cli json hybrid exact strategies memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:10:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(
+        &config_path,
+        &["search", "retrieval fusion", "--mode", "hybrid", "--json"],
+    );
+    let search_json: Value =
+        serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
+    let strategies = search_json["results"][0]["trace"]["query_strategies"]
+        .as_array()
+        .expect("query strategies should be an array");
+    assert_eq!(
+        strategies,
+        &vec![
+            Value::String("Jieba".to_string()),
+            Value::String("Simple".to_string()),
+            Value::String("Structured".to_string()),
+            Value::String("Embedding".to_string()),
+        ],
+        "hybrid json output should preserve the exact ready-path strategy ordering"
+    );
+}
+
+#[test]
 fn cli_search_text_keeps_lexical_only_when_ready_embedding_channel_is_configured() {
     let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
         .expect("root config should parse");
