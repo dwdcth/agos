@@ -7131,6 +7131,101 @@ fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_sidec
 }
 
 #[test]
+fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_model_is_missing()
+{
+    let path = fresh_db_path("variant-embedding-missing-model");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-missing-model",
+            source_label: "variant embedding missing model memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T10:30:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig::default()),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("baseline"))
+        .expect("embedding_only variant search should succeed even when the embedding model is missing");
+
+    assert!(
+        response.results.is_empty(),
+        "embedding_only variant search should return no results when the embedding model is missing instead of falling back to lexical recall"
+    );
+}
+
+#[test]
+fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_model_is_missing() {
+    let path = fresh_db_path("variant-hybrid-missing-model");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-missing-model",
+            source_label: "variant hybrid missing model memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T10:35:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig::default()),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("baseline"))
+        .expect("hybrid variant search should succeed when the embedding model is missing");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/variant-hybrid-missing-model"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "hybrid variant search should degrade to lexical-only channel contribution when the embedding model is missing"
+    );
+}
+
+#[test]
 fn cli_search_embedding_only_fails_closed_when_embedding_backend_is_disabled() {
     let dir = unique_temp_dir("embedding-only-disabled-backend");
     let db_path = dir.join("agent-memos.sqlite");
