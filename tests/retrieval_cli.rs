@@ -6936,6 +6936,112 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
 }
 
 #[test]
+fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_model_is_missing()
+{
+    let path = fresh_db_path("runtime-config-embedding-missing-model");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-embedding-missing-model",
+            source_label: "runtime config embedding missing model memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T10:20:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: None,
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(
+        db.conn(),
+        &config,
+        Some(RetrievalMode::EmbeddingOnly),
+    )
+    .search(&SearchRequest::new("baseline"))
+    .expect("embedding_only library search should succeed even when the embedding model is missing");
+
+    assert!(
+        response.results.is_empty(),
+        "embedding_only service-level search should return no results when the embedding model is missing instead of falling back to lexical recall"
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embedding_model_is_missing()
+{
+    let path = fresh_db_path("runtime-config-hybrid-missing-model");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-hybrid-missing-model",
+            source_label: "runtime config hybrid missing model memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T10:25:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: None,
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+        .search(&SearchRequest::new("baseline"))
+        .expect("hybrid library search should succeed when the embedding model is missing");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/runtime-config-hybrid-missing-model"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "hybrid service-level search should degrade to lexical-only channel contribution when the embedding model is missing"
+    );
+}
+
+#[test]
 fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_sidecar_is_missing()
 {
     let path = fresh_db_path("variant-embedding-missing-sidecar");
