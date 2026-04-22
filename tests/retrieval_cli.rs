@@ -8217,6 +8217,252 @@ fn library_search_with_variant_keeps_lexical_only_when_embedding_channel_is_read
 }
 
 #[test]
+fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_model_mismatches_index()
+{
+    let path = fresh_db_path("runtime-config-embedding-model-mismatch");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-embedding-model-mismatch",
+            source_label: "runtime config embedding model mismatch memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:10:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-32".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(
+        db.conn(),
+        &config,
+        Some(RetrievalMode::EmbeddingOnly),
+    )
+    .search(&SearchRequest::new("retrieval fusion"))
+    .expect("embedding_only library search should succeed when the configured model mismatches stored embeddings");
+
+    assert!(
+        response.results.is_empty(),
+        "embedding_only service-level search should return no results when the configured model mismatches the stored embedding sidecar"
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embedding_model_mismatches_index()
+{
+    let path = fresh_db_path("runtime-config-hybrid-model-mismatch");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-hybrid-model-mismatch",
+            source_label: "runtime config hybrid model mismatch memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:15:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-32".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("hybrid library search should succeed when the configured model mismatches stored embeddings");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "hybrid service-level search should degrade to lexical-only channel contribution when the configured model mismatches the stored embedding sidecar"
+    );
+    assert!(
+        !response.results[0]
+            .trace
+            .query_strategies
+            .contains(&agent_memos::search::QueryStrategy::Embedding),
+        "hybrid service-level search should not surface embedding strategies when the configured model mismatches stored embeddings"
+    );
+}
+
+#[test]
+fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_model_mismatches_index()
+{
+    let path = fresh_db_path("variant-embedding-model-mismatch");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-model-mismatch",
+            source_label: "variant embedding model mismatch memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:20:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-32".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("embedding_only variant search should succeed when the configured model mismatches stored embeddings");
+
+    assert!(
+        response.results.is_empty(),
+        "embedding_only variant search should return no results when the configured model mismatches the stored embedding sidecar"
+    );
+}
+
+#[test]
+fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_model_mismatches_index()
+{
+    let path = fresh_db_path("variant-hybrid-model-mismatch");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-model-mismatch",
+            source_label: "variant hybrid model mismatch memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:25:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-32".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("hybrid variant search should succeed when the configured model mismatches stored embeddings");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "hybrid variant search should degrade to lexical-only channel contribution when the configured model mismatches the stored embedding sidecar"
+    );
+    assert!(
+        !response.results[0]
+            .trace
+            .query_strategies
+            .contains(&agent_memos::search::QueryStrategy::Embedding),
+        "hybrid variant search should not surface embedding strategies when the configured model mismatches stored embeddings"
+    );
+}
+
+#[test]
 fn cli_search_embedding_only_fails_closed_when_embedding_backend_is_disabled() {
     let dir = unique_temp_dir("embedding-only-disabled-backend");
     let db_path = dir.join("agent-memos.sqlite");
