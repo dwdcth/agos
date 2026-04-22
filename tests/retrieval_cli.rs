@@ -6831,6 +6831,131 @@ fn search_surface_respects_dual_channel_mode_selection() {
 }
 
 #[test]
+fn cli_search_json_keeps_lexical_only_when_ready_embedding_channel_is_configured() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("cli-json-default-lexical-ready-embedding");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-json-default-lexical-ready-embedding",
+            source_label: "cli json default lexical ready embedding memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:30:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--json"]);
+    assert!(
+        search_output.status.success(),
+        "cli json search should succeed for lexical_only ready-embedding contract: stdout={} stderr={}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    let search_json: Value =
+        serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
+    assert_eq!(
+        search_json["results"][0]["trace"]["channel_contribution"],
+        "lexical_only"
+    );
+    let strategies = search_json["results"][0]["trace"]["query_strategies"]
+        .as_array()
+        .expect("query strategies should be an array");
+    assert!(
+        !strategies.iter().any(|value| value == "Embedding"),
+        "default lexical_only config should not surface embedding strategies even when the embedding channel is ready: {}",
+        stdout(&search_output)
+    );
+}
+
+#[test]
+fn cli_search_text_keeps_lexical_only_when_ready_embedding_channel_is_configured() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("cli-text-default-lexical-ready-embedding");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-text-default-lexical-ready-embedding",
+            source_label: "cli text default lexical ready embedding memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:35:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion"]);
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "cli text search should succeed for lexical_only ready-embedding contract: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(
+        text.contains("channel: lexical_only"),
+        "default lexical_only config should preserve lexical_only channel output even when the embedding channel is ready: {text}"
+    );
+    assert!(
+        !text.contains("strategies=embedding"),
+        "default lexical_only config should not expose embedding strategies in text output when the second channel is merely ready: {text}"
+    );
+}
+
+#[test]
 fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_is_disabled()
 {
     let path = fresh_db_path("runtime-config-embedding-disabled");
