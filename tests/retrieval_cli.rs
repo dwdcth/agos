@@ -7353,6 +7353,114 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
 }
 
 #[test]
+fn library_search_with_runtime_config_uses_configured_lexical_only_mode_when_embedding_backend_is_reserved()
+{
+    let path = fresh_db_path("runtime-config-configured-lexical-only-reserved");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-configured-lexical-only-reserved",
+            source_label: "configured lexical_only reserved memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:20:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Reserved,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("baseline"))
+        .expect("lexical_only library search should honor the configured mode when the embedding backend is reserved");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/runtime-config-configured-lexical-only-reserved"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "configured lexical_only mode should remain lexical-only when the embedding backend is reserved"
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_uses_configured_lexical_only_mode_when_vector_backend_is_none()
+{
+    let path = fresh_db_path("runtime-config-configured-lexical-only-no-vector");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-configured-lexical-only-no-vector",
+            source_label: "configured lexical_only no vector memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:25:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("baseline"))
+        .expect("lexical_only library search should honor the configured mode when the vector backend is missing");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/runtime-config-configured-lexical-only-no-vector"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "configured lexical_only mode should remain lexical-only when the vector backend is missing"
+    );
+}
+
+#[test]
 fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_sidecar_is_missing()
 {
     let path = fresh_db_path("variant-embedding-missing-sidecar");
