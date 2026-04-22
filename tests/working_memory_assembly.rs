@@ -6393,21 +6393,15 @@ fn assembler_preserves_hybrid_trace_on_fragments() {
     assert_eq!(working_memory.present.world_fragments.len(), 1);
     let fragment = &working_memory.present.world_fragments[0];
     assert_eq!(fragment.trace.channel_contribution, ChannelContribution::Hybrid);
-    assert!(
-        fragment
-            .trace
-            .query_strategies
-            .contains(&agent_memos::search::QueryStrategy::Embedding)
-    );
-    assert!(
-        fragment
-            .trace
-            .query_strategies
-            .contains(&agent_memos::search::QueryStrategy::Simple)
-            || fragment
-                .trace
-                .query_strategies
-                .contains(&agent_memos::search::QueryStrategy::Structured)
+    assert_eq!(
+        fragment.trace.query_strategies,
+        vec![
+            agent_memos::search::QueryStrategy::Jieba,
+            agent_memos::search::QueryStrategy::Simple,
+            agent_memos::search::QueryStrategy::Structured,
+            agent_memos::search::QueryStrategy::Embedding,
+        ],
+        "hybrid fragment traces should preserve the full ready-path strategy ordering"
     );
 }
 
