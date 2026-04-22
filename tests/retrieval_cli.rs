@@ -7909,6 +7909,67 @@ fn library_search_with_runtime_config_uses_configured_embedding_only_mode_when_e
 }
 
 #[test]
+fn library_search_with_runtime_config_uses_unsuffixed_builtin_model_as_16_dimensions() {
+    let path = fresh_db_path("runtime-config-unsuffixed-builtin-model");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-unsuffixed-builtin-model",
+            source_label: "runtime config unsuffixed builtin model memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:10:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::EmbeddingOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("unsuffixed builtin model should still work for embedding_only retrieval");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::EmbeddingOnly
+    );
+    assert_eq!(
+        response.results[0].trace.query_strategies,
+        vec![agent_memos::search::QueryStrategy::Embedding],
+        "unsuffixed builtin model should fall back to the default 16-dimensional embedding path"
+    );
+}
+
+#[test]
 fn library_search_with_runtime_config_mode_override_can_force_lexical_only_when_embedding_is_ready()
 {
     let path = fresh_db_path("runtime-config-override-lexical-only");
@@ -9189,6 +9250,67 @@ fn library_search_with_variant_uses_embedding_only_when_embedding_channel_is_rea
         response.results[0].trace.query_strategies,
         vec![agent_memos::search::QueryStrategy::Embedding],
         "embedding_only variant should only surface embedding strategies when the embedding channel is ready"
+    );
+}
+
+#[test]
+fn library_search_with_variant_uses_unsuffixed_builtin_model_as_16_dimensions() {
+    let path = fresh_db_path("variant-unsuffixed-builtin-model");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-unsuffixed-builtin-model",
+            source_label: "variant unsuffixed builtin model memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:15:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("unsuffixed builtin model should still work for embedding_only variant retrieval");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::EmbeddingOnly
+    );
+    assert_eq!(
+        response.results[0].trace.query_strategies,
+        vec![agent_memos::search::QueryStrategy::Embedding],
+        "unsuffixed builtin model should fall back to the default 16-dimensional embedding path for variants"
     );
 }
 
