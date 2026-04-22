@@ -6817,6 +6817,14 @@ fn search_surface_respects_dual_channel_mode_selection() {
         embedding_json["results"][0]["trace"]["channel_contribution"],
         "embedding_only"
     );
+    let embedding_strategies = embedding_json["results"][0]["trace"]["query_strategies"]
+        .as_array()
+        .expect("embedding query_strategies should be an array");
+    assert_eq!(
+        embedding_strategies,
+        &vec![Value::String("Embedding".to_string())],
+        "embedding_only json output should expose only the embedding strategy when the second channel is ready"
+    );
 
     let hybrid_output = run_cli(
         &config_path,
@@ -6827,6 +6835,14 @@ fn search_surface_respects_dual_channel_mode_selection() {
     assert_eq!(
         hybrid_json["results"][0]["trace"]["channel_contribution"],
         "hybrid"
+    );
+    let hybrid_strategies = hybrid_json["results"][0]["trace"]["query_strategies"]
+        .as_array()
+        .expect("hybrid query_strategies should be an array");
+    assert!(
+        hybrid_strategies.iter().any(|value| value == "Embedding"),
+        "hybrid json output should expose embedding participation when the second channel is ready: {}",
+        stdout(&hybrid_output)
     );
 }
 
