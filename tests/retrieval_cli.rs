@@ -7779,3 +7779,133 @@ fn cli_search_hybrid_falls_back_to_lexical_when_vector_backend_is_none() {
         "hybrid search should degrade to lexical_only channel contribution when the vector backend is missing: {combined}"
     );
 }
+
+#[test]
+fn cli_search_embedding_only_fails_closed_when_embedding_backend_is_reserved() {
+    let dir = unique_temp_dir("embedding-only-reserved-backend");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "embedding_only",
+        "reserved",
+        Some("builtin-16"),
+        Some("sqlite_vec"),
+    );
+
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "cli init should succeed before embedding_only reserved-backend readiness check: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+
+    let ingest = Database::open(&db_path).expect("database should bootstrap");
+    let service = IngestService::new(ingest.conn());
+    ingest_record(
+        &service,
+        FixtureRecord {
+            source_uri: "memo://project/embedding-only-reserved-backend",
+            source_label: "embedding only reserved backend memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T09:30:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "embedding_only"]);
+    let combined = format!(
+        "{}\n{}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    assert!(
+        !search_output.status.success(),
+        "embedding_only search should fail closed when the embedding backend is reserved: {combined}"
+    );
+    assert!(
+        combined.contains("ready: false"),
+        "failure output should include readiness=false for embedding_only reserved mode: {combined}"
+    );
+    assert!(
+        combined.contains("embedding_only is reserved but not implemented in Phase 1"),
+        "failure output should explain the reserved embedding_only mode: {combined}"
+    );
+    assert!(
+        combined.contains("embedding backend is not ready for embedding_only retrieval"),
+        "failure output should still report embedding readiness failure for reserved embedding_only mode: {combined}"
+    );
+}
+
+#[test]
+fn cli_search_hybrid_fails_closed_when_embedding_backend_is_reserved() {
+    let dir = unique_temp_dir("hybrid-reserved-backend");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "hybrid",
+        "reserved",
+        Some("builtin-16"),
+        Some("sqlite_vec"),
+    );
+
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "cli init should succeed before hybrid reserved-backend readiness check: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+
+    let ingest = Database::open(&db_path).expect("database should bootstrap");
+    let service = IngestService::new(ingest.conn());
+    ingest_record(
+        &service,
+        FixtureRecord {
+            source_uri: "memo://project/hybrid-reserved-backend",
+            source_label: "hybrid reserved backend memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T09:35:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "hybrid"]);
+    let combined = format!(
+        "{}\n{}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    assert!(
+        !search_output.status.success(),
+        "hybrid search should fail closed when the embedding backend is reserved: {combined}"
+    );
+    assert!(
+        combined.contains("ready: false"),
+        "failure output should include readiness=false for hybrid reserved mode: {combined}"
+    );
+    assert!(
+        combined.contains(
+            "hybrid keeps lexical as the primary baseline, but the embedding secondary path is reserved in Phase 1"
+        ),
+        "failure output should explain the reserved hybrid mode: {combined}"
+    );
+    assert!(
+        combined.contains("embedding backend is not ready for hybrid retrieval"),
+        "failure output should still report embedding readiness failure for reserved hybrid mode: {combined}"
+    );
+}
