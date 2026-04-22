@@ -14,6 +14,7 @@ use agent_memos::{
     },
     core::db::Database,
     ingest::{IngestRequest, IngestService},
+    memory::repository::{MemoryRepository, RecordEmbedding},
     memory::record::{RecordType, Scope, TruthLayer},
     search::{SearchFilters, SearchRequest, SearchService, lexical::MAX_RECALL_LIMIT},
 };
@@ -9091,6 +9092,303 @@ fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_model
             .query_strategies
             .contains(&agent_memos::search::QueryStrategy::Embedding),
         "hybrid variant search should not surface embedding strategies when the configured model mismatches stored embeddings"
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_dimensions_mismatch()
+{
+    let path = fresh_db_path("runtime-config-embedding-dimension-mismatch");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    let report = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/runtime-config-embedding-dimension-mismatch".to_string(),
+            source_label: Some("runtime config embedding dimension mismatch memo".to_string()),
+            source_kind: None,
+            content: "retrieval fusion semantic retrieval fusion citations".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:00:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("embedding dimension mismatch ingest should succeed");
+
+    MemoryRepository::new(db.conn())
+        .insert_record_embedding(&RecordEmbedding {
+            record_id: report.record_ids[0].clone(),
+            backend: EmbeddingBackend::Builtin,
+            model: "builtin-16".to_string(),
+            dimensions: 8,
+            embedding: vec![0.25; 8],
+            source_text_hash: "mismatched-dimensions".to_string(),
+            created_at: "2026-04-18T12:00:00Z".to_string(),
+            updated_at: "2026-04-18T12:00:00Z".to_string(),
+        })
+        .expect("mismatched embedding dimensions should overwrite the stored sidecar");
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(
+        db.conn(),
+        &config,
+        Some(RetrievalMode::EmbeddingOnly),
+    )
+    .search(&SearchRequest::new("retrieval fusion"))
+    .expect("embedding_only search should succeed when stored embedding dimensions mismatch the query embedding");
+
+    assert!(
+        response.results.is_empty(),
+        "embedding_only search should return no results when stored embedding dimensions mismatch the query embedding"
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embedding_dimensions_mismatch()
+{
+    let path = fresh_db_path("runtime-config-hybrid-dimension-mismatch");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    let report = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/runtime-config-hybrid-dimension-mismatch".to_string(),
+            source_label: Some("runtime config hybrid dimension mismatch memo".to_string()),
+            source_kind: None,
+            content: "retrieval fusion semantic retrieval fusion citations".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:05:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("hybrid dimension mismatch ingest should succeed");
+
+    MemoryRepository::new(db.conn())
+        .insert_record_embedding(&RecordEmbedding {
+            record_id: report.record_ids[0].clone(),
+            backend: EmbeddingBackend::Builtin,
+            model: "builtin-16".to_string(),
+            dimensions: 8,
+            embedding: vec![0.25; 8],
+            source_text_hash: "hybrid-mismatched-dimensions".to_string(),
+            created_at: "2026-04-18T12:05:00Z".to_string(),
+            updated_at: "2026-04-18T12:05:00Z".to_string(),
+        })
+        .expect("mismatched hybrid embedding dimensions should overwrite the stored sidecar");
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("hybrid search should succeed when stored embedding dimensions mismatch the query embedding");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "hybrid search should degrade to lexical-only channel contribution when embedding dimensions mismatch"
+    );
+    assert!(
+        !response.results[0]
+            .trace
+            .query_strategies
+            .contains(&agent_memos::search::QueryStrategy::Embedding),
+        "hybrid search should not surface embedding strategies when embedding dimensions mismatch"
+    );
+}
+
+#[test]
+fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_dimensions_mismatch()
+{
+    let path = fresh_db_path("variant-embedding-dimension-mismatch");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    let report = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/variant-embedding-dimension-mismatch".to_string(),
+            source_label: Some("variant embedding dimension mismatch memo".to_string()),
+            source_kind: None,
+            content: "retrieval fusion semantic retrieval fusion citations".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:10:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("variant embedding dimension mismatch ingest should succeed");
+
+    MemoryRepository::new(db.conn())
+        .insert_record_embedding(&RecordEmbedding {
+            record_id: report.record_ids[0].clone(),
+            backend: EmbeddingBackend::Builtin,
+            model: "builtin-16".to_string(),
+            dimensions: 8,
+            embedding: vec![0.25; 8],
+            source_text_hash: "variant-mismatched-dimensions".to_string(),
+            created_at: "2026-04-18T12:10:00Z".to_string(),
+            updated_at: "2026-04-18T12:10:00Z".to_string(),
+        })
+        .expect("mismatched variant embedding dimensions should overwrite the stored sidecar");
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("embedding_only variant search should succeed when stored embedding dimensions mismatch the query embedding");
+
+    assert!(
+        response.results.is_empty(),
+        "embedding_only variant search should return no results when stored embedding dimensions mismatch the query embedding"
+    );
+}
+
+#[test]
+fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_dimensions_mismatch() {
+    let path = fresh_db_path("variant-hybrid-dimension-mismatch");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    let report = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/variant-hybrid-dimension-mismatch".to_string(),
+            source_label: Some("variant hybrid dimension mismatch memo".to_string()),
+            source_kind: None,
+            content: "retrieval fusion semantic retrieval fusion citations".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:15:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("variant hybrid dimension mismatch ingest should succeed");
+
+    MemoryRepository::new(db.conn())
+        .insert_record_embedding(&RecordEmbedding {
+            record_id: report.record_ids[0].clone(),
+            backend: EmbeddingBackend::Builtin,
+            model: "builtin-16".to_string(),
+            dimensions: 8,
+            embedding: vec![0.25; 8],
+            source_text_hash: "variant-hybrid-mismatched-dimensions".to_string(),
+            created_at: "2026-04-18T12:15:00Z".to_string(),
+            updated_at: "2026-04-18T12:15:00Z".to_string(),
+        })
+        .expect("mismatched variant hybrid dimensions should overwrite the stored sidecar");
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("hybrid variant search should succeed when stored embedding dimensions mismatch the query embedding");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "hybrid variant search should degrade to lexical-only channel contribution when embedding dimensions mismatch"
+    );
+    assert!(
+        !response.results[0]
+            .trace
+            .query_strategies
+            .contains(&agent_memos::search::QueryStrategy::Embedding),
+        "hybrid variant search should not surface embedding strategies when embedding dimensions mismatch"
     );
 }
 
