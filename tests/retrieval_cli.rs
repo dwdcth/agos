@@ -8216,3 +8216,115 @@ fn cli_search_hybrid_fails_closed_when_embedding_backend_is_reserved() {
         "failure output should still report embedding readiness failure for reserved hybrid mode: {combined}"
     );
 }
+
+#[test]
+fn cli_search_succeeds_when_lexical_only_mode_uses_reserved_embedding_backend() {
+    let dir = unique_temp_dir("lexical-only-reserved-backend");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "reserved",
+        Some("builtin-16"),
+        Some("sqlite_vec"),
+    );
+
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "cli init should succeed before lexical_only reserved-backend search check: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+
+    let ingest = Database::open(&db_path).expect("database should bootstrap");
+    let service = IngestService::new(ingest.conn());
+    ingest_record(
+        &service,
+        FixtureRecord {
+            source_uri: "memo://project/lexical-only-reserved-backend",
+            source_label: "lexical only reserved backend memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T09:40:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "baseline"]);
+    let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
+
+    assert!(
+        search_output.status.success(),
+        "lexical_only search should continue to work when the embedding backend is reserved: {combined}"
+    );
+    assert!(
+        combined.contains("memo://project/lexical-only-reserved-backend"),
+        "lexical_only search should still surface the lexical result when the embedding backend is reserved: {combined}"
+    );
+    assert!(
+        combined.contains("channel: lexical_only"),
+        "lexical_only search should preserve lexical-only channel output when the embedding backend is reserved: {combined}"
+    );
+}
+
+#[test]
+fn cli_search_succeeds_when_lexical_only_mode_has_no_vector_backend() {
+    let dir = unique_temp_dir("lexical-only-no-vector-backend");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some("builtin-16"),
+        None,
+    );
+
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "cli init should succeed before lexical_only no-vector search check: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+
+    let ingest = Database::open(&db_path).expect("database should bootstrap");
+    let service = IngestService::new(ingest.conn());
+    ingest_record(
+        &service,
+        FixtureRecord {
+            source_uri: "memo://project/lexical-only-no-vector-backend",
+            source_label: "lexical only no vector backend memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T09:45:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "baseline"]);
+    let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
+
+    assert!(
+        search_output.status.success(),
+        "lexical_only search should continue to work when the vector backend is missing: {combined}"
+    );
+    assert!(
+        combined.contains("memo://project/lexical-only-no-vector-backend"),
+        "lexical_only search should still surface the lexical result when the vector backend is missing: {combined}"
+    );
+    assert!(
+        combined.contains("channel: lexical_only"),
+        "lexical_only search should preserve lexical-only channel output when the vector backend is missing: {combined}"
+    );
+}
