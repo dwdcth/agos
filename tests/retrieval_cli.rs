@@ -7663,3 +7663,119 @@ fn cli_search_hybrid_fails_closed_when_embedding_model_is_missing() {
         "failure output should explain the missing hybrid embedding backend readiness: {combined}"
     );
 }
+
+#[test]
+fn cli_search_embedding_only_returns_empty_results_when_vector_backend_is_none() {
+    let dir = unique_temp_dir("embedding-only-missing-vector");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "embedding_only",
+        "builtin",
+        Some("builtin-16"),
+        None,
+    );
+
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "cli init should succeed before embedding_only missing-vector readiness check: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+
+    let ingest = Database::open(&db_path).expect("database should bootstrap");
+    let service = IngestService::new(ingest.conn());
+    ingest_record(
+        &service,
+        FixtureRecord {
+            source_uri: "memo://project/embedding-only-missing-vector",
+            source_label: "embedding only missing vector memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T09:20:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "embedding_only"]);
+    let combined = format!(
+        "{}\n{}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    assert!(
+        search_output.status.success(),
+        "embedding_only search should still succeed when the vector backend is missing: {combined}"
+    );
+    assert!(
+        combined.contains("results: 0"),
+        "embedding_only search should surface an empty result set when the vector backend is missing: {combined}"
+    );
+}
+
+#[test]
+fn cli_search_hybrid_falls_back_to_lexical_when_vector_backend_is_none() {
+    let dir = unique_temp_dir("hybrid-missing-vector");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "hybrid",
+        "builtin",
+        Some("builtin-16"),
+        None,
+    );
+
+    let init_output = run_cli(&config_path, &["init"]);
+    assert!(
+        init_output.status.success(),
+        "cli init should succeed before hybrid missing-vector readiness check: stdout={} stderr={}",
+        stdout(&init_output),
+        stderr(&init_output)
+    );
+
+    let ingest = Database::open(&db_path).expect("database should bootstrap");
+    let service = IngestService::new(ingest.conn());
+    ingest_record(
+        &service,
+        FixtureRecord {
+            source_uri: "memo://project/hybrid-missing-vector",
+            source_label: "hybrid missing vector memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T09:25:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "hybrid"]);
+    let combined = format!(
+        "{}\n{}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    assert!(
+        search_output.status.success(),
+        "hybrid search should still succeed when the vector backend is missing: {combined}"
+    );
+    assert!(
+        combined.contains("memo://project/hybrid-missing-vector"),
+        "hybrid search should still surface the lexical result when the vector backend is missing: {combined}"
+    );
+    assert!(
+        combined.contains("channel: lexical_only"),
+        "hybrid search should degrade to lexical_only channel contribution when the vector backend is missing: {combined}"
+    );
+}
