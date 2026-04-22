@@ -7623,6 +7623,69 @@ fn library_search_with_runtime_config_uses_configured_hybrid_mode_when_model_is_
 }
 
 #[test]
+fn library_search_with_runtime_config_uses_configured_embedding_only_mode_when_embedding_is_ready()
+{
+    let path = fresh_db_path("runtime-config-configured-embedding-only-ready");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-configured-embedding-only-ready",
+            source_label: "configured embedding_only ready memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:27:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::EmbeddingOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("embedding_only library search should honor the configured mode when the embedding channel is ready");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::EmbeddingOnly,
+        "configured embedding_only mode should surface embedding-only contribution when the embedding channel is ready"
+    );
+    assert_eq!(
+        response.results[0].trace.query_strategies,
+        vec![agent_memos::search::QueryStrategy::Embedding],
+        "configured embedding_only mode should only surface the embedding strategy when the embedding channel is ready"
+    );
+}
+
+#[test]
 fn library_search_with_runtime_config_mode_override_can_force_lexical_only_when_embedding_is_ready()
 {
     let path = fresh_db_path("runtime-config-override-lexical-only");
