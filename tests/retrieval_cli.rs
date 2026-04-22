@@ -6968,6 +6968,119 @@ fn cli_search_text_reports_hybrid_channel_and_embedding_strategy_when_ready() {
 }
 
 #[test]
+fn cli_search_text_reports_exact_embedding_only_strategy_summary_when_ready() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("mode-selection-text-embedding-only-exact");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/mode-selection-text-embedding-only-exact",
+            source_label: "mode selection text embedding only exact memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:07:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(
+        &config_path,
+        &["search", "retrieval fusion", "--mode", "embedding_only"],
+    );
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "cli text search should succeed for exact embedding_only strategy contract: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(
+        text.contains("channel: embedding_only strategies=embedding"),
+        "text output should expose the exact embedding_only strategy summary when the second channel is ready: {text}"
+    );
+}
+
+#[test]
+fn cli_search_text_reports_exact_hybrid_strategy_summary_when_ready() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("mode-selection-text-hybrid-exact");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/mode-selection-text-hybrid-exact",
+            source_label: "mode selection text hybrid exact memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:08:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--mode", "hybrid"]);
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "cli text search should succeed for exact hybrid strategy contract: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(
+        text.contains("channel: hybrid strategies=jieba,simple,structured,embedding"),
+        "text output should expose the exact hybrid strategy summary when the second channel is ready: {text}"
+    );
+}
+
+#[test]
 fn cli_search_json_keeps_lexical_only_when_ready_embedding_channel_is_configured() {
     let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
         .expect("root config should parse");
