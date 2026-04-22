@@ -7147,6 +7147,106 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_vector_b
 }
 
 #[test]
+fn library_search_with_runtime_config_uses_configured_embedding_only_mode_when_model_is_missing() {
+    let path = fresh_db_path("runtime-config-configured-embedding-only-missing-model");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-configured-embedding-only-missing-model",
+            source_label: "configured embedding_only missing model memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:20:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::EmbeddingOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: None,
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("baseline"))
+        .expect("embedding_only library search should honor the configured mode when mode_override is omitted");
+
+    assert!(
+        response.results.is_empty(),
+        "configured embedding_only mode should return no results when the embedding model is missing instead of falling back to lexical recall"
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_uses_configured_hybrid_mode_when_model_is_missing() {
+    let path = fresh_db_path("runtime-config-configured-hybrid-missing-model");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-configured-hybrid-missing-model",
+            source_label: "configured hybrid missing model memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:25:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::Hybrid,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: None,
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("baseline"))
+        .expect("hybrid library search should honor the configured mode when mode_override is omitted");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/runtime-config-configured-hybrid-missing-model"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "configured hybrid mode should degrade to lexical-only channel contribution when the embedding model is missing"
+    );
+}
+
+#[test]
 fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_backend_is_reserved()
 {
     let path = fresh_db_path("runtime-config-embedding-reserved");
