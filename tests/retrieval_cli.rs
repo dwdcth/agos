@@ -7952,6 +7952,134 @@ fn library_search_with_variant_uses_lexical_only_mode_when_vector_backend_is_non
 }
 
 #[test]
+fn library_search_with_runtime_config_keeps_lexical_only_when_embedding_channel_is_ready() {
+    let path = fresh_db_path("runtime-config-lexical-only-ready-embedding");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-lexical-only-ready-embedding",
+            source_label: "runtime config lexical only ready embedding memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:40:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("configured lexical_only search should still succeed when the embedding channel is ready");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "configured lexical_only mode should keep lexical-only channel contribution even when the embedding channel is ready"
+    );
+    assert!(
+        !response.results[0]
+            .trace
+            .query_strategies
+            .contains(&agent_memos::search::QueryStrategy::Embedding),
+        "configured lexical_only mode should not surface embedding strategies when the second channel is merely ready"
+    );
+}
+
+#[test]
+fn library_search_with_variant_keeps_lexical_only_when_embedding_channel_is_ready() {
+    let path = fresh_db_path("variant-lexical-only-ready-embedding");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-lexical-only-ready-embedding",
+            source_label: "variant lexical only ready embedding memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:45:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "lexical_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::LexicalOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("lexical_only variant search should still succeed when the embedding channel is ready");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::LexicalOnly,
+        "lexical_only variant should keep lexical-only channel contribution even when the embedding channel is ready"
+    );
+    assert!(
+        !response.results[0]
+            .trace
+            .query_strategies
+            .contains(&agent_memos::search::QueryStrategy::Embedding),
+        "lexical_only variant should not surface embedding strategies when the second channel is merely ready"
+    );
+}
+
+#[test]
 fn cli_search_embedding_only_fails_closed_when_embedding_backend_is_disabled() {
     let dir = unique_temp_dir("embedding-only-disabled-backend");
     let db_path = dir.join("agent-memos.sqlite");
