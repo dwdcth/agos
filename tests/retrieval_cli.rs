@@ -8202,6 +8202,140 @@ fn cli_search_json_exposes_dsl_sidecar_for_configured_hybrid_ready_path() {
 }
 
 #[test]
+fn cli_search_json_preserves_record_and_citation_shape_for_configured_embedding_only_ready_path() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("configured-embedding-only-json-citation-shape");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "embedding_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/configured-embedding-only-json-citation-shape",
+            source_label: "configured embedding_only json citation memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:21:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--json"]);
+    assert!(
+        search_output.status.success(),
+        "configured embedding_only json citation-shape search should succeed: stdout={} stderr={}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    let search_json: Value =
+        serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
+    assert_eq!(search_json["results"][0]["record"]["scope"], "project");
+    assert_eq!(search_json["results"][0]["record"]["truth_layer"], "t2");
+    assert_eq!(search_json["results"][0]["record"]["record_type"], "decision");
+    assert_eq!(
+        search_json["results"][0]["citation"]["source_uri"],
+        "memo://project/configured-embedding-only-json-citation-shape"
+    );
+    assert_eq!(
+        search_json["results"][0]["citation"]["recorded_at"],
+        "2026-04-17T10:21:00Z"
+    );
+    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_index"], 0);
+    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_count"], 1);
+}
+
+#[test]
+fn cli_search_json_preserves_record_and_citation_shape_for_configured_hybrid_ready_path() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("configured-hybrid-json-citation-shape");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "hybrid",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/configured-hybrid-json-citation-shape",
+            source_label: "configured hybrid json citation memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:22:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--json"]);
+    assert!(
+        search_output.status.success(),
+        "configured hybrid json citation-shape search should succeed: stdout={} stderr={}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    let search_json: Value =
+        serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
+    assert_eq!(search_json["results"][0]["record"]["scope"], "project");
+    assert_eq!(search_json["results"][0]["record"]["truth_layer"], "t2");
+    assert_eq!(search_json["results"][0]["record"]["record_type"], "decision");
+    assert_eq!(
+        search_json["results"][0]["citation"]["source_uri"],
+        "memo://project/configured-hybrid-json-citation-shape"
+    );
+    assert_eq!(
+        search_json["results"][0]["citation"]["recorded_at"],
+        "2026-04-17T10:22:00Z"
+    );
+    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_index"], 0);
+    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_count"], 1);
+}
+
+#[test]
 fn cli_search_text_configured_embedding_only_applies_temporal_filters_before_top_k() {
     let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
         .expect("root config should parse");
