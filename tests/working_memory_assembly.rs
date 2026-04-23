@@ -3281,6 +3281,80 @@ fn assembler_rejects_filtered_integrated_supporting_record_ids() {
 }
 
 #[test]
+fn assembler_filters_integrated_results_by_core_and_temporal_filters() {
+    let path = fresh_db_path("integrated-results-core-temporal-filter");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    let current = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/integrated-current-decision".to_string(),
+            source_label: Some("integrated-current-decision".to_string()),
+            source_kind: None,
+            content: "decision baseline remains valid and recent".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:16:00Z".to_string(),
+            valid_from: Some("2026-04-10T00:00:00Z".to_string()),
+            valid_to: Some("2026-04-20T00:00:00Z".to_string()),
+        })
+        .expect("current ingest should succeed");
+    let stale = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/integrated-stale-decision".to_string(),
+            source_label: Some("integrated-stale-decision".to_string()),
+            source_kind: None,
+            content: "decision baseline is stale and should be filtered out".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-01T11:16:00Z".to_string(),
+            valid_from: Some("2026-03-01T00:00:00Z".to_string()),
+            valid_to: Some("2026-04-05T00:00:00Z".to_string()),
+        })
+        .expect("stale ingest should succeed");
+
+    let current_id = current.record_ids[0].clone();
+    let stale_id = stale.record_ids[0].clone();
+    let search = SearchService::new(db.conn());
+    let integrated_results = search
+        .search(&SearchRequest::new("decision baseline").with_limit(2))
+        .expect("baseline search should succeed")
+        .results;
+
+    let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
+        .assemble(
+            &WorkingMemoryRequest::new("decision baseline")
+                .with_limit(1)
+                .with_filters(agent_memos::search::SearchFilters {
+                    scope: Some(Scope::Project),
+                    record_type: Some(RecordType::Decision),
+                    truth_layer: Some(TruthLayer::T2),
+                    valid_at: Some("2026-04-16T12:00:00Z".to_string()),
+                    recorded_from: Some("2026-04-10T00:00:00Z".to_string()),
+                    recorded_to: Some("2026-04-17T00:00:00Z".to_string()),
+                    ..Default::default()
+                })
+                .with_integrated_results(integrated_results),
+        )
+        .expect("assembly should filter caller-provided integrated results by core and temporal filters");
+
+    let record_ids = working_memory
+        .present
+        .world_fragments
+        .iter()
+        .map(|fragment| fragment.record_id.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(record_ids, vec![current_id.as_str()]);
+    assert!(
+        !record_ids.contains(&stale_id.as_str()),
+        "core and temporal filters should exclude stale caller-provided integrated results"
+    );
+}
+
+#[test]
 fn assembler_respects_taxonomy_filters_from_retrieval_request() {
     let path = fresh_db_path("taxonomy-filtered-assembly");
     let db = Database::open(&path).expect("database should open");
