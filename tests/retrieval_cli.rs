@@ -7263,6 +7263,191 @@ fn cli_search_json_hybrid_applies_taxonomy_filters_before_top_k_when_ready() {
 }
 
 #[test]
+fn cli_search_json_embedding_only_applies_temporal_filters_before_top_k_when_ready() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("cli-json-embedding-only-temporal-top-k");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-json-embedding-only-current-temporal",
+            source_label: "cli json embedding_only current temporal memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:11:30Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-json-embedding-only-stale-temporal",
+            source_label: "cli json embedding_only stale temporal memo",
+            content: "baseline baseline keeps stale review around",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-01T10:11:30Z",
+            valid_from: Some("2026-03-01T00:00:00Z"),
+            valid_to: Some("2026-04-05T00:00:00Z"),
+        },
+    );
+
+    let search_output = run_cli(
+        &config_path,
+        &[
+            "search",
+            "baseline",
+            "--mode",
+            "embedding_only",
+            "--valid-at",
+            "2026-04-17T12:00:00Z",
+            "--from",
+            "2026-04-10T00:00:00Z",
+            "--to",
+            "2026-04-18T00:00:00Z",
+            "--top-k",
+            "1",
+            "--json",
+        ],
+    );
+    assert!(
+        search_output.status.success(),
+        "cli json embedding_only temporal/top-k search should succeed: stdout={} stderr={}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    let search_json: Value =
+        serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
+    assert_eq!(
+        search_json["results"][0]["record"]["source"]["uri"],
+        "memo://project/cli-json-embedding-only-current-temporal"
+    );
+    assert_eq!(
+        search_json["results"][0]["trace"]["channel_contribution"],
+        "embedding_only"
+    );
+    assert_eq!(search_json["applied_filters"]["valid_at"], "2026-04-17T12:00:00Z");
+}
+
+#[test]
+fn cli_search_json_hybrid_applies_temporal_filters_before_top_k_when_ready() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("cli-json-hybrid-temporal-top-k");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-json-hybrid-current-temporal",
+            source_label: "cli json hybrid current temporal memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:12:30Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-json-hybrid-stale-temporal",
+            source_label: "cli json hybrid stale temporal memo",
+            content: "baseline baseline keeps stale review around",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-01T10:12:30Z",
+            valid_from: Some("2026-03-01T00:00:00Z"),
+            valid_to: Some("2026-04-05T00:00:00Z"),
+        },
+    );
+
+    let search_output = run_cli(
+        &config_path,
+        &[
+            "search",
+            "baseline",
+            "--mode",
+            "hybrid",
+            "--valid-at",
+            "2026-04-17T12:00:00Z",
+            "--from",
+            "2026-04-10T00:00:00Z",
+            "--to",
+            "2026-04-18T00:00:00Z",
+            "--top-k",
+            "1",
+            "--json",
+        ],
+    );
+    assert!(
+        search_output.status.success(),
+        "cli json hybrid temporal/top-k search should succeed: stdout={} stderr={}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    let search_json: Value =
+        serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
+    assert_eq!(
+        search_json["results"][0]["record"]["source"]["uri"],
+        "memo://project/cli-json-hybrid-current-temporal"
+    );
+    assert_eq!(search_json["results"][0]["trace"]["channel_contribution"], "hybrid");
+    assert_eq!(search_json["applied_filters"]["valid_at"], "2026-04-17T12:00:00Z");
+}
+
+#[test]
 fn cli_search_json_uses_configured_embedding_only_mode_when_second_channel_is_ready() {
     let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
         .expect("root config should parse");
