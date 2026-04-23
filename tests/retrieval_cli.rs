@@ -7697,6 +7697,170 @@ fn cli_search_text_renders_dsl_summary_for_configured_hybrid_ready_path() {
 }
 
 #[test]
+fn library_search_with_runtime_config_embedding_only_applies_taxonomy_filters_before_top_k() {
+    let path = fresh_db_path("runtime-config-embedding-only-taxonomy-top-k");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-embedding-only-config-top-k",
+            source_label: "runtime config embedding_only config top k memo",
+            content: "baseline baseline keeps toml setting review stable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:41:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-embedding-only-retrieval-top-k",
+            source_label: "runtime config embedding_only retrieval top k memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Observation,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:40:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::EmbeddingOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(
+            &SearchRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(SearchFilters {
+                    topic: Some("retrieval".to_string()),
+                    ..Default::default()
+                }),
+        )
+        .expect("configured embedding_only search should apply taxonomy filters before top-k");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/runtime-config-embedding-only-retrieval-top-k"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::EmbeddingOnly
+    );
+    assert_eq!(response.applied_filters.topic.as_deref(), Some("retrieval"));
+}
+
+#[test]
+fn library_search_with_runtime_config_hybrid_applies_taxonomy_filters_before_top_k() {
+    let path = fresh_db_path("runtime-config-hybrid-taxonomy-top-k");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-hybrid-config-top-k",
+            source_label: "runtime config hybrid config top k memo",
+            content: "baseline baseline keeps toml setting review stable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:43:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-hybrid-retrieval-top-k",
+            source_label: "runtime config hybrid retrieval top k memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Observation,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:42:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::Hybrid,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(
+            &SearchRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(SearchFilters {
+                    topic: Some("retrieval".to_string()),
+                    ..Default::default()
+                }),
+        )
+        .expect("configured hybrid search should apply taxonomy filters before top-k");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/runtime-config-hybrid-retrieval-top-k"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::Hybrid
+    );
+    assert_eq!(response.applied_filters.topic.as_deref(), Some("retrieval"));
+}
+
+#[test]
 fn cli_search_text_reports_exact_embedding_only_strategy_summary_when_ready() {
     let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
         .expect("root config should parse");
