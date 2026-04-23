@@ -10426,6 +10426,66 @@ fn library_search_with_variant_uses_unsuffixed_builtin_model_as_16_dimensions() 
 }
 
 #[test]
+fn library_search_with_variant_preserves_dsl_sidecar_for_embedding_only_ready_path() {
+    let path = fresh_db_path("variant-embedding-only-dsl-sidecar");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-only-dsl-sidecar",
+            source_label: "variant embedding only dsl sidecar memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:18:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("embedding_only variant search should preserve the dsl sidecar");
+
+    assert_eq!(response.results.len(), 1);
+    let dsl = response.results[0]
+        .dsl
+        .as_ref()
+        .expect("embedding_only variant search should attach the structured dsl sidecar");
+    assert_eq!(dsl.domain, "project");
+    assert_eq!(dsl.kind, "decision");
+    assert_eq!(dsl.source_ref, "memo://project/variant-embedding-only-dsl-sidecar");
+    assert!(!dsl.claim.is_empty());
+}
+
+#[test]
 fn library_search_with_variant_uses_unsuffixed_builtin_model_for_hybrid_ready_path() {
     let path = fresh_db_path("variant-unsuffixed-builtin-model-hybrid");
     let db = Database::open(&path).expect("database should bootstrap");
@@ -10489,6 +10549,66 @@ fn library_search_with_variant_uses_unsuffixed_builtin_model_for_hybrid_ready_pa
         ],
         "unsuffixed builtin model should fall back to the default 16-dimensional embedding path for hybrid variants"
     );
+}
+
+#[test]
+fn library_search_with_variant_preserves_dsl_sidecar_for_hybrid_ready_path() {
+    let path = fresh_db_path("variant-hybrid-dsl-sidecar");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-dsl-sidecar",
+            source_label: "variant hybrid dsl sidecar memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:28:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("hybrid variant search should preserve the dsl sidecar");
+
+    assert_eq!(response.results.len(), 1);
+    let dsl = response.results[0]
+        .dsl
+        .as_ref()
+        .expect("hybrid variant search should attach the structured dsl sidecar");
+    assert_eq!(dsl.domain, "project");
+    assert_eq!(dsl.kind, "decision");
+    assert_eq!(dsl.source_ref, "memo://project/variant-hybrid-dsl-sidecar");
+    assert!(!dsl.claim.is_empty());
 }
 
 #[test]
