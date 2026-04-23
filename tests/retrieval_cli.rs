@@ -10737,6 +10737,170 @@ fn library_search_with_variant_reports_exact_hybrid_strategies_when_embedding_ch
 }
 
 #[test]
+fn library_search_with_variant_embedding_only_applies_taxonomy_filters_before_top_k() {
+    let path = fresh_db_path("variant-embedding-only-taxonomy-top-k");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-only-config-top-k",
+            source_label: "variant embedding_only config top k memo",
+            content: "baseline baseline keeps toml setting review stable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:44:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-only-retrieval-top-k",
+            source_label: "variant embedding_only retrieval top k memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Observation,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:43:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(
+            &SearchRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(SearchFilters {
+                    topic: Some("retrieval".to_string()),
+                    ..Default::default()
+                }),
+        )
+        .expect("embedding_only variant search should apply taxonomy filters before top-k");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/variant-embedding-only-retrieval-top-k"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::EmbeddingOnly
+    );
+    assert_eq!(response.applied_filters.topic.as_deref(), Some("retrieval"));
+}
+
+#[test]
+fn library_search_with_variant_hybrid_applies_taxonomy_filters_before_top_k() {
+    let path = fresh_db_path("variant-hybrid-taxonomy-top-k");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-config-top-k",
+            source_label: "variant hybrid config top k memo",
+            content: "baseline baseline keeps toml setting review stable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:46:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-retrieval-top-k",
+            source_label: "variant hybrid retrieval top k memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Observation,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:45:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(
+            &SearchRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(SearchFilters {
+                    topic: Some("retrieval".to_string()),
+                    ..Default::default()
+                }),
+        )
+        .expect("hybrid variant search should apply taxonomy filters before top-k");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/variant-hybrid-retrieval-top-k"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::Hybrid
+    );
+    assert_eq!(response.applied_filters.topic.as_deref(), Some("retrieval"));
+}
+
+#[test]
 fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_model_mismatches_index()
 {
     let path = fresh_db_path("runtime-config-embedding-model-mismatch");
