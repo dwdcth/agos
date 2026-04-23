@@ -8336,6 +8336,118 @@ fn cli_search_json_preserves_record_and_citation_shape_for_configured_hybrid_rea
 }
 
 #[test]
+fn cli_search_text_preserves_record_and_citation_shape_for_configured_embedding_only_ready_path() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("configured-embedding-only-text-citation-shape");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "embedding_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/configured-embedding-only-text-citation-shape",
+            source_label: "configured embedding_only text citation memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:23:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion"]);
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "configured embedding_only text citation-shape search should succeed: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(text.contains("channel: embedding_only"));
+    assert!(text.contains("memo://project/configured-embedding-only-text-citation-shape"));
+    assert!(text.contains("citation: chunk 1/1 recorded_at=2026-04-17T10:23:00Z"));
+    assert!(text.contains("valid_from=2026-04-10T00:00:00Z"));
+    assert!(text.contains("valid_to=2026-04-20T00:00:00Z"));
+}
+
+#[test]
+fn cli_search_text_preserves_record_and_citation_shape_for_configured_hybrid_ready_path() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("configured-hybrid-text-citation-shape");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "hybrid",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/configured-hybrid-text-citation-shape",
+            source_label: "configured hybrid text citation memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:24:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion"]);
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "configured hybrid text citation-shape search should succeed: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(text.contains("channel: hybrid"));
+    assert!(text.contains("memo://project/configured-hybrid-text-citation-shape"));
+    assert!(text.contains("citation: chunk 1/1 recorded_at=2026-04-17T10:24:00Z"));
+    assert!(text.contains("valid_from=2026-04-10T00:00:00Z"));
+    assert!(text.contains("valid_to=2026-04-20T00:00:00Z"));
+}
+
+#[test]
 fn cli_search_text_configured_embedding_only_applies_temporal_filters_before_top_k() {
     let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
         .expect("root config should parse");
