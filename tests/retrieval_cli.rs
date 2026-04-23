@@ -10724,6 +10724,74 @@ fn library_search_with_runtime_config_embedding_only_uses_truncated_raw_snippet_
 }
 
 #[test]
+fn library_search_with_runtime_config_preserves_source_metadata_for_embedding_only_ready_path() {
+    let path = fresh_db_path("runtime-config-embedding-only-source-metadata");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-embedding-only-source-metadata",
+            source_label: "runtime config embedding_only source memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:12:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::EmbeddingOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("configured embedding_only search should preserve source metadata when ready");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].record.source.label.as_deref(),
+        Some("runtime config embedding_only source memo")
+    );
+    assert_eq!(
+        response.results[0].citation.source_kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].citation.source_label.as_deref(),
+        Some("runtime config embedding_only source memo")
+    );
+}
+
+#[test]
 fn library_search_with_runtime_config_uses_configured_hybrid_mode_when_embedding_is_ready() {
     let path = fresh_db_path("runtime-config-configured-hybrid-ready-embedding");
     let db = Database::open(&path).expect("database should bootstrap");
@@ -10784,6 +10852,74 @@ fn library_search_with_runtime_config_uses_configured_hybrid_mode_when_embedding
             .query_strategies
             .contains(&agent_memos::search::QueryStrategy::Embedding),
         "configured hybrid mode should surface embedding strategies when the embedding channel is ready"
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_preserves_source_metadata_for_hybrid_ready_path() {
+    let path = fresh_db_path("runtime-config-hybrid-source-metadata");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-hybrid-source-metadata",
+            source_label: "runtime config hybrid source memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:13:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::Hybrid,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("configured hybrid search should preserve source metadata when ready");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].record.source.label.as_deref(),
+        Some("runtime config hybrid source memo")
+    );
+    assert_eq!(
+        response.results[0].citation.source_kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].citation.source_label.as_deref(),
+        Some("runtime config hybrid source memo")
     );
 }
 
@@ -11867,6 +12003,74 @@ fn library_search_with_variant_uses_embedding_only_when_embedding_channel_is_rea
 }
 
 #[test]
+fn library_search_with_variant_preserves_source_metadata_for_embedding_only_ready_path() {
+    let path = fresh_db_path("variant-embedding-only-source-metadata");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-only-source-metadata",
+            source_label: "variant embedding_only source memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:17:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("embedding_only variant search should preserve source metadata when ready");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].record.source.label.as_deref(),
+        Some("variant embedding_only source memo")
+    );
+    assert_eq!(
+        response.results[0].citation.source_kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].citation.source_label.as_deref(),
+        Some("variant embedding_only source memo")
+    );
+}
+
+#[test]
 fn library_search_with_variant_uses_unsuffixed_builtin_model_as_16_dimensions() {
     let path = fresh_db_path("variant-unsuffixed-builtin-model");
     let db = Database::open(&path).expect("database should bootstrap");
@@ -12312,6 +12516,74 @@ fn library_search_with_variant_uses_hybrid_mode_when_embedding_channel_is_ready(
             .query_strategies
             .contains(&agent_memos::search::QueryStrategy::Embedding),
         "hybrid variant should surface embedding strategies when the embedding channel is ready"
+    );
+}
+
+#[test]
+fn library_search_with_variant_preserves_source_metadata_for_hybrid_ready_path() {
+    let path = fresh_db_path("variant-hybrid-source-metadata");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-source-metadata",
+            source_label: "variant hybrid source memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:27:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("hybrid variant search should preserve source metadata when ready");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].record.source.label.as_deref(),
+        Some("variant hybrid source memo")
+    );
+    assert_eq!(
+        response.results[0].citation.source_kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].citation.source_label.as_deref(),
+        Some("variant hybrid source memo")
     );
 }
 
