@@ -3056,6 +3056,85 @@ fn assembler_preserves_integrated_follow_up_provenance_on_fragments() {
 }
 
 #[test]
+fn assembler_hydrates_missing_dsl_for_integrated_follow_up_world_fragments() {
+    let path = fresh_db_path("follow-up-world-fragments-hydrate-dsl");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    let _primary = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/primary-follow-up-hydrate-dsl".to_string(),
+            source_label: Some("primary-follow-up-hydrate-dsl".to_string()),
+            source_kind: None,
+            content: "primary hydrate dsl query".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:15:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("primary ingest should succeed");
+    let follow_up = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/follow-up-world-hydrate-dsl".to_string(),
+            source_label: Some("follow-up-world-hydrate-dsl".to_string()),
+            source_kind: Some(SourceKind::Note),
+            content: "use lexical-first as baseline because explainability matters".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:16:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("follow-up ingest should succeed");
+
+    let follow_up_id = follow_up.record_ids[0].clone();
+    let assembler = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider);
+    let search = SearchService::new(db.conn());
+    let primary_result = search
+        .search(&SearchRequest::new("primary hydrate dsl").with_limit(1))
+        .expect("primary search should succeed")
+        .results;
+    let mut follow_up_result = search
+        .search(&SearchRequest::new("lexical-first baseline").with_limit(1))
+        .expect("follow-up search should succeed")
+        .results;
+    follow_up_result[0].snippet = "caller-provided follow-up snippet".to_string();
+    follow_up_result[0].dsl = None;
+    let mut integrated_results = primary_result;
+    integrated_results.extend(follow_up_result);
+
+    let working_memory = assembler
+        .assemble(
+            &WorkingMemoryRequest::new("primary hydrate dsl")
+                .with_limit(1)
+                .with_integrated_results(integrated_results),
+        )
+        .expect("assembly should hydrate missing dsl for integrated follow-up world fragments");
+
+    let follow_up_fragment = working_memory
+        .present
+        .world_fragments
+        .iter()
+        .find(|fragment| fragment.record_id == follow_up_id)
+        .expect("follow-up fragment should exist");
+
+    assert_eq!(
+        follow_up_fragment.snippet, "caller-provided follow-up snippet",
+        "dsl hydration should preserve the caller-provided follow-up snippet"
+    );
+    let dsl = follow_up_fragment
+        .dsl
+        .as_ref()
+        .expect("follow-up world fragment should recover its repository-backed dsl");
+    assert_eq!(dsl.domain, "project");
+    assert_eq!(dsl.kind, "decision");
+    assert_eq!(dsl.source_ref, "memo://project/follow-up-world-hydrate-dsl");
+}
+
+#[test]
 fn assembler_respects_taxonomy_filters_from_retrieval_request() {
     let path = fresh_db_path("taxonomy-filtered-assembly");
     let db = Database::open(&path).expect("database should open");
@@ -4512,6 +4591,94 @@ fn assembler_preserves_branch_supporting_evidence_dsl_for_integrated_follow_up()
         follow_up_fragment.snippet.contains("WHY:"),
         "branch supporting evidence should preserve the structured snippet surface: {:?}",
         follow_up_fragment.snippet
+    );
+}
+
+#[test]
+fn assembler_hydrates_missing_dsl_for_branch_supporting_evidence_on_integrated_follow_up() {
+    let path = fresh_db_path("follow-up-branch-support-hydrate-dsl");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    let _primary = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/primary-branch-hydrate-dsl".to_string(),
+            source_label: Some("primary-branch-hydrate-dsl".to_string()),
+            source_kind: None,
+            content: "primary branch hydrate dsl".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T12:46:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("primary ingest should succeed");
+    let follow_up = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/follow-up-branch-hydrate-dsl".to_string(),
+            source_label: Some("follow-up-branch-hydrate-dsl".to_string()),
+            source_kind: Some(SourceKind::Note),
+            content: "use lexical-first as baseline because explainability matters".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T12:47:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("follow-up ingest should succeed");
+
+    let follow_up_id = follow_up.record_ids[0].clone();
+    let assembler = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider);
+    let search = SearchService::new(db.conn());
+    let primary_result = search
+        .search(&SearchRequest::new("primary branch hydrate dsl").with_limit(1))
+        .expect("primary search should succeed")
+        .results;
+    let mut follow_up_result = search
+        .search(&SearchRequest::new("lexical-first baseline").with_limit(1))
+        .expect("follow-up search should succeed")
+        .results;
+    follow_up_result[0].snippet = "caller-provided branch snippet".to_string();
+    follow_up_result[0].dsl = None;
+    let mut integrated_results = primary_result;
+    integrated_results.extend(follow_up_result);
+
+    let working_memory = assembler
+        .assemble(
+            &WorkingMemoryRequest::new("primary branch hydrate dsl")
+                .with_limit(1)
+                .with_integrated_results(integrated_results)
+                .with_action_seed(
+                    ActionSeed::new(ActionCandidate::new(
+                        ActionKind::Epistemic,
+                        "inspect follow-up hydrated dsl",
+                    ))
+                    .with_supporting_record_ids(vec![follow_up_id.clone()]),
+                ),
+        )
+        .expect("assembly should hydrate missing dsl for branch supporting evidence");
+
+    let follow_up_fragment = working_memory.branches[0]
+        .supporting_evidence
+        .iter()
+        .find(|fragment| fragment.record_id == follow_up_id)
+        .expect("branch supporting evidence should include follow-up fragment");
+
+    assert_eq!(
+        follow_up_fragment.snippet, "caller-provided branch snippet",
+        "branch-support dsl hydration should preserve the caller-provided snippet"
+    );
+    let dsl = follow_up_fragment
+        .dsl
+        .as_ref()
+        .expect("branch supporting evidence should recover its repository-backed dsl");
+    assert_eq!(dsl.domain, "project");
+    assert_eq!(dsl.kind, "decision");
+    assert_eq!(
+        dsl.source_ref,
+        "memo://project/follow-up-branch-hydrate-dsl"
     );
 }
 
