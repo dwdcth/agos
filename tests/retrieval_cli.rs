@@ -7775,6 +7775,117 @@ fn cli_search_json_preserves_record_and_citation_shape_for_hybrid_ready_path() {
 }
 
 #[test]
+fn cli_search_text_preserves_source_metadata_for_embedding_only_ready_path() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("cli-text-embedding-only-source-shape");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-text-embedding-only-source-shape",
+            source_label: "cli text embedding_only source memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:27:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(
+        &config_path,
+        &["search", "retrieval fusion", "--mode", "embedding_only"],
+    );
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "cli text embedding_only source-shape search should succeed: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(text.contains("channel: embedding_only"));
+    assert!(text.contains("kind=document"));
+    assert!(text.contains("label=cli text embedding_only source memo"));
+}
+
+#[test]
+fn cli_search_text_preserves_source_metadata_for_hybrid_ready_path() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("cli-text-hybrid-source-shape");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-text-hybrid-source-shape",
+            source_label: "cli text hybrid source memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:28:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--mode", "hybrid"]);
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "cli text hybrid source-shape search should succeed: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(text.contains("channel: hybrid"));
+    assert!(text.contains("kind=document"));
+    assert!(text.contains("label=cli text hybrid source memo"));
+}
+
+#[test]
 fn cli_search_text_embedding_only_applies_temporal_filters_before_top_k_when_ready() {
     let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
         .expect("root config should parse");
