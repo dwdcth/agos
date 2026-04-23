@@ -1,0 +1,61 @@
+{
+  "config": {
+    "direction": "higher",
+    "goal": "Implement layered memory taxonomy and DSL core in Rust",
+    "guard": "cargo clippy --lib -- -D warnings",
+    "iterations": null,
+    "metric": "targeted_memory_dsl_checks_passed",
+    "parallel_mode": "serial",
+    "repos": [
+      {
+        "path": "/home/tongyuan/project/agent_memos",
+        "role": "primary",
+        "scope": "src/memory/**,tests/memory_dsl.rs"
+      }
+    ],
+    "rollback_policy": "revert",
+    "scope": "src/memory/**,tests/memory_dsl.rs",
+    "session_mode": "foreground",
+    "stop_condition": null,
+    "verify": "cargo test --test memory_dsl -- --nocapture && cargo test --lib memory::dsl -- --nocapture && cargo test --lib memory::taxonomy -- --nocapture && cargo clippy --lib -- -D warnings",
+    "web_search": "disabled"
+  },
+  "mode": "loop",
+  "run_tag": "",
+  "state": {
+    "baseline_metric": 4,
+    "best_iteration": 63,
+    "best_metric": 96,
+    "blocked": 1,
+    "consecutive_discards": 0,
+    "crashes": 0,
+    "current_labels": [
+      "config-summary-backend",
+      "rig-summary",
+      "ingest-config"
+    ],
+    "current_metric": 96,
+    "discards": 0,
+    "iteration": 63,
+    "keeps": 59,
+    "last_commit": "d61dc8258aab1dd81b3749323197614ed3e01c06",
+    "last_repo_commits": {
+      "/home/tongyuan/project/agent_memos": "d61dc8258aab1dd81b3749323197614ed3e01c06"
+    },
+    "last_status": "keep",
+    "last_trial_commit": "d61dc8258aab1dd81b3749323197614ed3e01c06",
+    "last_trial_labels": [
+      "config-summary-backend",
+      "rig-summary",
+      "ingest-config"
+    ],
+    "last_trial_metric": 96,
+    "last_trial_repo_commits": {
+      "/home/tongyuan/project/agent_memos": "d61dc8258aab1dd81b3749323197614ed3e01c06"
+    },
+    "no_ops": 0,
+    "pivot_count": 0
+  },
+  "updated_at": "2026-04-20T03:43:40Z",
+  "version": 1
+}

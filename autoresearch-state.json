@@ -1,0 +1,62 @@
+{
+  "config": {
+    "direction": "higher",
+    "goal": "Improve the non-LLM recall pipeline by consuming layered memory DSL in ordinary retrieval and working-memory assembly",
+    "guard": "cargo clippy --quiet --all-targets -- -D warnings",
+    "iterations": null,
+    "metric": "retrieval_green_checks",
+    "parallel_mode": "serial",
+    "repos": [
+      {
+        "path": "/home/tongyuan/project/agent_memos",
+        "role": "primary",
+        "scope": "src/search/**,src/cognition/assembly.rs,src/cognition/working_memory.rs,src/memory/repository.rs,tests/lexical_search.rs,tests/retrieval_cli.rs,tests/working_memory_assembly.rs"
+      }
+    ],
+    "rollback_policy": "revert",
+    "scope": "src/search/**,src/cognition/assembly.rs,src/cognition/working_memory.rs,src/memory/repository.rs,tests/lexical_search.rs,tests/retrieval_cli.rs,tests/working_memory_assembly.rs",
+    "session_mode": "foreground",
+    "stop_condition": null,
+    "verify": "cargo test --quiet --test lexical_search --test retrieval_cli --test working_memory_assembly",
+    "web_search": "disabled"
+  },
+  "mode": "loop",
+  "run_tag": "",
+  "state": {
+    "baseline_metric": 10,
+    "best_iteration": 1092,
+    "best_metric": 426,
+    "blocked": 0,
+    "consecutive_discards": 21,
+    "crashes": 2,
+    "current_labels": [
+      "override-ready-path-source-metadata-lock",
+      "lexical-first",
+      "working-memory-assembly",
+      "post-commit-drift-recalibration"
+    ],
+    "current_metric": 413,
+    "discards": 0,
+    "iteration": 1222,
+    "keeps": 319,
+    "last_commit": "ea729c5bf63d6ef424e44518e57ccb9382e51ee0",
+    "last_repo_commits": {
+      "/home/tongyuan/project/agent_memos": "ea729c5bf63d6ef424e44518e57ccb9382e51ee0"
+    },
+    "last_status": "no-op",
+    "last_trial_commit": "ea729c5bf63d6ef424e44518e57ccb9382e51ee0",
+    "last_trial_labels": [
+      "read-only-monitor-413e",
+      "lexical-first",
+      "working-memory-assembly"
+    ],
+    "last_trial_metric": 413,
+    "last_trial_repo_commits": {
+      "/home/tongyuan/project/agent_memos": "ea729c5bf63d6ef424e44518e57ccb9382e51ee0"
+    },
+    "no_ops": 881,
+    "pivot_count": 0
+  },
+  "updated_at": "2026-04-23T07:58:39Z",
+  "version": 1
+}

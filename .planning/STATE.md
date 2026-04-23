@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Embedding Second-Channel Retrieval
-status: archived
-stopped_at: Milestone v1.1 archived
-last_updated: "2026-04-17T19:05:00+08:00"
-last_activity: 2026-04-17
+status: paused
+stopped_at: "2026-04-23 用户要求更新进度文档并暂停开发"
+last_updated: "2026-04-23T15:55:00+08:00"
+last_activity: 2026-04-23
 progress:
   total_phases: 3
   completed_phases: 3
@@ -21,63 +21,52 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-17)
 
 **Core value:** 当 agent 需要回忆历史决策、证据、模式或当前认知状态时，系统必须能快速给出带出处、带时间性、带状态约束的正确记忆。
-**Current focus:** Planning next milestone
+**Current focus:** 已暂停开发，等待定义下一里程碑或决定如何归档当前的 post-v1.1 加固工作。
 
 ## Current Position
 
-Phase: Milestone complete
-Plan: Archived
-Status: Milestone v1.1 archived — ready for next milestone
-Last activity: 2026-04-17
+Phase: No active milestone
+Plan: None active
+Status: 用户已要求停止开发；当前停在 v1.1 之后的检索/工作记忆契约加固与验证收尾点
+Last activity: 2026-04-23
 
 Progress: [██████████] 100%
 
 ## Performance Metrics
 
-**Velocity:**
+**Current verification baseline:**
 
-- Total plans completed: 51
-- Average duration: 8min
-- Total execution time: 0.9 hours
+- Main retained commit: `ea729c5` (`Implement layered memory pipeline and retrieval groundwork`)
+- Autoresearch retained metric: `413`
+- Verify command: `cargo test --quiet --test lexical_search --test retrieval_cli --test working_memory_assembly`
+- Guard command: `cargo clippy --quiet --all-targets -- -D warnings`
 
-**By Phase:**
+**Latest confirmed checks:**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 01 | 4 | 17min | 4min |
-| 02 | 4 | - | - |
-| 03 | 3 | - | - |
-| 04 | 3 | - | - |
-| 05 | 3 | - | - |
-| 06 | 2 | - | - |
-| 07 | 2 | - | - |
-| 08 | 3 | - | - |
-| 09 | 3 | - | - |
-| 10 | 2 | - | - |
+- Protocol fingerprint at iteration `1210` passed:
+  `413` tests green across `lexical_search`, `retrieval_cli`, and `working_memory_assembly`
+- Focused audit passes completed on 2026-04-23:
+  `working_memory_assembly hydrate`, `mixed_recall`, `supporting`
+- Focused audit passes completed on 2026-04-23:
+  `retrieval_cli` exact text/json strategy ordering, citation shape, and source metadata
+- Focused audit passes completed on 2026-04-23:
+  `lexical_search structured`, `recorded_from`, and `validity`
 
-**Recent Trend:**
+**Recent trend:**
 
-- Last 5 plans: 02-01, 02-02, 02-03, 03-01, 03-02
-- Trend: Stable
+- Contract coverage is saturated in the current scoped retrieval/assembly seam.
+- No reproducible semantic regressions were found in the latest autoresearch loop.
+- One low-frequency allocator/runtime crash reappeared during a filtered `retrieval_cli source_metadata` run, but the single-thread rerun passed and points to environment/native flake rather than feature regression.
 
-| Phase 01 P01 | 4min | 2 tasks | 9 files |
-| Phase 01 P02 | 5min | 2 tasks | 11 files |
-| Phase 01 P03 | 6min | 2 tasks | 8 files |
-| Phase 01 P04 | 2min | 2 tasks | 3 files |
-| Phase 02 P01 | 9min | 2 tasks | 11 files |
-| Phase 02 P02 | 13min | 2 tasks | 13 files |
-| Phase 02 P03 | 9min | 2 tasks | 12 files |
-| Phase 02 P04 | 2min | 2 tasks | 2 files |
-| Phase 03 P01 | 10min | 2 tasks | 10 files |
-| Phase 03 P02 | 8min | 2 tasks | 5 files |
-| Phase 03 P03 | 4min | 2 tasks | 3 files |
-| Phase 03 P03 | 4min | 2 tasks | 3 files |
-| Phase 04 P01 | 8min | 2 tasks | 6 files |
-| Phase 04 P02 | 5min | 2 tasks | 5 files |
-| Phase 04 P03 | 10min | 2 tasks | 8 files |
-| Phase 05 P01 | 12min | 2 tasks | 7 files |
-| Phase 05 P02 | 9min | 2 tasks | 5 files |
-| Phase 05 P03 | 8min | 2 tasks | 3 files |
+## Recent Progress
+
+- `v1.1` 已完成并归档；当前没有新的 active milestone。
+- `ea729c5` 已提交当前的 layered memory pipeline / retrieval groundwork 快照。
+- 前台 autoresearch run 已推进到 iteration `1219`，目标是验证 ordinary retrieval 到 working-memory assembly 的 layered DSL 消费链路。
+- 最近的 retained labels:
+  `override-ready-path-source-metadata-lock`, `lexical-first`, `working-memory-assembly`, `post-commit-drift-recalibration`
+- 最近的 focused audit 已覆盖:
+  DSL sidecar、citation/source shape、taxonomy/temporal filtering、supporting-record fail-closed、mixed recall、CLI text/json strategy ordering
 
 ## Accumulated Context
 
@@ -91,7 +80,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- Next milestone scope is not yet defined.
+- 下一里程碑尚未定义。
+- 当前 autoresearch 运行态文件仍未提交:
+  `research-results.tsv`, `research-results.prev.tsv`, `autoresearch-state.json`, `autoresearch-state.prev.json`, `autoresearch-lessons.md`, `autoresearch-hook-context.json`
+- 已知低频 native flake:
+  `malloc(): unaligned tcache chunk detected` / `SIGABRT`
+  目前更像 allocator/runtime 级偶发问题，不是可复现功能回归。
 
 ## Deferred Items
 
@@ -102,6 +96,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T19:03:51.982Z
-Stopped at: Milestone v1.1 archived
-Resume file: None
+Last session: 2026-04-23T07:53:57Z
+Stopped at: 用户要求更新进度文档并暂停开发
+Resume file: .continue-here.md
