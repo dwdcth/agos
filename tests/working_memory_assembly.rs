@@ -3212,6 +3212,75 @@ fn assembler_filters_integrated_results_by_taxonomy_filters() {
 }
 
 #[test]
+fn assembler_rejects_filtered_integrated_supporting_record_ids() {
+    let path = fresh_db_path("integrated-results-taxonomy-filter-supporting-record");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    let _retrieval = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/integrated-supporting-retrieval".to_string(),
+            source_label: Some("integrated-supporting-retrieval".to_string()),
+            source_kind: None,
+            content: "retrieval baseline keeps lexical search explainable".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:14:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("retrieval ingest should succeed");
+    let config = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/integrated-supporting-config".to_string(),
+            source_label: Some("integrated-supporting-config".to_string()),
+            source_kind: None,
+            content: "config baseline keeps toml setting review stable".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:15:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("config ingest should succeed");
+
+    let config_id = config.record_ids[0].clone();
+    let search = SearchService::new(db.conn());
+    let integrated_results = search
+        .search(&SearchRequest::new("baseline").with_limit(2))
+        .expect("baseline search should succeed")
+        .results;
+
+    let err = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
+        .assemble(
+            &WorkingMemoryRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(agent_memos::search::SearchFilters {
+                    topic: Some("retrieval".to_string()),
+                    ..Default::default()
+                })
+                .with_integrated_results(integrated_results)
+                .with_action_seed(
+                    ActionSeed::new(ActionCandidate::new(
+                        ActionKind::Epistemic,
+                        "inspect filtered support",
+                    ))
+                    .with_supporting_record_ids(vec![config_id.clone()]),
+                ),
+        )
+        .expect_err("assembly should reject explicit support ids filtered out by taxonomy");
+
+    assert!(matches!(
+        err,
+        agent_memos::cognition::assembly::WorkingMemoryAssemblyError::MissingSupportingRecord {
+            ref record_id
+        } if record_id == &config_id
+    ));
+}
+
+#[test]
 fn assembler_respects_taxonomy_filters_from_retrieval_request() {
     let path = fresh_db_path("taxonomy-filtered-assembly");
     let db = Database::open(&path).expect("database should open");
