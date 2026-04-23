@@ -7629,6 +7629,182 @@ fn cli_search_json_configured_hybrid_applies_temporal_filters_before_top_k() {
 }
 
 #[test]
+fn cli_search_text_embedding_only_applies_temporal_filters_before_top_k_when_ready() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("cli-text-embedding-only-temporal-top-k");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-text-embedding-only-current-temporal",
+            source_label: "cli text embedding_only current temporal memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:15:30Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-text-embedding-only-stale-temporal",
+            source_label: "cli text embedding_only stale temporal memo",
+            content: "baseline baseline keeps stale review around",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-01T10:15:30Z",
+            valid_from: Some("2026-03-01T00:00:00Z"),
+            valid_to: Some("2026-04-05T00:00:00Z"),
+        },
+    );
+
+    let search_output = run_cli(
+        &config_path,
+        &[
+            "search",
+            "baseline",
+            "--mode",
+            "embedding_only",
+            "--valid-at",
+            "2026-04-17T12:00:00Z",
+            "--from",
+            "2026-04-10T00:00:00Z",
+            "--to",
+            "2026-04-18T00:00:00Z",
+            "--top-k",
+            "1",
+        ],
+    );
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "cli text embedding_only temporal/top-k search should succeed: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(text.contains("channel: embedding_only"));
+    assert!(text.contains("valid_at=2026-04-17T12:00:00Z"));
+    assert!(text.contains("memo://project/cli-text-embedding-only-current-temporal"));
+    assert!(
+        !text.contains("memo://project/cli-text-embedding-only-stale-temporal"),
+        "stale temporal result should be filtered out before text top-k rendering: {text}"
+    );
+}
+
+#[test]
+fn cli_search_text_hybrid_applies_temporal_filters_before_top_k_when_ready() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("cli-text-hybrid-temporal-top-k");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-text-hybrid-current-temporal",
+            source_label: "cli text hybrid current temporal memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:16:30Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/cli-text-hybrid-stale-temporal",
+            source_label: "cli text hybrid stale temporal memo",
+            content: "baseline baseline keeps stale review around",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-01T10:16:30Z",
+            valid_from: Some("2026-03-01T00:00:00Z"),
+            valid_to: Some("2026-04-05T00:00:00Z"),
+        },
+    );
+
+    let search_output = run_cli(
+        &config_path,
+        &[
+            "search",
+            "baseline",
+            "--mode",
+            "hybrid",
+            "--valid-at",
+            "2026-04-17T12:00:00Z",
+            "--from",
+            "2026-04-10T00:00:00Z",
+            "--to",
+            "2026-04-18T00:00:00Z",
+            "--top-k",
+            "1",
+        ],
+    );
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "cli text hybrid temporal/top-k search should succeed: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(text.contains("channel: hybrid"));
+    assert!(text.contains("valid_at=2026-04-17T12:00:00Z"));
+    assert!(text.contains("memo://project/cli-text-hybrid-current-temporal"));
+    assert!(
+        !text.contains("memo://project/cli-text-hybrid-stale-temporal"),
+        "stale temporal result should be filtered out before text top-k rendering: {text}"
+    );
+}
+
+#[test]
 fn cli_search_json_uses_configured_embedding_only_mode_when_second_channel_is_ready() {
     let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
         .expect("root config should parse");
