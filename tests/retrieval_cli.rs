@@ -8102,6 +8102,70 @@ fn library_search_preserves_record_and_citation_shape_for_embedding_only_ready_p
 }
 
 #[test]
+fn library_search_preserves_dsl_sidecar_for_embedding_only_ready_path() {
+    let path = fresh_db_path("library-embedding-only-dsl-sidecar");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/library-embedding-only-dsl-sidecar",
+            source_label: "library embedding only dsl sidecar memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:31:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(
+        db.conn(),
+        &config,
+        Some(RetrievalMode::EmbeddingOnly),
+    )
+    .search(&SearchRequest::new("retrieval fusion"))
+    .expect("embedding_only ready-path search should preserve the dsl sidecar");
+
+    assert_eq!(response.results.len(), 1);
+    let dsl = response.results[0]
+        .dsl
+        .as_ref()
+        .expect("embedding_only ready-path search should attach the structured dsl sidecar");
+    assert_eq!(dsl.domain, "project");
+    assert_eq!(dsl.kind, "decision");
+    assert_eq!(dsl.source_ref, "memo://project/library-embedding-only-dsl-sidecar");
+    assert!(!dsl.claim.is_empty());
+}
+
+#[test]
 fn library_search_with_runtime_config_uses_unsuffixed_builtin_model_as_16_dimensions() {
     let path = fresh_db_path("runtime-config-unsuffixed-builtin-model");
     let db = Database::open(&path).expect("database should bootstrap");
@@ -8617,6 +8681,66 @@ fn library_search_preserves_record_and_citation_shape_for_hybrid_ready_path() {
     assert_eq!(result.citation.validity.valid_to.as_deref(), Some("2026-04-20T00:00:00Z"));
     assert_eq!(result.citation.anchor.chunk_index, 0);
     assert_eq!(result.citation.anchor.chunk_count, 1);
+}
+
+#[test]
+fn library_search_preserves_dsl_sidecar_for_hybrid_ready_path() {
+    let path = fresh_db_path("library-hybrid-dsl-sidecar");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/library-hybrid-dsl-sidecar",
+            source_label: "library hybrid dsl sidecar memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:36:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::Hybrid,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("hybrid ready-path search should preserve the dsl sidecar");
+
+    assert_eq!(response.results.len(), 1);
+    let dsl = response.results[0]
+        .dsl
+        .as_ref()
+        .expect("hybrid ready-path search should attach the structured dsl sidecar");
+    assert_eq!(dsl.domain, "project");
+    assert_eq!(dsl.kind, "decision");
+    assert_eq!(dsl.source_ref, "memo://project/library-hybrid-dsl-sidecar");
+    assert!(!dsl.claim.is_empty());
 }
 
 #[test]
