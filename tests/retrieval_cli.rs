@@ -11503,6 +11503,144 @@ fn library_search_with_variant_preserves_dsl_sidecar_for_hybrid_ready_path() {
 }
 
 #[test]
+fn library_search_with_variant_preserves_record_and_citation_shape_for_embedding_only_ready_path() {
+    let path = fresh_db_path("variant-embedding-only-record-citation-shape");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-only-record-citation-shape",
+            source_label: "variant embedding only record citation memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:19:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("embedding_only variant ready-path search should preserve record and citation shape");
+
+    assert_eq!(response.results.len(), 1);
+    let result = &response.results[0];
+    assert_eq!(result.record.scope, Scope::Project);
+    assert_eq!(result.record.truth_layer, TruthLayer::T2);
+    assert_eq!(result.record.record_type, RecordType::Decision);
+    assert_eq!(result.citation.record_id, result.record.id);
+    assert_eq!(result.citation.source_uri, result.record.source.uri);
+    assert_eq!(result.citation.recorded_at, "2026-04-18T13:19:00Z");
+    assert_eq!(
+        result.citation.validity.valid_from.as_deref(),
+        Some("2026-04-10T00:00:00Z")
+    );
+    assert_eq!(
+        result.citation.validity.valid_to.as_deref(),
+        Some("2026-04-20T00:00:00Z")
+    );
+    assert_eq!(result.citation.anchor.chunk_index, 0);
+    assert_eq!(result.citation.anchor.chunk_count, 1);
+}
+
+#[test]
+fn library_search_with_variant_preserves_record_and_citation_shape_for_hybrid_ready_path() {
+    let path = fresh_db_path("variant-hybrid-record-citation-shape");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-record-citation-shape",
+            source_label: "variant hybrid record citation memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:29:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("hybrid variant ready-path search should preserve record and citation shape");
+
+    assert_eq!(response.results.len(), 1);
+    let result = &response.results[0];
+    assert_eq!(result.record.scope, Scope::Project);
+    assert_eq!(result.record.truth_layer, TruthLayer::T2);
+    assert_eq!(result.record.record_type, RecordType::Decision);
+    assert_eq!(result.citation.record_id, result.record.id);
+    assert_eq!(result.citation.source_uri, result.record.source.uri);
+    assert_eq!(result.citation.recorded_at, "2026-04-18T13:29:00Z");
+    assert_eq!(
+        result.citation.validity.valid_from.as_deref(),
+        Some("2026-04-10T00:00:00Z")
+    );
+    assert_eq!(
+        result.citation.validity.valid_to.as_deref(),
+        Some("2026-04-20T00:00:00Z")
+    );
+    assert_eq!(result.citation.anchor.chunk_index, 0);
+    assert_eq!(result.citation.anchor.chunk_count, 1);
+}
+
+#[test]
 fn library_search_with_variant_uses_hybrid_mode_when_embedding_channel_is_ready() {
     let path = fresh_db_path("variant-hybrid-ready-embedding");
     let db = Database::open(&path).expect("database should bootstrap");
