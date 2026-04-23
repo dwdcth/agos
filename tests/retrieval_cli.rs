@@ -10932,6 +10932,149 @@ fn library_search_with_runtime_config_mode_override_can_force_embedding_only_whe
 }
 
 #[test]
+fn library_search_with_runtime_config_mode_override_preserves_source_metadata_for_hybrid_ready_path(
+) {
+    let path = fresh_db_path("runtime-config-override-hybrid-source-metadata");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-override-hybrid-source-metadata",
+            source_label: "runtime config override hybrid source memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T11:56:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+            .search(&SearchRequest::new("retrieval fusion"))
+            .expect("mode_override=hybrid should preserve source metadata when ready");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].record.source.label.as_deref(),
+        Some("runtime config override hybrid source memo")
+    );
+    assert_eq!(
+        response.results[0].citation.source_kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].citation.source_label.as_deref(),
+        Some("runtime config override hybrid source memo")
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_mode_override_preserves_source_metadata_for_embedding_only_ready_path(
+) {
+    let path = fresh_db_path("runtime-config-override-embedding-only-source-metadata");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-override-embedding-only-source-metadata",
+            source_label: "runtime config override embedding_only source memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:41:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(
+        db.conn(),
+        &config,
+        Some(RetrievalMode::EmbeddingOnly),
+    )
+    .search(&SearchRequest::new("retrieval fusion"))
+    .expect("mode_override=embedding_only should preserve source metadata when ready");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].record.source.label.as_deref(),
+        Some("runtime config override embedding_only source memo")
+    );
+    assert_eq!(
+        response.results[0].citation.source_kind,
+        agent_memos::memory::record::SourceKind::Document
+    );
+    assert_eq!(
+        response.results[0].citation.source_label.as_deref(),
+        Some("runtime config override embedding_only source memo")
+    );
+}
+
+#[test]
 fn library_search_with_runtime_config_embedding_only_uses_truncated_raw_snippet_when_ready() {
     let path = fresh_db_path("runtime-config-embedding-only-snippet-truncation");
     let db = Database::open(&path).expect("database should bootstrap");
