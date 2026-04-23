@@ -4,7 +4,7 @@ pub mod governance;
 pub mod pipeline;
 pub mod record;
 pub mod repository;
-pub mod summary;
 pub mod store;
+pub mod summary;
 pub mod taxonomy;
 pub mod truth;

@@ -51,12 +51,39 @@ pub struct EmbeddingConfig {
     pub endpoint: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemorySummaryBackend {
+    #[default]
+    Auto,
+    RuleBased,
+    Rig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct MemoryConfig {
+    pub summary_backend: MemorySummaryBackend,
+}
+
+impl MemoryConfig {
+    pub fn effective_summary_backend(&self, llm: &RootLlmConfig) -> MemorySummaryBackend {
+        match self.summary_backend {
+            MemorySummaryBackend::Auto if llm.is_configured() => MemorySummaryBackend::Rig,
+            MemorySummaryBackend::Auto => MemorySummaryBackend::RuleBased,
+            backend => backend,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Config {
     pub db_path: String,
     pub retrieval: RetrievalConfig,
     pub embedding: EmbeddingConfig,
+    pub llm: RootLlmConfig,
+    pub memory: MemoryConfig,
     pub vector: RootVectorConfig,
 }
 
@@ -141,6 +168,17 @@ pub struct RootLlmConfig {
     pub timeout_seconds: Option<u64>,
 }
 
+impl RootLlmConfig {
+    pub fn is_configured(&self) -> bool {
+        !self.provider.trim().is_empty()
+            && !self.model.trim().is_empty()
+            && self
+                .api_key
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct RootEmbeddingRuntimeConfig {
@@ -186,6 +224,8 @@ impl Default for Config {
             db_path: DEFAULT_DB_PATH.to_string(),
             retrieval: RetrievalConfig::default(),
             embedding: EmbeddingConfig::default(),
+            llm: RootLlmConfig::default(),
+            memory: MemoryConfig::default(),
             vector: RootVectorConfig::default(),
         }
     }
@@ -239,6 +279,7 @@ mod tests {
         assert_eq!(config.retrieval.mode, RetrievalMode::LexicalOnly);
         assert_eq!(config.embedding.backend, EmbeddingBackend::Disabled);
         assert_eq!(config.vector.backend, VectorBackend::None);
+        assert_eq!(config.memory.summary_backend, MemorySummaryBackend::Auto);
         assert_eq!(config.db_path, DEFAULT_DB_PATH);
     }
 
@@ -267,6 +308,36 @@ backend = "{backend}"
     }
 
     #[test]
+    fn memory_summary_backend_auto_uses_llm_when_fully_configured() {
+        let config = Config {
+            llm: RootLlmConfig {
+                provider: "openai".to_string(),
+                model: "gpt-4o-mini".to_string(),
+                api_key: Some("sk-test".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert!(config.llm.is_configured());
+        assert_eq!(
+            config.memory.effective_summary_backend(&config.llm),
+            MemorySummaryBackend::Rig
+        );
+    }
+
+    #[test]
+    fn memory_summary_backend_auto_falls_back_without_llm_credentials() {
+        let config = Config::default();
+
+        assert!(!config.llm.is_configured());
+        assert_eq!(
+            config.memory.effective_summary_backend(&config.llm),
+            MemorySummaryBackend::RuleBased
+        );
+    }
+
+    #[test]
     fn config_rejects_unknown_mode_strings() {
         let error = toml::from_str::<Config>(
             r#"
@@ -282,6 +353,35 @@ backend = "disabled"
         .expect_err("unknown mode should be rejected");
 
         assert!(error.to_string().contains("keyword_magic"));
+    }
+
+    #[test]
+    fn config_parses_memory_summary_backend_and_llm_block() {
+        let config = toml::from_str::<Config>(
+            r#"
+db_path = "/tmp/agent-memos.db"
+
+[retrieval]
+mode = "lexical_only"
+
+[embedding]
+backend = "disabled"
+
+[memory]
+summary_backend = "rig"
+
+[llm]
+provider = "openai"
+model = "gpt-4o-mini"
+api_key = "sk-test"
+"#,
+        )
+        .expect("memory and llm blocks should parse");
+
+        assert_eq!(config.memory.summary_backend, MemorySummaryBackend::Rig);
+        assert_eq!(config.llm.provider, "openai");
+        assert_eq!(config.llm.model, "gpt-4o-mini");
+        assert_eq!(config.llm.api_key.as_deref(), Some("sk-test"));
     }
 
     trait ParseMode {

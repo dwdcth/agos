@@ -1,12 +1,17 @@
 use std::{future::Future, pin::Pin};
 
+use rig::{client::CompletionClient, completion::TypedPrompt, providers::openai};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::memory::{
-    dsl::{FactDslDraft, FactDslError, FactDslRecord, KindFieldPolicyV1},
-    record::TruthLayer,
-    taxonomy::{KindV1, TaxonomyPathV1},
+use crate::{
+    core::config::RootLlmConfig,
+    memory::{
+        dsl::{FactDslDraft, FactDslError, FactDslRecord, KindFieldPolicyV1},
+        record::TruthLayer,
+        taxonomy::{KindV1, TaxonomyPathV1},
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,7 +38,9 @@ impl FactSummaryInput {
     }
 
     pub fn validate(&self) -> Result<(), FactSummaryError> {
-        self.taxonomy.validate().map_err(FactSummaryError::Taxonomy)?;
+        self.taxonomy
+            .validate()
+            .map_err(FactSummaryError::Taxonomy)?;
 
         if self.source_ref.trim().is_empty() {
             return Err(FactSummaryError::MissingSourceRef);
@@ -74,32 +81,243 @@ pub trait FactSummaryGenerator {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RuleBasedSummaryGenerator;
 
+impl RuleBasedSummaryGenerator {
+    pub fn summarize_sync(
+        &self,
+        input: &FactSummaryInput,
+    ) -> Result<FactDslDraft, FactSummaryError> {
+        input.validate()?;
+
+        let claim =
+            first_sentence(&input.raw_text).unwrap_or_else(|| input.raw_text.trim().to_string());
+
+        let draft = FactDslDraft {
+            claim,
+            why: extract_reason(&input.raw_text),
+            time: extract_time_hint(&input.raw_text),
+            cond: extract_condition(&input.raw_text),
+            impact: extract_impact(&input.raw_text),
+            conf: matches!(input.taxonomy.kind, KindV1::Hypothesis).then_some(0.5),
+            rel: None,
+        };
+
+        validate_summary_output(input.taxonomy.kind, &draft)?;
+        Ok(draft)
+    }
+}
+
 impl FactSummaryGenerator for RuleBasedSummaryGenerator {
     fn summarize<'a>(
         &'a self,
         input: &'a FactSummaryInput,
-    ) -> Pin<Box<dyn Future<Output = Result<FactDslDraft, FactSummaryError>> + Send + 'a>>
-    {
+    ) -> Pin<Box<dyn Future<Output = Result<FactDslDraft, FactSummaryError>> + Send + 'a>> {
+        Box::pin(async move { self.summarize_sync(input) })
+    }
+}
+
+pub trait RigStructuredSummaryBackend {
+    fn complete<'a>(
+        &'a self,
+        prompt: String,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<RigSummaryStructuredOutput, FactSummaryError>> + Send + 'a>,
+    >;
+}
+
+#[derive(Debug, Clone)]
+pub struct OpenAiCompatibleRigSummaryBackend {
+    config: RootLlmConfig,
+}
+
+impl OpenAiCompatibleRigSummaryBackend {
+    pub fn new(config: RootLlmConfig) -> Self {
+        Self { config }
+    }
+}
+
+impl RigStructuredSummaryBackend for OpenAiCompatibleRigSummaryBackend {
+    fn complete<'a>(
+        &'a self,
+        prompt: String,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<RigSummaryStructuredOutput, FactSummaryError>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            if !self.config.is_configured() {
+                return Err(FactSummaryError::Generator(
+                    "llm config is incomplete for rig summary generation".to_string(),
+                ));
+            }
+
+            if self.config.provider != "openai" {
+                return Err(FactSummaryError::Generator(format!(
+                    "unsupported rig summary provider: {}",
+                    self.config.provider
+                )));
+            }
+
+            let api_key = self.config.api_key.as_deref().ok_or_else(|| {
+                FactSummaryError::Generator(
+                    "missing api_key for rig summary generation".to_string(),
+                )
+            })?;
+
+            let mut builder = openai::Client::builder().api_key(api_key);
+            if let Some(api_base) = self.config.api_base.as_deref() {
+                builder = builder.base_url(api_base);
+            }
+
+            let client = builder.build().map_err(|error| {
+                FactSummaryError::Generator(format!(
+                    "failed to build openai-compatible rig client: {error}"
+                ))
+            })?;
+
+            let mut agent = client
+                .agent(self.config.model.clone())
+                .preamble(RIG_SUMMARY_PREAMBLE);
+            if let Some(temperature) = self.config.temperature {
+                agent = agent.temperature(f64::from(temperature));
+            }
+            if let Some(max_tokens) = self.config.max_tokens {
+                agent = agent.max_tokens(u64::from(max_tokens));
+            }
+
+            agent
+                .build()
+                .prompt_typed::<RigSummaryStructuredOutput>(prompt)
+                .await
+                .map_err(|error| {
+                    FactSummaryError::Generator(format!(
+                        "rig structured summary request failed: {error}"
+                    ))
+                })
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RigSummaryGenerator<B = OpenAiCompatibleRigSummaryBackend> {
+    backend: B,
+}
+
+impl<B> RigSummaryGenerator<B> {
+    pub fn new(backend: B) -> Self {
+        Self { backend }
+    }
+}
+
+impl RigSummaryGenerator<OpenAiCompatibleRigSummaryBackend> {
+    pub fn from_llm_config(config: RootLlmConfig) -> Self {
+        Self::new(OpenAiCompatibleRigSummaryBackend::new(config))
+    }
+}
+
+impl<B> FactSummaryGenerator for RigSummaryGenerator<B>
+where
+    B: RigStructuredSummaryBackend + Sync,
+{
+    fn summarize<'a>(
+        &'a self,
+        input: &'a FactSummaryInput,
+    ) -> Pin<Box<dyn Future<Output = Result<FactDslDraft, FactSummaryError>> + Send + 'a>> {
         Box::pin(async move {
             input.validate()?;
-
-            let claim = first_sentence(&input.raw_text)
-                .unwrap_or_else(|| input.raw_text.trim().to_string());
-
-            let draft = FactDslDraft {
-                claim,
-                why: extract_reason(&input.raw_text),
-                time: extract_time_hint(&input.raw_text),
-                cond: extract_condition(&input.raw_text),
-                impact: extract_impact(&input.raw_text),
-                conf: matches!(input.taxonomy.kind, KindV1::Hypothesis).then_some(0.5),
-                rel: None,
-            };
-
+            let prompt = build_rig_summary_prompt(input);
+            let response = self.backend.complete(prompt).await?;
+            let draft = response.into_draft();
             validate_summary_output(input.taxonomy.kind, &draft)?;
             Ok(draft)
         })
     }
+}
+
+const RIG_SUMMARY_PREAMBLE: &str = concat!(
+    "You compress raw memory text into a fixed memory DSL draft. ",
+    "Do not invent taxonomy, source, or chronology. ",
+    "Return concise fields only. ",
+    "Use null for missing optional values. ",
+    "Keep claim factual and short. ",
+    "Set conf only for hypotheses; otherwise return null."
+);
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RigSummaryStructuredOutput {
+    pub claim: String,
+    pub why: Option<String>,
+    pub time: Option<String>,
+    pub cond: Option<String>,
+    pub impact: Option<String>,
+    pub conf: Option<f32>,
+    pub rel: Option<Vec<String>>,
+}
+
+impl RigSummaryStructuredOutput {
+    pub fn into_draft(self) -> FactDslDraft {
+        FactDslDraft {
+            claim: self.claim.trim().to_string(),
+            why: normalize_optional_text(self.why),
+            time: normalize_optional_text(self.time),
+            cond: normalize_optional_text(self.cond),
+            impact: normalize_optional_text(self.impact),
+            conf: self.conf,
+            rel: self.rel.and_then(|values| {
+                let normalized = values
+                    .into_iter()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>();
+                (!normalized.is_empty()).then_some(normalized)
+            }),
+        }
+    }
+}
+
+pub fn build_rig_summary_prompt(input: &FactSummaryInput) -> String {
+    let policy = input.kind_policy();
+    let recommended = policy
+        .recommended
+        .iter()
+        .map(|field| field.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let discouraged = policy
+        .discouraged
+        .iter()
+        .map(|field| field.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        concat!(
+            "Summarize the following memory into the fixed DSL schema.\n",
+            "taxonomy: {taxonomy}\n",
+            "truth_layer: {truth_layer}\n",
+            "source_ref: {source_ref}\n",
+            "recommended_fields: [{recommended}]\n",
+            "discouraged_fields: [{discouraged}]\n",
+            "rules:\n",
+            "- claim must be one short sentence\n",
+            "- preserve explicit reasons, time, conditions, and impacts\n",
+            "- use null for missing optional fields\n",
+            "- conf must be between 0 and 1 when kind is hypothesis, otherwise null\n",
+            "- rel should be a short string list only when explicit relation cues exist\n",
+            "raw_text:\n{raw_text}"
+        ),
+        taxonomy = input.taxonomy,
+        truth_layer = input.truth_layer.as_str(),
+        source_ref = input.source_ref,
+        recommended = recommended,
+        discouraged = discouraged,
+        raw_text = input.raw_text,
+    )
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
 }
 
 #[derive(Debug, Error)]
@@ -159,8 +377,10 @@ fn extract_reason(text: &str) -> Option<String> {
 }
 
 fn extract_time_hint(text: &str) -> Option<String> {
-    for token in text.split(|ch: char| ch.is_whitespace() || matches!(ch, ',' | '，' | ';' | '；')) {
-        let token = token.trim_matches(|ch: char| matches!(ch, '.' | '!' | '?' | '。' | '！' | '？'));
+    for token in text.split(|ch: char| ch.is_whitespace() || matches!(ch, ',' | '，' | ';' | '；'))
+    {
+        let token =
+            token.trim_matches(|ch: char| matches!(ch, '.' | '!' | '?' | '。' | '！' | '？'));
         if looks_like_time_hint(token) {
             return Some(token.to_string());
         }
@@ -197,10 +417,7 @@ fn looks_like_time_hint(token: &str) -> bool {
     let bytes = token.as_bytes();
     if bytes.len() >= 4
         && bytes[0..4].iter().all(u8::is_ascii_digit)
-        && (bytes.len() == 4
-            || token.contains('-')
-            || token.contains('/')
-            || token.contains("年"))
+        && (bytes.len() == 4 || token.contains('-') || token.contains('/') || token.contains("年"))
     {
         return true;
     }
@@ -209,13 +426,20 @@ fn looks_like_time_hint(token: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
     use crate::memory::taxonomy::{AspectV1, DomainV1, TopicV1};
 
     fn sample_input(kind: KindV1) -> FactSummaryInput {
         FactSummaryInput::new(
-            TaxonomyPathV1::new(DomainV1::Project, TopicV1::Retrieval, AspectV1::Behavior, kind)
-                .expect("sample taxonomy path should construct"),
+            TaxonomyPathV1::new(
+                DomainV1::Project,
+                TopicV1::Retrieval,
+                AspectV1::Behavior,
+                kind,
+            )
+            .expect("sample taxonomy path should construct"),
             TruthLayer::T2,
             "roadmap#phase9",
             "Use lexical-first as baseline because explainability matters.",
@@ -291,7 +515,10 @@ mod tests {
             .await
             .expect("rule-based summary should succeed");
 
-        assert_eq!(draft.claim, "2026-04 use lexical-first as baseline because explainability matters.");
+        assert_eq!(
+            draft.claim,
+            "2026-04 use lexical-first as baseline because explainability matters."
+        );
         assert_eq!(draft.why.as_deref(), Some("explainability matters."));
         assert_eq!(draft.time.as_deref(), Some("2026-04"));
     }
@@ -318,8 +545,106 @@ mod tests {
 
         assert_eq!(
             draft.cond.as_deref(),
-            Some("embedding replaces lexical baseline, recall may drift, so debugging becomes harder.")
+            Some(
+                "embedding replaces lexical baseline, recall may drift, so debugging becomes harder."
+            )
         );
         assert_eq!(draft.impact.as_deref(), Some("debugging becomes harder."));
+    }
+
+    #[test]
+    fn rig_prompt_includes_taxonomy_and_field_policy() {
+        let input = sample_input(KindV1::Decision);
+        let prompt = build_rig_summary_prompt(&input);
+
+        assert!(prompt.contains("taxonomy: project/retrieval/behavior/decision"));
+        assert!(prompt.contains("recommended_fields: [WHY, TIME, IMPACT]"));
+        assert!(prompt.contains("raw_text:"));
+    }
+
+    #[derive(Debug, Clone)]
+    struct StubRigBackend {
+        response: RigSummaryStructuredOutput,
+        prompt: Arc<Mutex<Option<String>>>,
+    }
+
+    impl RigStructuredSummaryBackend for StubRigBackend {
+        fn complete<'a>(
+            &'a self,
+            prompt: String,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<RigSummaryStructuredOutput, FactSummaryError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            let slot = Arc::clone(&self.prompt);
+            let response = self.response.clone();
+            Box::pin(async move {
+                *slot.lock().expect("prompt slot should lock") = Some(prompt);
+                Ok(response)
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn rig_summary_generator_normalizes_empty_optional_fields() {
+        let prompt = Arc::new(Mutex::new(None));
+        let generator = RigSummaryGenerator::new(StubRigBackend {
+            response: RigSummaryStructuredOutput {
+                claim: " keep lexical-first ".to_string(),
+                why: Some(" ".to_string()),
+                time: Some("2026-04-20".to_string()),
+                cond: None,
+                impact: Some(" preserve explanations ".to_string()),
+                conf: None,
+                rel: Some(vec!["retrieval".to_string(), " ".to_string()]),
+            },
+            prompt: Arc::clone(&prompt),
+        });
+
+        let draft = generator
+            .summarize(&sample_input(KindV1::Decision))
+            .await
+            .expect("rig summary should succeed");
+
+        assert_eq!(draft.claim, "keep lexical-first");
+        assert_eq!(draft.why, None);
+        assert_eq!(draft.time.as_deref(), Some("2026-04-20"));
+        assert_eq!(draft.impact.as_deref(), Some("preserve explanations"));
+        assert_eq!(draft.rel, Some(vec!["retrieval".to_string()]));
+        assert!(
+            prompt
+                .lock()
+                .expect("prompt slot should lock")
+                .as_deref()
+                .is_some_and(
+                    |value| value.contains("taxonomy: project/retrieval/behavior/decision")
+                )
+        );
+    }
+
+    #[tokio::test]
+    async fn rig_summary_generator_requires_hypothesis_confidence() {
+        let generator = RigSummaryGenerator::new(StubRigBackend {
+            response: RigSummaryStructuredOutput {
+                claim: "embedding rerank may help".to_string(),
+                why: None,
+                time: None,
+                cond: None,
+                impact: None,
+                conf: None,
+                rel: None,
+            },
+            prompt: Arc::new(Mutex::new(None)),
+        });
+
+        let err = generator
+            .summarize(&sample_input(KindV1::Hypothesis))
+            .await
+            .expect_err("hypothesis summary should require confidence");
+
+        assert!(matches!(err, FactSummaryError::MissingHypothesisConfidence));
     }
 }

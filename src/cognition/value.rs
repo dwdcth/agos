@@ -139,6 +139,9 @@ impl ValueScorer {
     where
         I: IntoIterator<Item = BranchValueInput>,
     {
-        inputs.into_iter().map(|input| self.score_branch(input)).collect()
+        inputs
+            .into_iter()
+            .map(|input| self.score_branch(input))
+            .collect()
     }
 }

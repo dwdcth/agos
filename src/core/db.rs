@@ -49,7 +49,10 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: &Path) -> Result<Self, DbError> {
-        if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
             fs::create_dir_all(parent).map_err(|source| DbError::CreateDir {
                 path: parent.to_path_buf(),
                 source,
@@ -61,9 +64,11 @@ impl Database {
             path: path.to_path_buf(),
             source,
         })?;
-        libsimple::set_jieba_dict(&conn, dict_dir).map_err(|source| DbError::LexicalDictionary {
-            source: anyhow::Error::new(source)
-                .context(format!("dictionary dir: {}", dict_dir.display())),
+        libsimple::set_jieba_dict(&conn, dict_dir).map_err(|source| {
+            DbError::LexicalDictionary {
+                source: anyhow::Error::new(source)
+                    .context(format!("dictionary dir: {}", dict_dir.display())),
+            }
         })?;
         apply_migrations(&mut conn)?;
 
@@ -99,10 +104,15 @@ fn prepare_lexical_support() -> Result<&'static PathBuf, DbError> {
         let dict_dir = std::env::temp_dir()
             .join("agent-memos")
             .join("libsimple-jieba");
-        fs::create_dir_all(&dict_dir)
-            .map_err(|error| format!("failed to create dict dir {}: {error}", dict_dir.display()))?;
-        libsimple::release_jieba_dict(&dict_dir)
-            .map_err(|error| format!("release_jieba_dict failed for {}: {error}", dict_dir.display()))?;
+        fs::create_dir_all(&dict_dir).map_err(|error| {
+            format!("failed to create dict dir {}: {error}", dict_dir.display())
+        })?;
+        libsimple::release_jieba_dict(&dict_dir).map_err(|error| {
+            format!(
+                "release_jieba_dict failed for {}: {error}",
+                dict_dir.display()
+            )
+        })?;
 
         Ok(dict_dir)
     });

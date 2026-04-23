@@ -18,11 +18,11 @@ use agent_memos::{
     },
     core::db::Database,
     memory::{
+        governance::TruthGovernanceService,
         record::{
             ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType,
             Scope, SourceKind, SourceRef, TruthLayer, ValidityWindow,
         },
-        governance::TruthGovernanceService,
         repository::{MemoryRepository, RuminationCandidateKind},
         truth::{OntologyCandidateState, PromotionDecisionState},
     },
@@ -79,9 +79,11 @@ fn sample_record(id: &str, truth_layer: TruthLayer) -> MemoryRecord {
 
 fn sample_result(record: MemoryRecord, query: &str, snippet: &str) -> SearchResult {
     SearchResult {
-        citation: Citation::from_record(&record).expect("citation should build from chunked record"),
+        citation: Citation::from_record(&record)
+            .expect("citation should build from chunked record"),
         record,
         snippet: snippet.to_string(),
+        dsl: None,
         score: ScoreBreakdown {
             lexical_raw: -2.0,
             lexical_base: 0.30,
@@ -102,24 +104,33 @@ fn sample_result(record: MemoryRecord, query: &str, snippet: &str) -> SearchResu
 
 fn sample_fragment(record_id: &str, truth_layer: TruthLayer) -> EvidenceFragment {
     let record = sample_record(record_id, truth_layer);
-    let result = sample_result(record, "long-cycle rumination", "candidate-first durable evidence");
+    let result = sample_result(
+        record,
+        "long-cycle rumination",
+        "candidate-first durable evidence",
+    );
 
     EvidenceFragment {
         record_id: result.record.id,
         snippet: result.snippet,
         citation: result.citation,
+        provenance: result.record.provenance,
         truth_context: TruthContext {
             truth_layer,
             t3_state: None,
             open_review_ids: Vec::new(),
             open_candidate_ids: Vec::new(),
         },
+        dsl: None,
         trace: result.trace,
         score: result.score,
     }
 }
 
-fn sample_agent_search_report(primary_record_id: &str, truth_layer: TruthLayer) -> AgentSearchReport {
+fn sample_agent_search_report(
+    primary_record_id: &str,
+    truth_layer: TruthLayer,
+) -> AgentSearchReport {
     let fragment = sample_fragment(primary_record_id, truth_layer);
     let branch = ActionBranch::new(
         ActionCandidate::new(ActionKind::Instrumental, "stabilize the next step")
@@ -232,7 +243,11 @@ fn lpq_generates_unified_candidates_from_accumulated_evidence() {
     let candidates = repository
         .list_rumination_candidates()
         .expect("long-cycle candidates should load");
-    assert_eq!(candidates.len(), 3, "lpq should emit one row per required long-cycle output");
+    assert_eq!(
+        candidates.len(),
+        3,
+        "lpq should emit one row per required long-cycle output"
+    );
 
     let kinds = candidates
         .iter()
@@ -250,7 +265,12 @@ fn lpq_generates_unified_candidates_from_accumulated_evidence() {
 
     for candidate in candidates {
         assert_eq!(candidate.subject_ref, subject_ref);
-        assert_eq!(candidate.source_queue_item_id.as_deref(), Some("lpq:evidence_accumulation:task://rumination/long-cycle:lpq-report-1:2026-04-16T16:00:00Z"));
+        assert_eq!(
+            candidate.source_queue_item_id.as_deref(),
+            Some(
+                "lpq:evidence_accumulation:task://rumination/long-cycle:lpq-report-1:2026-04-16T16:00:00Z"
+            )
+        );
         assert_eq!(candidate.status.as_str(), "pending");
         assert_eq!(
             candidate.evidence_refs,
@@ -258,10 +278,7 @@ fn lpq_generates_unified_candidates_from_accumulated_evidence() {
             "candidate should preserve LPQ evidence lineage"
         );
         assert!(
-            candidate
-                .payload
-                .get("source_report")
-                .is_some(),
+            candidate.payload.get("source_report").is_some(),
             "candidate payload should keep the prior report instead of re-running retrieval: {:?}",
             candidate.payload
         );
@@ -295,7 +312,9 @@ fn lpq_bridges_to_governance_without_auto_approval() {
         Some("lpq-t3".to_string()),
     )
     .expect("t3 lpq event should normalize");
-    service.schedule(t3_event).expect("t3 lpq event should enqueue");
+    service
+        .schedule(t3_event)
+        .expect("t3 lpq event should enqueue");
 
     let t2_report = sample_agent_search_report("t2-pattern", TruthLayer::T2);
     let t2_event = RuminationTriggerEvent::from_agent_search_report(
@@ -308,7 +327,9 @@ fn lpq_bridges_to_governance_without_auto_approval() {
         Some("lpq-t2".to_string()),
     )
     .expect("t2 lpq event should normalize");
-    service.schedule(t2_event).expect("t2 lpq event should enqueue");
+    service
+        .schedule(t2_event)
+        .expect("t2 lpq event should enqueue");
 
     service
         .drain_long_cycle("2026-04-16T17:20:00Z")
@@ -324,9 +345,7 @@ fn lpq_bridges_to_governance_without_auto_approval() {
         .expect("rumination candidates should load");
     let promotion_candidates = candidates
         .iter()
-        .filter(|candidate| {
-            candidate.candidate_kind == RuminationCandidateKind::PromotionCandidate
-        })
+        .filter(|candidate| candidate.candidate_kind == RuminationCandidateKind::PromotionCandidate)
         .collect::<Vec<_>>();
     assert_eq!(promotion_candidates.len(), 2);
     assert!(
@@ -341,7 +360,10 @@ fn lpq_bridges_to_governance_without_auto_approval() {
         .expect("pending promotion reviews should load");
     assert_eq!(pending_reviews.len(), 1);
     assert_eq!(pending_reviews[0].source_record_id, "t3-hypothesis");
-    assert_eq!(pending_reviews[0].decision_state, PromotionDecisionState::Pending);
+    assert_eq!(
+        pending_reviews[0].decision_state,
+        PromotionDecisionState::Pending
+    );
 
     let pending_candidates = governance
         .list_pending_candidates()

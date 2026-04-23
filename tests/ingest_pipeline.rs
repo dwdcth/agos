@@ -4,7 +4,10 @@ use std::{
 };
 
 use agent_memos::{
-    core::config::{EmbeddingBackend, EmbeddingConfig},
+    core::config::{
+        Config, EmbeddingBackend, EmbeddingConfig, MemoryConfig, MemorySummaryBackend,
+        RootLlmConfig,
+    },
     core::db::Database,
     ingest::{
         IngestRequest, IngestService,
@@ -15,6 +18,7 @@ use agent_memos::{
     memory::{
         record::{ChunkAnchor, RecordType, Scope, SourceKind, TruthLayer},
         repository::MemoryRepository,
+        store::FactDslStore,
     },
 };
 
@@ -269,11 +273,15 @@ fn ingest_persists_chunk_aligned_embedding_sidecars() {
         "embedding rows should retain the configured backend"
     );
     assert!(
-        embeddings.iter().all(|embedding| embedding.model == "hash-16"),
+        embeddings
+            .iter()
+            .all(|embedding| embedding.model == "hash-16"),
         "embedding rows should retain the configured model"
     );
     assert!(
-        embeddings.iter().all(|embedding| embedding.dimensions == 16),
+        embeddings
+            .iter()
+            .all(|embedding| embedding.dimensions == 16),
         "hash-16 should persist 16-dimensional vectors"
     );
     assert!(
@@ -302,4 +310,78 @@ fn lexical_only_ingest_remains_usable_when_embeddings_are_disabled() {
         embeddings.is_empty(),
         "disabled embeddings should not create sidecar rows"
     );
+}
+
+#[test]
+fn ingest_persists_layered_memory_dsl_sidecars_for_chunks() {
+    let path = fresh_db_path("layered-memory-dsl");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let service = IngestService::with_chunk_config(
+        db.conn(),
+        ChunkConfig {
+            text_char_window: 64,
+            text_char_overlap: 0,
+            conversation_turn_window: 1,
+        },
+    );
+
+    let report = service
+        .ingest(conversation_request())
+        .expect("ingest should persist layered memory sidecars");
+    let repo = MemoryRepository::new(db.conn());
+    let persisted = repo.list_fact_dsls().expect("fact dsl rows should load");
+
+    assert_eq!(
+        persisted.len(),
+        report.chunk_count,
+        "each ingested chunk should receive one layered memory DSL row"
+    );
+    for record_id in &report.record_ids {
+        let row = repo
+            .get_fact_dsl(record_id)
+            .expect("lookup should succeed")
+            .expect("dsl row should exist");
+        assert_eq!(row.record_id, *record_id);
+        assert!(row.classification_confidence.is_some());
+        assert!(
+            (0.0..=1.0).contains(
+                &row.classification_confidence
+                    .expect("confidence should exist")
+            ),
+            "classification confidence should stay normalized"
+        );
+    }
+}
+
+#[test]
+fn ingest_with_auto_summary_backend_uses_rule_based_path_when_llm_is_not_ready() {
+    let path = fresh_db_path("config-summary-fallback");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let service = IngestService::with_config(
+        db.conn(),
+        &Config {
+            memory: MemoryConfig {
+                summary_backend: MemorySummaryBackend::Auto,
+            },
+            llm: RootLlmConfig {
+                provider: "openai".to_string(),
+                model: "gpt-4o-mini".to_string(),
+                api_key: None,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+
+    let report = service
+        .ingest(plain_note_request())
+        .expect("ingest should fall back to rule-based summary");
+    let row = MemoryRepository::new(db.conn())
+        .get_fact_dsl(&report.record_ids[0])
+        .expect("dsl lookup should succeed")
+        .expect("dsl row should exist");
+
+    assert_eq!(row.record_id, report.record_ids[0]);
+    assert_eq!(row.payload.domain, "project");
+    assert!(!row.payload.claim.trim().is_empty());
 }

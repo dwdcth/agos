@@ -145,11 +145,27 @@ impl TopicV1 {
         use TopicV1::*;
 
         match domain {
-            DomainV1::Project => &[General, Memory, Retrieval, Agent, Truth, Config, Testing, Docs],
-            DomainV1::System => {
-                &[General, Architecture, Storage, Runtime, Model, Security, Performance, Integration]
-            }
-            DomainV1::Process => &[General, Planning, Implementation, Verification, Review, Experiment],
+            DomainV1::Project => &[
+                General, Memory, Retrieval, Agent, Truth, Config, Testing, Docs,
+            ],
+            DomainV1::System => &[
+                General,
+                Architecture,
+                Storage,
+                Runtime,
+                Model,
+                Security,
+                Performance,
+                Integration,
+            ],
+            DomainV1::Process => &[
+                General,
+                Planning,
+                Implementation,
+                Verification,
+                Review,
+                Experiment,
+            ],
             DomainV1::External => &[General, Provider, Dependency, Api, Regulation, Cost],
         }
     }
@@ -317,7 +333,12 @@ pub struct TaxonomyPathV1 {
 }
 
 impl TaxonomyPathV1 {
-    pub fn new(domain: DomainV1, topic: TopicV1, aspect: AspectV1, kind: KindV1) -> Result<Self, TaxonomyError> {
+    pub fn new(
+        domain: DomainV1,
+        topic: TopicV1,
+        aspect: AspectV1,
+        kind: KindV1,
+    ) -> Result<Self, TaxonomyError> {
         let path = Self {
             domain,
             topic,
@@ -402,14 +423,9 @@ pub enum TaxonomyError {
         topic: &'static str,
     },
     #[error("invalid taxonomy value for {field}: {value}")]
-    InvalidValue {
-        field: &'static str,
-        value: String,
-    },
+    InvalidValue { field: &'static str, value: String },
     #[error("invalid taxonomy path shape: {value}")]
-    InvalidPathShape {
-        value: String,
-    },
+    InvalidPathShape { value: String },
 }
 
 #[cfg(test)]
@@ -476,9 +492,21 @@ mod tests {
 
     #[test]
     fn enums_round_trip_through_display_and_from_str() {
-        assert_eq!(DomainV1::from_str(&DomainV1::Project.to_string()), Ok(DomainV1::Project));
-        assert_eq!(TopicV1::from_str(&TopicV1::Retrieval.to_string()), Ok(TopicV1::Retrieval));
-        assert_eq!(AspectV1::from_str(&AspectV1::Behavior.to_string()), Ok(AspectV1::Behavior));
-        assert_eq!(KindV1::from_str(&KindV1::Decision.to_string()), Ok(KindV1::Decision));
+        assert_eq!(
+            DomainV1::from_str(&DomainV1::Project.to_string()),
+            Ok(DomainV1::Project)
+        );
+        assert_eq!(
+            TopicV1::from_str(&TopicV1::Retrieval.to_string()),
+            Ok(TopicV1::Retrieval)
+        );
+        assert_eq!(
+            AspectV1::from_str(&AspectV1::Behavior.to_string()),
+            Ok(AspectV1::Behavior)
+        );
+        assert_eq!(
+            KindV1::from_str(&KindV1::Decision.to_string()),
+            Ok(KindV1::Decision)
+        );
     }
 }

@@ -15,9 +15,9 @@ use std::{
 use agent_memos::{
     agent::{
         orchestration::{
-            AgentSearchBranchValue, AgentSearchOrchestrator, AgentSearchReport,
-            AgentSearchRequest, AgentSearchRunner, AssemblyPort, GatingPort, RetrievalPort,
-            RetrievalStepReport, ScoringPort,
+            AgentSearchBranchValue, AgentSearchOrchestrator, AgentSearchReport, AgentSearchRequest,
+            AgentSearchRunner, AssemblyPort, GatingPort, RetrievalPort, RetrievalStepReport,
+            ScoringPort,
         },
         rig_adapter::RigAgentSearchAdapter,
     },
@@ -38,14 +38,15 @@ use agent_memos::{
     },
     ingest::{IngestRequest, IngestService},
     memory::{
+        dsl::FlatFactDslRecordV1,
         record::{
             ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType,
             Scope, SourceKind, SourceRef, TruthLayer, ValidityWindow,
         },
     },
     search::{
-        ChannelContribution, Citation, ResultTrace, ScoreBreakdown, SearchFilters,
-        SearchRequest, SearchResponse, SearchResult,
+        ChannelContribution, Citation, ResultTrace, ScoreBreakdown, SearchFilters, SearchRequest,
+        SearchResponse, SearchResult,
     },
 };
 use serde_json::Value;
@@ -186,6 +187,7 @@ fn sample_result(record: MemoryRecord, query: &str, snippet: &str) -> SearchResu
         citation: Citation::from_record(&record).expect("chunk metadata should exist"),
         record,
         snippet: snippet.to_string(),
+        dsl: None,
         score: ScoreBreakdown {
             lexical_raw: -2.0,
             lexical_base: 0.33,
@@ -211,12 +213,28 @@ fn sample_fragment(record_id: &str, source_uri: &str) -> EvidenceFragment {
         record_id: result.record.id,
         snippet: result.snippet,
         citation: result.citation,
+        provenance: result.record.provenance,
         truth_context: TruthContext {
             truth_layer: TruthLayer::T2,
             t3_state: None,
             open_review_ids: Vec::new(),
             open_candidate_ids: Vec::new(),
         },
+        dsl: Some(FlatFactDslRecordV1 {
+            domain: "project".to_string(),
+            topic: "agent".to_string(),
+            aspect: "structure".to_string(),
+            kind: "decision".to_string(),
+            claim: "rig stays orchestration only".to_string(),
+            truth_layer: "t2".to_string(),
+            source_ref: source_uri.to_string(),
+            why: Some("preserve thin boundaries".to_string()),
+            time: None,
+            cond: None,
+            impact: Some("keeps search and gates inspectable".to_string()),
+            conf: None,
+            rel: None,
+        }),
         trace: result.trace,
         score: result.score,
     }
@@ -229,12 +247,28 @@ fn sample_fragment_with_query(record_id: &str, source_uri: &str, query: &str) ->
         record_id: result.record.id,
         snippet: result.snippet,
         citation: result.citation,
+        provenance: result.record.provenance,
         truth_context: TruthContext {
             truth_layer: TruthLayer::T2,
             t3_state: None,
             open_review_ids: Vec::new(),
             open_candidate_ids: Vec::new(),
         },
+        dsl: Some(FlatFactDslRecordV1 {
+            domain: "project".to_string(),
+            topic: "agent".to_string(),
+            aspect: "structure".to_string(),
+            kind: "observation".to_string(),
+            claim: "integrated follow-up evidence".to_string(),
+            truth_layer: "t2".to_string(),
+            source_ref: source_uri.to_string(),
+            why: None,
+            time: None,
+            cond: None,
+            impact: None,
+            conf: None,
+            rel: None,
+        }),
         trace: result.trace,
         score: result.score,
     }
@@ -309,23 +343,27 @@ fn sample_agent_search_report() -> AgentSearchReport {
                 query: "rig boundary".to_string(),
                 applied_filters: SearchFilters::default(),
                 result_count: 1,
-                citations: vec![sample_result(
-                    sample_record("record-primary", "memo://project/rig-boundary"),
-                    "rig boundary",
-                    "rig stays orchestration only",
-                )
-                .citation],
+                citations: vec![
+                    sample_result(
+                        sample_record("record-primary", "memo://project/rig-boundary"),
+                        "rig boundary",
+                        "rig stays orchestration only",
+                    )
+                    .citation,
+                ],
             },
             RetrievalStepReport {
                 query: "gate diagnostics".to_string(),
                 applied_filters: SearchFilters::default(),
                 result_count: 1,
-                citations: vec![sample_result(
-                    sample_record("record-secondary", "memo://project/gate-diagnostics"),
-                    "gate diagnostics",
-                    "gate diagnostics must remain typed",
-                )
-                .citation],
+                citations: vec![
+                    sample_result(
+                        sample_record("record-secondary", "memo://project/gate-diagnostics"),
+                        "gate diagnostics",
+                        "gate diagnostics must remain typed",
+                    )
+                    .citation,
+                ],
             },
         ],
         citations: vec![
@@ -385,12 +423,14 @@ impl AssemblyPort for ScriptedAssembler {
                     record_id: result.record.id.clone(),
                     snippet: result.snippet.clone(),
                     citation: result.citation.clone(),
+                    provenance: result.record.provenance.clone(),
                     truth_context: TruthContext {
                         truth_layer: TruthLayer::T2,
                         t3_state: None,
                         open_review_ids: Vec::new(),
                         open_candidate_ids: Vec::new(),
                     },
+                    dsl: None,
                     trace: result.trace.clone(),
                     score: result.score.clone(),
                 })
@@ -779,7 +819,13 @@ fn agent_search_reuses_ordinary_retrieval_under_dual_channel_modes() {
 
     let lexical_output = run_cli(
         &config_path,
-        &["agent-search", "citations", "--mode", "lexical_only", "--json"],
+        &[
+            "agent-search",
+            "citations",
+            "--mode",
+            "lexical_only",
+            "--json",
+        ],
     );
     let lexical_stdout = stdout(&lexical_output);
     assert!(
@@ -796,7 +842,13 @@ fn agent_search_reuses_ordinary_retrieval_under_dual_channel_modes() {
 
     let embedding_output = run_cli(
         &config_path,
-        &["agent-search", "retrieval fusion", "--mode", "embedding_only", "--json"],
+        &[
+            "agent-search",
+            "retrieval fusion",
+            "--mode",
+            "embedding_only",
+            "--json",
+        ],
     );
     let embedding_stdout = stdout(&embedding_output);
     assert!(
@@ -813,7 +865,13 @@ fn agent_search_reuses_ordinary_retrieval_under_dual_channel_modes() {
 
     let hybrid_output = run_cli(
         &config_path,
-        &["agent-search", "retrieval fusion", "--mode", "hybrid", "--json"],
+        &[
+            "agent-search",
+            "retrieval fusion",
+            "--mode",
+            "hybrid",
+            "--json",
+        ],
     );
     let hybrid_stdout = stdout(&hybrid_output);
     assert!(
@@ -891,11 +949,15 @@ fn dual_channel_mode_selection_preserves_agent_report_contract() {
         serde_json::from_str(&json_stdout).expect("hybrid agent-search should emit json");
     assert_eq!(json["executed_steps"], 2);
     assert!(
-        json["retrieval_steps"].as_array().is_some_and(|steps| steps.len() == 2),
+        json["retrieval_steps"]
+            .as_array()
+            .is_some_and(|steps| steps.len() == 2),
         "report should preserve multi-step retrieval structure: {json_stdout}"
     );
     assert!(
-        json["citations"].as_array().is_some_and(|citations| !citations.is_empty()),
+        json["citations"]
+            .as_array()
+            .is_some_and(|citations| !citations.is_empty()),
         "report should preserve top-level citations: {json_stdout}"
     );
     assert!(
@@ -924,6 +986,228 @@ fn dual_channel_mode_selection_preserves_agent_report_contract() {
     assert!(
         text.contains("gate_decision:") && text.contains("memo://project/agent-search-contract"),
         "text report should stay structured and cited after mode selection: {text}"
+    );
+    assert!(
+        text.contains("memory:") && text.contains("/retrieval/"),
+        "text report should surface the compressed DSL memory summary: {text}"
+    );
+}
+
+#[test]
+fn agent_search_accepts_taxonomy_filter_flags() {
+    let dir = unique_temp_dir("agent-search-taxonomy-flags");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "disabled",
+        None,
+        None,
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/agent-taxonomy-retrieval",
+            source_label: "agent taxonomy retrieval memo",
+            content: "retrieval baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T12:00:00Z",
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/agent-taxonomy-config",
+            source_label: "agent taxonomy config memo",
+            content: "config baseline keeps toml setting review stable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T12:05:00Z",
+        },
+    );
+
+    let output = run_cli(
+        &config_path,
+        &[
+            "agent-search",
+            "baseline",
+            "--topic",
+            "retrieval",
+            "--kind",
+            "decision",
+            "--json",
+        ],
+    );
+    let json_stdout = stdout(&output);
+    assert!(
+        output.status.success(),
+        "agent-search should succeed with taxonomy flags: stdout={json_stdout} stderr={}",
+        stderr(&output)
+    );
+    let json: Value = serde_json::from_str(&json_stdout).expect("agent-search should emit json");
+    assert_eq!(
+        json["retrieval_steps"][0]["applied_filters"]["topic"],
+        "retrieval"
+    );
+    assert_eq!(
+        json["retrieval_steps"][0]["applied_filters"]["kind"],
+        "decision"
+    );
+    assert_eq!(
+        json["working_memory"]["present"]["world_fragments"][0]["citation"]["source_uri"],
+        "memo://project/agent-taxonomy-retrieval"
+    );
+    assert_eq!(
+        json["working_memory"]["present"]["world_fragments"][0]["trace"]["applied_filters"]["topic"],
+        "retrieval"
+    );
+    assert_eq!(
+        json["working_memory"]["present"]["world_fragments"][0]["trace"]["applied_filters"]["kind"],
+        "decision"
+    );
+}
+
+#[test]
+fn agent_search_preserves_structured_recall_trace_in_working_memory() {
+    let dir = unique_temp_dir("agent-search-structured-trace");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "disabled",
+        None,
+        None,
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/agent-structured-trace",
+            source_label: "agent structured trace memo",
+            content: "use lexical-first as baseline because explainability matters",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T12:10:00Z",
+        },
+    );
+
+    let output = run_cli(
+        &config_path,
+        &[
+            "agent-search",
+            "decision",
+            "--mode",
+            "lexical_only",
+            "--json",
+        ],
+    );
+    let json_stdout = stdout(&output);
+    assert!(
+        output.status.success(),
+        "agent-search should succeed for structured trace coverage: stdout={json_stdout} stderr={}",
+        stderr(&output)
+    );
+    let json: Value = serde_json::from_str(&json_stdout).expect("agent-search should emit json");
+    assert_eq!(
+        json["working_memory"]["present"]["world_fragments"][0]["trace"]["channel_contribution"],
+        "lexical_only"
+    );
+    assert!(
+        json["working_memory"]["present"]["world_fragments"][0]["trace"]["query_strategies"]
+            .as_array()
+            .is_some_and(|strategies| strategies.iter().any(|value| value == "Structured")),
+        "working-memory fragments should preserve structured recall provenance: {json_stdout}"
+    );
+    assert_eq!(
+        json["working_memory"]["present"]["world_fragments"][0]["dsl"]["kind"],
+        "decision"
+    );
+}
+
+#[test]
+fn agent_search_rejects_unknown_taxonomy_filter_values() {
+    let dir = unique_temp_dir("agent-search-invalid-taxonomy");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "disabled",
+        None,
+        None,
+    );
+
+    let output = run_cli(
+        &config_path,
+        &[
+            "agent-search",
+            "baseline",
+            "--kind",
+            "unknown_kind",
+            "--json",
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "agent-search should reject unsupported taxonomy filters"
+    );
+    assert!(
+        stderr(&output).contains("unsupported taxonomy kind: unknown_kind"),
+        "stderr should explain the invalid taxonomy value: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn agent_search_rejects_invalid_domain_topic_combinations() {
+    let dir = unique_temp_dir("agent-search-invalid-taxonomy-combo");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "lexical_only",
+        "disabled",
+        None,
+        None,
+    );
+
+    let output = run_cli(
+        &config_path,
+        &[
+            "agent-search",
+            "baseline",
+            "--domain",
+            "project",
+            "--topic",
+            "storage",
+            "--json",
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "agent-search should reject invalid domain/topic combinations"
+    );
+    let combined = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(
+        combined.contains("domain=project does not allow topic=storage"),
+        "output should explain the invalid taxonomy combination: {combined}",
     );
 }
 
@@ -978,7 +1262,8 @@ async fn rig_adapter_stays_thin_and_never_bypasses_search_or_truth_gates() {
     assert_eq!(json["executed_steps"], 2);
     assert!(
         rendered_text.contains("gate_decision: warning")
-            && rendered_text.contains("memo://project/rig-boundary"),
+            && rendered_text.contains("memo://project/rig-boundary")
+            && rendered_text.contains("memory:"),
         "developer-facing surface should stay structured and cited, not freeform only",
     );
 }

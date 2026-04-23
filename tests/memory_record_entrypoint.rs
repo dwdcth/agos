@@ -66,7 +66,8 @@ async fn public_memory_pipeline_emits_report_and_encoded_from_memory_record() {
             imported_via: None,
             derived_from: Vec::new(),
         },
-        content_text: "2026-04 use lexical-first as baseline because explainability matters.".to_string(),
+        content_text: "2026-04 use lexical-first as baseline because explainability matters."
+            .to_string(),
         chunk: None,
         validity: ValidityWindow::default(),
     };

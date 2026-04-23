@@ -79,7 +79,7 @@ fn sample_dsl_record() -> FactDslRecord {
 fn sqlite_repository_implements_fact_dsl_store_contract() {
     let path = fresh_db_path("dsl-store");
     let db = Database::open(&path).expect("database should open");
-    assert_eq!(db.schema_version().expect("schema version"), 7);
+    assert_eq!(db.schema_version().expect("schema version"), 8);
 
     let repo = MemoryRepository::new(db.conn());
     repo.insert_record(&sample_memory_record())
@@ -96,6 +96,8 @@ fn sqlite_repository_implements_fact_dsl_store_contract() {
         .expect("lookup should succeed")
         .expect("row should exist");
     assert_eq!(loaded, persisted);
+    assert_eq!(loaded.classification_confidence, None);
+    assert!(!loaded.needs_review);
 
     let listed = repo.list_fact_dsls().expect("listing should succeed");
     assert_eq!(listed, vec![persisted.clone()]);
@@ -115,7 +117,11 @@ fn sqlite_repository_implements_fact_dsl_store_contract() {
         .expect("delete should succeed")
         .expect("row should exist");
     assert_eq!(removed, persisted);
-    assert!(repo.get_fact_dsl("mem-1").expect("lookup should succeed").is_none());
+    assert!(
+        repo.get_fact_dsl("mem-1")
+            .expect("lookup should succeed")
+            .is_none()
+    );
 }
 
 #[test]
@@ -154,13 +160,14 @@ fn sqlite_repository_fact_dsl_store_upserts_existing_rows() {
 
     let mut first = PersistedFactDslRecordV1::from_fact_dsl_record("mem-1", &sample_dsl_record())
         .expect("persisted wrapper should build");
+    first.classification_confidence = Some(0.82);
+    first.needs_review = true;
     repo.put_fact_dsl(&first)
         .expect("initial persist should succeed");
 
     first.payload.why = Some("updated rationale".to_string());
     first.payload.impact = Some("updated impact".to_string());
-    repo.put_fact_dsl(&first)
-        .expect("upsert should succeed");
+    repo.put_fact_dsl(&first).expect("upsert should succeed");
 
     let loaded = repo
         .get_fact_dsl("mem-1")
@@ -168,5 +175,10 @@ fn sqlite_repository_fact_dsl_store_upserts_existing_rows() {
         .expect("row should exist");
     assert_eq!(loaded.payload.why.as_deref(), Some("updated rationale"));
     assert_eq!(loaded.payload.impact.as_deref(), Some("updated impact"));
-    assert_eq!(repo.list_fact_dsls().expect("listing should succeed").len(), 1);
+    assert_eq!(loaded.classification_confidence, Some(0.82));
+    assert!(loaded.needs_review);
+    assert_eq!(
+        repo.list_fact_dsls().expect("listing should succeed").len(),
+        1
+    );
 }

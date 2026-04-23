@@ -220,7 +220,7 @@ pub struct Citation {
 1. `detect_input(path_or_text)`：只识别文本型输入、已导出的 conversation JSON/JSONL、普通 note/doc 文本；Phase 2 不做 PDF/Office/网页抓取器大而全。[ASSUMED]
 2. `normalize_source(raw)`：统一换行、剥离容器格式、保留 `canonical_uri`、`source_kind`、`source_label`、`recorded_at`、`scope`、`record_type`、`truth_layer`。[VERIFIED: codebase grep; ASSUMED]
 3. `chunk_source(normalized)`：plain/document 文本用稳定窗口 + 软边界；conversation 按 turn 组块，避免把多轮对话打成无来源的大块。[VERIFIED: `reference/mempal/src/ingest/chunk.rs`; ASSUMED]
-4. `persist_chunks()`：每个 chunk 作为一条 `memory_records` 权威记录写入，并携带 `chunk_index`、`chunk_count`、`anchor`、`content_hash`、`derived_from`。[ASSUMED]
+4. `persist_chunks()`：每个 chunk 作为一条 `memory_records` 权威记录写入，并携带 `chunk_index`、`chunk_count`、`anchor`、`content_hash`、`derived_from`、`valid_from`、`valid_to`。[ASSUMED]
 5. `sync_fts()`：通过 trigger 或显式 upsert 维护 `memory_records_fts`；迁移已有数据后要执行一次 `rebuild` 以校准 external-content 索引。[CITED: https://sqlite.org/fts5.html]
 
 ## FTS / libsimple Integration Direction
@@ -378,7 +378,7 @@ CREATE VIRTUAL TABLE memory_records_fts USING fts5(
 - unit: `detect`、`normalize`、`chunk` 的格式识别与 anchor 生成。[VERIFIED: codebase grep]
 - integration: migration 后存在 FTS 表/trigger，ingest 写入 `memory_records` 与 FTS 一致，`rebuild` 能重建历史数据。[CITED: https://sqlite.org/fts5.html; VERIFIED: codebase grep]
 - retrieval: 中文 query、拼音 query、mixed query、scope/type/truth/time filter、trace 字段、排序稳定性。[VERIFIED: `.planning/REQUIREMENTS.md`; ASSUMED]
-- CLI: `ingest` / `search --json` 无需 Rig 或 LLM 即可运行。[VERIFIED: `.planning/ROADMAP.md`] 
+- CLI: `ingest` / `search --json` 无需 Rig 或 LLM 即可运行。[VERIFIED: `.planning/ROADMAP.md`]
 
 ## Anti-Goals
 
@@ -402,12 +402,13 @@ CREATE VIRTUAL TABLE memory_records_fts USING fts5(
 | A2 | `importance_bonus` / `emotion_bonus` 在 Phase 2 可以先保留字段并默认 `0.0` | Scoring And Explainability Model | 若用户要求立即提供真实信号来源，需补 schema 或 ingest metadata |
 | A3 | Phase 2 只支持文本型 ingest 输入就足够闭合当前范围 | Recommended Ingest Pipeline / Anti-Goals | 若必须立刻 ingest PDF/HTML，计划会低估工作量 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Phase 2 是否要在 schema 中立刻加 `valid_from` / `valid_to` nullable 列？**
-   - What we know: 当前 foundation 只有 `recorded_at`，但 `RET-04` / `RET-05` 已要求 validity 语义。[VERIFIED: codebase grep; VERIFIED: `.planning/REQUIREMENTS.md`]
-   - What's unclear: 仅靠 `recorded_at` 是否足以支撑第一版时间过滤。[VERIFIED: codebase grep]
-   - Recommendation: 规划上按“应新增 nullable validity 字段”准备任务，若实现期确认只需 `recorded_at`，再把 `valid_*` 作为零值契约落地。[ASSUMED]
+   - Decision: **Yes.** Phase 2 should add explicit nullable `valid_from` and `valid_to` columns alongside `recorded_at`, and treat them as the canonical validity contract for retrieval filtering and explanation.
+   - Rationale: `recorded_at` answers "when the record was captured", while `valid_from` / `valid_to` answer "when the memory is valid". `RET-04` and `RET-05` need that distinction, and a nullable contract is better than inventing implicit fallback semantics later.
+   - Null semantics: `NULL` means "open-ended or unknown validity bound", not "the feature does not exist".
+   - Planning impact: the ingest-foundation plan owns schema/model/repository support for these fields; later retrieval plans consume the same contract for filtering, citations, and traces without reopening the data model decision.
 
 ## Environment Availability
 
@@ -443,13 +444,13 @@ CREATE VIRTUAL TABLE memory_records_fts USING fts5(
 |--------|----------|-----------|-------------------|-------------|
 | ING-01 | plain text / conversation export normalize into chunkable units | unit+integration | `cargo test --test ingest_pipeline ingest_normalizes_supported_sources -- --nocapture` | ❌ Wave 0 |
 | ING-02 | source linkage and chunk provenance survive ingest round-trip | integration | `cargo test --test ingest_pipeline ingest_preserves_chunk_provenance -- --nocapture` | ❌ Wave 0 |
-| ING-03 | ingest persists lexical metadata without embeddings | integration | `cargo test --test ingest_pipeline ingest_builds_lexical_sidecar_without_embedding_runtime -- --nocapture` | ❌ Wave 0 |
+| ING-03 | ingest persists lexical metadata without embeddings | integration | `cargo test --test lexical_search lexical_candidate_recall_uses_phase_two_fts -- --nocapture` | ❌ Wave 0 |
 | RET-01 | Chinese and PinYin lexical recall works | integration | `cargo test --test lexical_search search_supports_chinese_and_pinyin_queries -- --nocapture` | ❌ Wave 0 |
 | RET-02 | Rust keyword bonus changes ranking deterministically | integration | `cargo test --test lexical_search keyword_bonus_affects_rank_deterministically -- --nocapture` | ❌ Wave 0 |
-| RET-03 | score breakdown is stable and explainable | integration | `cargo test --test lexical_search score_breakdown_exposes_bonus_components -- --nocapture` | ❌ Wave 0 |
-| RET-04 | result includes source/scope/validity/trace/citation | integration | `cargo test --test lexical_search results_include_metadata_and_trace -- --nocapture` | ❌ Wave 0 |
-| RET-05 | filters for scope/type/truth/time work at SQL candidate stage | integration | `cargo test --test lexical_search filters_apply_before_rerank -- --nocapture` | ❌ Wave 0 |
-| AGT-01 | ordinary retrieval runs from CLI/library without Rig or LLM | integration | `cargo test --test ordinary_cli ordinary_search_runs_without_agent_runtime -- --nocapture` | ❌ Wave 0 |
+| RET-03 | score breakdown is stable and explainable | integration | `cargo test --test retrieval_cli library_search_returns_citations_and_filter_trace -- --nocapture` | ❌ Wave 0 |
+| RET-04 | result includes source/scope/validity/trace/citation | integration | `cargo test --test retrieval_cli library_search_returns_citations_and_filter_trace -- --nocapture` | ❌ Wave 0 |
+| RET-05 | filters for scope/type/truth/time work at SQL candidate stage | integration | `cargo test --test retrieval_cli filters_apply_before_rerank -- --nocapture` | ❌ Wave 0 |
+| AGT-01 | ordinary retrieval runs from CLI/library without Rig or LLM | integration | `cargo test --test retrieval_cli ordinary_search_runs_without_agent_runtime -- --nocapture` | ❌ Wave 0 |
 
 ### Sampling Rate
 
@@ -459,9 +460,10 @@ CREATE VIRTUAL TABLE memory_records_fts USING fts5(
 
 ### Wave 0 Gaps
 
-- [ ] `tests/ingest_pipeline.rs` — 覆盖 `ING-01` / `ING-02` / `ING-03`。[ASSUMED]
-- [ ] `tests/lexical_search.rs` — 覆盖 `RET-01`..`RET-05`。[ASSUMED]
-- [ ] `tests/ordinary_cli.rs` — 覆盖 CLI/library no-Rig 路径。[ASSUMED]
+- [ ] `tests/ingest_pipeline.rs` — 覆盖 `ING-01` / `ING-02`。[ASSUMED]
+- [ ] `tests/lexical_search.rs` — 覆盖 `ING-03` / `RET-01` / `RET-02`。[ASSUMED]
+- [x] `tests/status_cli.rs` — existing canonical status contract extended in Plan `02-02` for lexical readiness semantics.[VERIFIED: codebase grep]
+- [ ] `tests/retrieval_cli.rs` — 覆盖 `RET-03` / `RET-04` / `RET-05` / `AGT-01`。[ASSUMED]
 
 ## Security Domain
 
@@ -509,7 +511,7 @@ CREATE VIRTUAL TABLE memory_records_fts USING fts5(
 
 **Confidence breakdown:**
 - Standard stack: HIGH - core choices are locked by project docs and verified against official `libsimple` / SQLite docs.
-- Architecture: MEDIUM - module boundaries are clear, but exact validity schema and mixed-query helper remain design choices.
+- Architecture: MEDIUM - module boundaries are clear, but exact mixed-query helper and score weighting still require implementation judgment.
 - Pitfalls: HIGH - most risks are already visible from current schema, phase scope, and official FTS docs.
 
 **Research date:** 2026-04-15

@@ -27,7 +27,9 @@ fn sample_record() -> MemoryRecord {
             imported_via: None,
             derived_from: Vec::new(),
         },
-        content_text: "2026-04 use lexical-first as the baseline decision because explainability matters.".to_string(),
+        content_text:
+            "2026-04 use lexical-first as the baseline decision because explainability matters."
+                .to_string(),
         chunk: None,
         validity: ValidityWindow::default(),
     }

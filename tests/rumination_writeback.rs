@@ -42,7 +42,9 @@ fn fresh_db_path(name: &str) -> PathBuf {
 
 fn table_count(db: &Database, table: &str) -> i64 {
     db.conn()
-        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
         .expect("table count should load")
 }
 
@@ -158,13 +160,15 @@ fn short_cycle_overlay_provider_reads_local_adaptations() {
 
     let facts = &working_memory.present.self_state.facts;
     assert!(
-        facts.iter()
+        facts
+            .iter()
             .any(|fact| fact.key == "self_state:last_user_correction"
                 && fact.value == "prefer cited answers"),
         "self-state adaptations should surface through the provider seam: {facts:?}"
     );
     assert!(
-        facts.iter()
+        facts
+            .iter()
             .any(|fact| fact.key == "risk_boundary:unsafe_action" && fact.value == "blocked"),
         "risk-boundary adaptations should surface through the provider seam: {facts:?}"
     );
@@ -247,7 +251,9 @@ fn short_cycle_writeback_updates_local_state_without_mutating_shared_truth() {
     .expect("decision report should normalize");
 
     assert!(matches!(
-        service.schedule(correction).expect("correction should schedule"),
+        service
+            .schedule(correction)
+            .expect("correction should schedule"),
         RuminationTriggerDecision::Enqueued { .. }
     ));
     assert!(matches!(
@@ -294,7 +300,9 @@ fn short_cycle_writeback_updates_local_state_without_mutating_shared_truth() {
         .list_local_adaptation_entries(subject_ref)
         .expect("local adaptations should load");
     assert!(
-        entries.iter().any(|entry| entry.target_kind == LocalAdaptationTargetKind::SelfState),
+        entries
+            .iter()
+            .any(|entry| entry.target_kind == LocalAdaptationTargetKind::SelfState),
         "short-cycle writeback should update self-state entries: {entries:?}"
     );
     assert!(

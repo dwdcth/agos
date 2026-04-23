@@ -49,6 +49,11 @@ async fn public_rule_based_summary_generator_extracts_condition_and_impact() {
         .await
         .expect("rule-based summary should succeed");
 
-    assert!(draft.cond.as_deref().is_some_and(|value| value.contains("embedding replaces lexical baseline")));
+    assert!(
+        draft
+            .cond
+            .as_deref()
+            .is_some_and(|value| value.contains("embedding replaces lexical baseline"))
+    );
     assert_eq!(draft.impact.as_deref(), Some("debugging becomes harder."));
 }

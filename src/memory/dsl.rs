@@ -188,8 +188,12 @@ impl FactDslRecord {
         let aspect = parse_required(&fields, &mut index, DslFieldV1::Asp, AspectV1::parse)?;
         let kind = parse_required(&fields, &mut index, DslFieldV1::Kind, KindV1::parse)?;
         let claim = parse_required_string(&fields, &mut index, DslFieldV1::Claim)?;
-        let truth_layer =
-            parse_required(&fields, &mut index, DslFieldV1::Truth, parse_truth_layer_upper)?;
+        let truth_layer = parse_required(
+            &fields,
+            &mut index,
+            DslFieldV1::Truth,
+            parse_truth_layer_upper,
+        )?;
         let source_ref = parse_required_string(&fields, &mut index, DslFieldV1::Src)?;
 
         let mut draft = FactDslDraft {
@@ -201,29 +205,41 @@ impl FactDslRecord {
             let (key, value) = split_field(&fields[index])?;
             match key {
                 "WHY" => {
-                    draft.why = Some(unescape_field_value(non_empty_value(value, DslFieldV1::Why)?))
+                    draft.why = Some(unescape_field_value(non_empty_value(
+                        value,
+                        DslFieldV1::Why,
+                    )?))
                 }
                 "TIME" => {
-                    draft.time = Some(unescape_field_value(non_empty_value(value, DslFieldV1::Time)?))
+                    draft.time = Some(unescape_field_value(non_empty_value(
+                        value,
+                        DslFieldV1::Time,
+                    )?))
                 }
                 "COND" => {
-                    draft.cond = Some(unescape_field_value(non_empty_value(value, DslFieldV1::Cond)?))
+                    draft.cond = Some(unescape_field_value(non_empty_value(
+                        value,
+                        DslFieldV1::Cond,
+                    )?))
                 }
                 "IMPACT" => {
-                    draft.impact =
-                        Some(unescape_field_value(non_empty_value(value, DslFieldV1::Impact)?))
+                    draft.impact = Some(unescape_field_value(non_empty_value(
+                        value,
+                        DslFieldV1::Impact,
+                    )?))
                 }
                 "CONF" => {
-                    let conf = f32::from_str(non_empty_value(value, DslFieldV1::Conf)?)
-                        .map_err(|_| FactDslError::InvalidFieldValue {
-                            field: DslFieldV1::Conf.as_str(),
-                            value: value.to_string(),
+                    let conf =
+                        f32::from_str(non_empty_value(value, DslFieldV1::Conf)?).map_err(|_| {
+                            FactDslError::InvalidFieldValue {
+                                field: DslFieldV1::Conf.as_str(),
+                                value: value.to_string(),
+                            }
                         })?;
                     draft.conf = Some(conf);
                 }
                 "REL" => {
-                    let rel = non_empty_value(value, DslFieldV1::Rel)?
-                        .to_string();
+                    let rel = non_empty_value(value, DslFieldV1::Rel)?.to_string();
                     let rel = split_escaped(&rel, ',')
                         .into_iter()
                         .map(|value| value.trim().to_string())
@@ -263,11 +279,14 @@ impl FlatFactDslRecordV1 {
     }
 
     pub fn into_record(self) -> Result<FactDslRecord, FactDslError> {
-        let taxonomy = TaxonomyPathV1::from_parts(&self.domain, &self.topic, &self.aspect, &self.kind)
-            .map_err(FactDslError::Taxonomy)?;
-        let truth_layer = TruthLayer::parse(&self.truth_layer).ok_or_else(|| FactDslError::InvalidFieldValue {
-            field: DslFieldV1::Truth.as_str(),
-            value: self.truth_layer.clone(),
+        let taxonomy =
+            TaxonomyPathV1::from_parts(&self.domain, &self.topic, &self.aspect, &self.kind)
+                .map_err(FactDslError::Taxonomy)?;
+        let truth_layer = TruthLayer::parse(&self.truth_layer).ok_or_else(|| {
+            FactDslError::InvalidFieldValue {
+                field: DslFieldV1::Truth.as_str(),
+                value: self.truth_layer.clone(),
+            }
         })?;
 
         let record = FactDslRecord {
@@ -290,7 +309,10 @@ impl FlatFactDslRecordV1 {
 }
 
 fn optional_value(value: &Option<String>) -> Option<&str> {
-    value.as_deref().map(str::trim).filter(|value| !value.is_empty())
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn split_field(field: &str) -> Result<(&str, &str), FactDslError> {
@@ -549,10 +571,7 @@ pub enum FactDslError {
     #[error("empty value for DSL field: {0}")]
     EmptyFieldValue(&'static str),
     #[error("invalid value for DSL field '{field}': {value}")]
-    InvalidFieldValue {
-        field: &'static str,
-        value: String,
-    },
+    InvalidFieldValue { field: &'static str, value: String },
     #[error("missing DSL claim")]
     MissingClaim,
     #[error("missing DSL source reference")]
@@ -615,7 +634,9 @@ mod tests {
         let mut record = sample_record(KindV1::Fact);
         record.draft.claim.clear();
 
-        let err = record.encode().expect_err("empty claims should fail validation");
+        let err = record
+            .encode()
+            .expect_err("empty claims should fail validation");
         assert!(matches!(err, FactDslError::MissingClaim));
     }
 

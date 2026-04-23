@@ -106,7 +106,9 @@ pub enum TruthGovernanceError {
         record_id: String,
         truth_layer: &'static str,
     },
-    #[error("source record {record_id} is {truth_layer} and cannot create a T2-to-T1 ontology candidate")]
+    #[error(
+        "source record {record_id} is {truth_layer} and cannot create a T2-to-T1 ontology candidate"
+    )]
     SourceRecordNotT2 {
         record_id: String,
         truth_layer: &'static str,
@@ -232,7 +234,8 @@ impl<'db> TruthGovernanceService<'db> {
     ) -> Result<PromotionReviewReport, TruthGovernanceError> {
         let mut review = self.require_open_review(&request.review_id)?;
         self.require_active_t3_source(&review.source_record_id)?;
-        let Some(review_notes) = request.review_notes.or_else(|| review.review_notes.clone()) else {
+        let Some(review_notes) = request.review_notes.or_else(|| review.review_notes.clone())
+        else {
             return Err(TruthGovernanceError::MissingReviewMetadata {
                 review_id: request.review_id,
                 field: "review_notes",
@@ -358,7 +361,9 @@ impl<'db> TruthGovernanceService<'db> {
         &self,
         record_id: &str,
     ) -> Result<Option<TruthRecord>, TruthGovernanceError> {
-        self.repository.get_truth_record(record_id).map_err(Into::into)
+        self.repository
+            .get_truth_record(record_id)
+            .map_err(Into::into)
     }
 
     pub fn list_pending_reviews(&self) -> Result<Vec<PromotionReview>, TruthGovernanceError> {
@@ -457,7 +462,10 @@ impl<'db> TruthGovernanceService<'db> {
         Ok(review)
     }
 
-    fn review_report(&self, review_id: &str) -> Result<PromotionReviewReport, TruthGovernanceError> {
+    fn review_report(
+        &self,
+        review_id: &str,
+    ) -> Result<PromotionReviewReport, TruthGovernanceError> {
         let review = self
             .repository
             .get_promotion_review(review_id)?
@@ -502,9 +510,8 @@ fn build_derived_t2_record(
     derived_record_id: String,
     approved_at: String,
 ) -> MemoryRecord {
-    let mut derived_from = Vec::with_capacity(
-        source_record.provenance.derived_from.len() + evidence.len() + 1,
-    );
+    let mut derived_from =
+        Vec::with_capacity(source_record.provenance.derived_from.len() + evidence.len() + 1);
     derived_from.push(source_record.id.clone());
     derived_from.extend(source_record.provenance.derived_from.iter().cloned());
     derived_from.extend(evidence.iter().map(|item| item.evidence_record_id.clone()));

@@ -78,17 +78,15 @@ fn value_scorer_projects_five_dimensions_with_dynamic_weights() {
         resource_efficiency: 0.10,
         agent_robustness: 0.20,
     };
-    let info_scored =
-        ValueScorer::new(info_weighted.clone()).score_branches(vec![
-            epistemic.clone(),
-            instrumental.clone(),
-            regulative.clone(),
-        ]);
+    let info_scored = ValueScorer::new(info_weighted.clone()).score_branches(vec![
+        epistemic.clone(),
+        instrumental.clone(),
+        regulative.clone(),
+    ]);
 
     assert_eq!(info_scored.len(), 3);
     assert_eq!(
-        info_scored[0].projected.weight_snapshot,
-        info_weighted,
+        info_scored[0].projected.weight_snapshot, info_weighted,
         "projected score should carry the exact runtime weight snapshot",
     );
     assert_eq!(info_scored[0].branch.candidate.kind, ActionKind::Epistemic);
@@ -243,9 +241,11 @@ fn metacog_gates_warn_veto_and_escalate_with_typed_reports() {
         "soft veto should keep the forced regulative path in the report",
     );
 
-    let hard_branch =
-        sample_branch(ActionKind::Instrumental, "run the destructive migration now")
-            .with_risk_marker("unsafe_action");
+    let hard_branch = sample_branch(
+        ActionKind::Instrumental,
+        "run the destructive migration now",
+    )
+    .with_risk_marker("unsafe_action");
     let hard_memory = sample_working_memory(vec![hard_branch.clone()], Vec::new());
     let hard_scored = scorer.score_branches(vec![BranchValueInput::new(
         hard_branch,

@@ -115,13 +115,7 @@ fn status_exits_successfully_for_reserved_modes() {
             "not_applicable",
         ),
         (
-            "hybrid",
-            "hybrid",
-            "reserved",
-            "false",
-            "ready",
-            "deferred",
-            "deferred",
+            "hybrid", "hybrid", "reserved", "false", "ready", "deferred", "deferred",
         ),
     ] {
         let dir = unique_temp_dir(name);
@@ -230,7 +224,7 @@ fn init_creates_database_and_inspect_schema_reports_foundation_state() {
         stderr(&inspect_output)
     );
     assert!(
-        inspect_text.contains("schema_version: 7"),
+        inspect_text.contains("schema_version: 8"),
         "inspect schema should report schema_version: {inspect_text}"
     );
     assert!(
@@ -315,7 +309,7 @@ fn init_output_is_truthful_after_successful_bootstrap() {
         "init should confirm initialization: {text}"
     );
     assert!(
-        text.contains("schema_version: 7"),
+        text.contains("schema_version: 8"),
         "init should report the post-bootstrap schema version: {text}"
     );
     assert!(
@@ -399,7 +393,8 @@ fn diagnostic_commands_remain_informational_while_operational_gate_uses_same_con
         "operational commands should fail for reserved semantic modes"
     );
     assert!(
-        stdout(&reserved_search).contains("embedding_only is reserved but not implemented in Phase 1"),
+        stdout(&reserved_search)
+            .contains("embedding_only is reserved but not implemented in Phase 1"),
         "operational gate should preserve the explicit reserved semantic-mode failure: {}",
         stdout(&reserved_search)
     );
@@ -710,7 +705,8 @@ fn dual_channel_status_and_doctor_report_mode_compatibility_truthfully() {
         "doctor should fail when embedding-only mode lacks vector sidecar readiness"
     );
     assert!(
-        stdout(&gated_doctor).contains("embedding vector sidecar/index is not ready for embedding_only retrieval"),
+        stdout(&gated_doctor)
+            .contains("embedding vector sidecar/index is not ready for embedding_only retrieval"),
         "doctor should explain which channel is gated: {}",
         stdout(&gated_doctor)
     );

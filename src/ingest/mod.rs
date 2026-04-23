@@ -5,20 +5,28 @@ pub mod normalize;
 use rusqlite::Connection;
 use serde::Serialize;
 use thiserror::Error;
+use tracing::warn;
 
 use crate::{
-    core::config::{EmbeddingBackend, EmbeddingConfig},
+    core::config::{
+        Config, EmbeddingBackend, EmbeddingConfig, MemoryConfig, MemorySummaryBackend,
+        RootLlmConfig,
+    },
     ingest::{
         chunk::{ChunkConfig, chunk_source, to_chunk_metadata},
         detect::{Format, detect_format},
         normalize::{NormalizeError, NormalizedSource, normalize_source},
     },
     memory::{
+        classifier::KeywordTaxonomyClassifier,
+        pipeline::{DefaultMemoryPipeline, MemoryPipelineError},
         record::{
             MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceKind, SourceRef,
             TruthLayer, ValidityWindow,
         },
         repository::{MemoryRepository, RecordEmbedding, RepositoryError},
+        store::FactDslStore,
+        summary::{FactSummaryGenerator, RigSummaryGenerator},
     },
 };
 
@@ -50,21 +58,37 @@ pub enum IngestError {
     Normalize(#[from] NormalizeError),
     #[error(transparent)]
     Persist(#[from] RepositoryError),
+    #[error(transparent)]
+    LayeredMemory(#[from] crate::memory::pipeline::MemoryPipelineError),
 }
 
 pub struct IngestService<'db> {
     repository: MemoryRepository<'db>,
     chunk_config: ChunkConfig,
     embedding_config: EmbeddingConfig,
+    memory_config: MemoryConfig,
+    llm_config: RootLlmConfig,
 }
 
 impl<'db> IngestService<'db> {
     pub fn new(conn: &'db Connection) -> Self {
-        Self::with_embedding_config(conn, ChunkConfig::default(), EmbeddingConfig::default())
+        Self::with_components(
+            conn,
+            ChunkConfig::default(),
+            EmbeddingConfig::default(),
+            MemoryConfig::default(),
+            RootLlmConfig::default(),
+        )
     }
 
     pub fn with_chunk_config(conn: &'db Connection, chunk_config: ChunkConfig) -> Self {
-        Self::with_embedding_config(conn, chunk_config, EmbeddingConfig::default())
+        Self::with_components(
+            conn,
+            chunk_config,
+            EmbeddingConfig::default(),
+            MemoryConfig::default(),
+            RootLlmConfig::default(),
+        )
     }
 
     pub fn with_embedding_config(
@@ -72,10 +96,38 @@ impl<'db> IngestService<'db> {
         chunk_config: ChunkConfig,
         embedding_config: EmbeddingConfig,
     ) -> Self {
+        Self::with_components(
+            conn,
+            chunk_config,
+            embedding_config,
+            MemoryConfig::default(),
+            RootLlmConfig::default(),
+        )
+    }
+
+    pub fn with_config(conn: &'db Connection, config: &Config) -> Self {
+        Self::with_components(
+            conn,
+            ChunkConfig::default(),
+            config.embedding.clone(),
+            config.memory.clone(),
+            config.llm.clone(),
+        )
+    }
+
+    fn with_components(
+        conn: &'db Connection,
+        chunk_config: ChunkConfig,
+        embedding_config: EmbeddingConfig,
+        memory_config: MemoryConfig,
+        llm_config: RootLlmConfig,
+    ) -> Self {
         Self {
             repository: MemoryRepository::new(conn),
             chunk_config,
             embedding_config,
+            memory_config,
+            llm_config,
         }
     }
 
@@ -124,6 +176,7 @@ impl<'db> IngestService<'db> {
             };
             record_ids.push(record.id.clone());
             self.repository.insert_record(&record)?;
+            self.persist_layered_memory(&record)?;
             if let Some(embedding) = self.build_embedding(&record) {
                 self.repository.insert_record_embedding(&embedding)?;
             }
@@ -139,6 +192,105 @@ impl<'db> IngestService<'db> {
 }
 
 impl IngestService<'_> {
+    fn persist_layered_memory(&self, record: &MemoryRecord) -> Result<(), IngestError> {
+        let backend = self
+            .memory_config
+            .effective_summary_backend(&self.llm_config);
+
+        match backend {
+            MemorySummaryBackend::RuleBased => self.persist_layered_memory_rule_based(record),
+            MemorySummaryBackend::Rig => match self.persist_layered_memory_rig(record) {
+                Ok(()) => Ok(()),
+                Err(error) if self.memory_config.summary_backend == MemorySummaryBackend::Auto => {
+                    warn!(
+                        error = %error,
+                        record_id = %record.id,
+                        "rig summary generation failed during ingest; falling back to rule-based summary"
+                    );
+                    self.persist_layered_memory_rule_based(record)
+                }
+                Err(error) => Err(error),
+            },
+            MemorySummaryBackend::Auto => unreachable!("auto should resolve to a concrete backend"),
+        }
+    }
+
+    fn persist_layered_memory_rule_based(&self, record: &MemoryRecord) -> Result<(), IngestError> {
+        let persisted =
+            DefaultMemoryPipeline::default_v1().build_persisted_sync_from_memory_record(record)?;
+        self.put_persisted_fact_dsl(&persisted)
+    }
+
+    fn persist_layered_memory_rig(&self, record: &MemoryRecord) -> Result<(), IngestError> {
+        let classification = KeywordTaxonomyClassifier::default()
+            .classify_record_sync(record)
+            .map_err(MemoryPipelineError::Classification)?;
+        let summary_input = classification
+            .clone()
+            .into_summary_input(record.truth_layer, &record.source.uri, &record.content_text)
+            .map_err(MemoryPipelineError::Classification)?;
+        let draft = self.block_on_summary(
+            RigSummaryGenerator::from_llm_config(self.llm_config.clone()).summarize(&summary_input),
+        )?;
+        let built = summary_input
+            .into_record(draft)
+            .map_err(MemoryPipelineError::Summary)?;
+        let mut persisted = crate::memory::store::PersistedFactDslRecordV1::from_fact_dsl_record(
+            &record.id, &built,
+        )
+        .map_err(MemoryPipelineError::Store)?;
+        persisted.classification_confidence = Some(classification.confidence);
+        persisted.needs_review = classification.needs_review;
+        persisted.validate().map_err(MemoryPipelineError::Store)?;
+        self.put_persisted_fact_dsl(&persisted)
+    }
+
+    fn block_on_summary<F>(
+        &self,
+        future: F,
+    ) -> Result<crate::memory::dsl::FactDslDraft, IngestError>
+    where
+        F: std::future::Future<
+                Output = Result<
+                    crate::memory::dsl::FactDslDraft,
+                    crate::memory::summary::FactSummaryError,
+                >,
+            > + Send,
+    {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            return tokio::task::block_in_place(|| handle.block_on(future))
+                .map_err(|error| IngestError::LayeredMemory(MemoryPipelineError::Summary(error)));
+        }
+
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| {
+                IngestError::LayeredMemory(MemoryPipelineError::Summary(
+                    crate::memory::summary::FactSummaryError::Generator(format!(
+                        "failed to create runtime for rig summary generation: {error}"
+                    )),
+                ))
+            })?
+            .block_on(future)
+            .map_err(|error| IngestError::LayeredMemory(MemoryPipelineError::Summary(error)))
+    }
+
+    fn put_persisted_fact_dsl(
+        &self,
+        persisted: &crate::memory::store::PersistedFactDslRecordV1,
+    ) -> Result<(), IngestError> {
+        match self.repository.put_fact_dsl(persisted) {
+            Ok(()) => Ok(()),
+            Err(crate::memory::store::FactDslStoreError::Sqlite(source)) => {
+                Err(IngestError::Persist(RepositoryError::Sqlite(source)))
+            }
+            Err(other) => Err(IngestError::LayeredMemory(MemoryPipelineError::Store(
+                other,
+            ))),
+        }
+    }
+
     fn build_embedding(&self, record: &MemoryRecord) -> Option<RecordEmbedding> {
         if !matches!(self.embedding_config.backend, EmbeddingBackend::Builtin) {
             return None;
@@ -183,11 +335,7 @@ fn builtin_embedding(text: &str, dimensions: usize) -> Vec<f32> {
         values[slot] += f32::from(byte) / 255.0;
     }
 
-    let magnitude = values
-        .iter()
-        .map(|value| value * value)
-        .sum::<f32>()
-        .sqrt();
+    let magnitude = values.iter().map(|value| value * value).sum::<f32>().sqrt();
     if magnitude > 0.0 {
         for value in &mut values {
             *value /= magnitude;

@@ -1,7 +1,9 @@
 use std::{future::Future, pin::Pin};
 
 use agent_memos::memory::{
-    classifier::{ClassificationError, ClassificationInput, ClassificationOutput, TaxonomyClassifier},
+    classifier::{
+        ClassificationError, ClassificationInput, ClassificationOutput, TaxonomyClassifier,
+    },
     dsl::FactDslDraft,
     pipeline::build_fact_dsl_record,
     record::TruthLayer,
@@ -39,8 +41,7 @@ impl FactSummaryGenerator for StubSummarizer {
     fn summarize<'a>(
         &'a self,
         _input: &'a FactSummaryInput,
-    ) -> Pin<Box<dyn Future<Output = Result<FactDslDraft, FactSummaryError>> + Send + 'a>>
-    {
+    ) -> Pin<Box<dyn Future<Output = Result<FactDslDraft, FactSummaryError>> + Send + 'a>> {
         Box::pin(async move {
             Ok(FactDslDraft {
                 claim: "use lexical-first as baseline".to_string(),

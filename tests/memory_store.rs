@@ -4,6 +4,17 @@ use agent_memos::memory::{
     store::{FactDslStore, InMemoryFactDslStore, JsonFileFactDslStore, PersistedFactDslRecordV1},
     taxonomy::{AspectV1, DomainV1, KindV1, TaxonomyPathV1, TopicV1},
 };
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn fresh_json_store_path(name: &str) -> std::path::PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock before unix epoch")
+        .as_nanos();
+    std::env::temp_dir()
+        .join("agent-memos-store-tests")
+        .join(format!("{name}-{unique}.json"))
+}
 
 #[test]
 fn public_persisted_fact_dsl_record_supports_round_trip() {
@@ -60,7 +71,9 @@ fn public_in_memory_store_supports_persistence_contract() {
     let persisted = PersistedFactDslRecordV1::from_fact_dsl_record("mem-1", &record)
         .expect("persisted wrapper should build");
 
-    store.put_fact_dsl(&persisted).expect("store should persist");
+    store
+        .put_fact_dsl(&persisted)
+        .expect("store should persist");
     let loaded = store
         .get_fact_dsl("mem-1")
         .expect("lookup should succeed")
@@ -93,7 +106,9 @@ fn public_in_memory_store_supports_listing() {
     let persisted = PersistedFactDslRecordV1::from_fact_dsl_record("mem-1", &record)
         .expect("persisted wrapper should build");
 
-    store.put_fact_dsl(&persisted).expect("store should persist");
+    store
+        .put_fact_dsl(&persisted)
+        .expect("store should persist");
     let listed = store.list_fact_dsls().expect("listing should succeed");
 
     assert_eq!(listed, vec![persisted]);
@@ -101,9 +116,7 @@ fn public_in_memory_store_supports_listing() {
 
 #[test]
 fn public_json_file_store_supports_contract() {
-    let path = std::env::temp_dir()
-        .join("agent-memos-store-tests")
-        .join(format!("public-{}.json", std::process::id()));
+    let path = fresh_json_store_path("public");
     let _ = std::fs::remove_file(&path);
 
     let record = FactDslRecord {
@@ -128,7 +141,9 @@ fn public_json_file_store_supports_contract() {
     let persisted = PersistedFactDslRecordV1::from_fact_dsl_record("mem-1", &record)
         .expect("persisted wrapper should build");
 
-    store.put_fact_dsl(&persisted).expect("store should persist");
+    store
+        .put_fact_dsl(&persisted)
+        .expect("store should persist");
     let loaded = store
         .get_fact_dsl("mem-1")
         .expect("lookup should succeed")
@@ -165,14 +180,21 @@ fn public_store_contract_supports_deletion() {
     let persisted = PersistedFactDslRecordV1::from_fact_dsl_record("mem-1", &record)
         .expect("persisted wrapper should build");
 
-    store.put_fact_dsl(&persisted).expect("store should persist");
+    store
+        .put_fact_dsl(&persisted)
+        .expect("store should persist");
     let removed = store
         .delete_fact_dsl("mem-1")
         .expect("delete should succeed")
         .expect("row should exist");
 
     assert_eq!(removed, persisted);
-    assert!(store.get_fact_dsl("mem-1").expect("lookup should succeed").is_none());
+    assert!(
+        store
+            .get_fact_dsl("mem-1")
+            .expect("lookup should succeed")
+            .is_none()
+    );
 }
 
 #[test]
@@ -199,7 +221,9 @@ fn public_store_contract_supports_topic_and_path_filters() {
     let persisted = PersistedFactDslRecordV1::from_fact_dsl_record("mem-1", &record)
         .expect("persisted wrapper should build");
 
-    store.put_fact_dsl(&persisted).expect("store should persist");
+    store
+        .put_fact_dsl(&persisted)
+        .expect("store should persist");
     let by_topic = store
         .list_fact_dsls_by_topic(TopicV1::Retrieval)
         .expect("topic filter should succeed");

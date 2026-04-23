@@ -25,12 +25,10 @@ impl DoctorReport {
         let mut warnings = Vec::new();
 
         match (status.configured_mode, status.embedding_backend) {
-            (RetrievalMode::EmbeddingOnly, EmbeddingBackend::Disabled) => failures.push(
-                "embedding_only requires a non-disabled embedding backend".to_string(),
-            ),
-            (RetrievalMode::Hybrid, EmbeddingBackend::Disabled) => failures.push(
-                "hybrid requires an embedding backend for the secondary path".to_string(),
-            ),
+            (RetrievalMode::EmbeddingOnly, EmbeddingBackend::Disabled) => failures
+                .push("embedding_only requires a non-disabled embedding backend".to_string()),
+            (RetrievalMode::Hybrid, EmbeddingBackend::Disabled) => failures
+                .push("hybrid requires an embedding backend for the secondary path".to_string()),
             (RetrievalMode::LexicalOnly, EmbeddingBackend::Reserved) => warnings.push(
                 "embedding backend is configured but unused while retrieval.mode=lexical_only"
                     .to_string(),
@@ -87,8 +85,7 @@ impl DoctorReport {
         }
 
         if matches!(status.index_readiness, CapabilityState::NotBuiltInPhase1) {
-            warnings
-                .push("retrieval indexes are reserved and not built in Phase 1".to_string());
+            warnings.push("retrieval indexes are reserved and not built in Phase 1".to_string());
         }
 
         Self {
@@ -155,7 +152,9 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
         }
         RetrievalMode::EmbeddingOnly => {
             if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
-                failures.push("embedding backend is not ready for embedding_only retrieval".to_string());
+                failures.push(
+                    "embedding backend is not ready for embedding_only retrieval".to_string(),
+                );
             }
             if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
                 failures.push(
@@ -173,8 +172,7 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
             }
             if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
                 failures.push(
-                    "embedding vector sidecar/index is not ready for hybrid retrieval"
-                        .to_string(),
+                    "embedding vector sidecar/index is not ready for hybrid retrieval".to_string(),
                 );
             }
         }
@@ -197,7 +195,9 @@ fn doctor_mode_readiness_failures(status: &StatusReport) -> Vec<String> {
     match status.configured_mode {
         RetrievalMode::EmbeddingOnly => {
             if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
-                failures.push("embedding backend is not ready for embedding_only retrieval".to_string());
+                failures.push(
+                    "embedding backend is not ready for embedding_only retrieval".to_string(),
+                );
             }
             if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
                 failures.push(
@@ -212,8 +212,7 @@ fn doctor_mode_readiness_failures(status: &StatusReport) -> Vec<String> {
             }
             if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
                 failures.push(
-                    "embedding vector sidecar/index is not ready for hybrid retrieval"
-                        .to_string(),
+                    "embedding vector sidecar/index is not ready for hybrid retrieval".to_string(),
                 );
             }
         }

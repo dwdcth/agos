@@ -7,9 +7,10 @@ use agent_memos::{
     core::db::Database,
     memory::{
         governance::{
-            ApprovePromotionRequest, AttachPromotionEvidenceRequest, CreatePromotionReviewRequest,
-            CreateOntologyCandidateRequest, PromotionGate, RejectPromotionRequest,
-            TruthGovernanceError, TruthGovernanceService, UpdatePromotionGateRequest,
+            ApprovePromotionRequest, AttachPromotionEvidenceRequest,
+            CreateOntologyCandidateRequest, CreatePromotionReviewRequest, PromotionGate,
+            RejectPromotionRequest, TruthGovernanceError, TruthGovernanceService,
+            UpdatePromotionGateRequest,
         },
         record::{
             MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceKind, SourceRef,
@@ -178,14 +179,26 @@ fn promotion_review_tracks_gate_states_without_promoting() {
         })
         .expect("review should create");
 
-    assert_eq!(created.review.result_trigger_state, ReviewGateState::Pending);
-    assert_eq!(created.review.evidence_review_state, ReviewGateState::Pending);
-    assert_eq!(created.review.consensus_check_state, ReviewGateState::Pending);
+    assert_eq!(
+        created.review.result_trigger_state,
+        ReviewGateState::Pending
+    );
+    assert_eq!(
+        created.review.evidence_review_state,
+        ReviewGateState::Pending
+    );
+    assert_eq!(
+        created.review.consensus_check_state,
+        ReviewGateState::Pending
+    );
     assert_eq!(
         created.review.metacog_approval_state,
         ReviewGateState::Pending
     );
-    assert_eq!(created.review.decision_state, PromotionDecisionState::Pending);
+    assert_eq!(
+        created.review.decision_state,
+        PromotionDecisionState::Pending
+    );
     assert!(created.evidence.is_empty());
 
     let attached = service
@@ -209,8 +222,14 @@ fn promotion_review_tracks_gate_states_without_promoting() {
             review_notes: None,
         })
         .expect("result gate should update");
-    assert_eq!(after_result.review.result_trigger_state, ReviewGateState::Passed);
-    assert_eq!(after_result.review.evidence_review_state, ReviewGateState::Pending);
+    assert_eq!(
+        after_result.review.result_trigger_state,
+        ReviewGateState::Passed
+    );
+    assert_eq!(
+        after_result.review.evidence_review_state,
+        ReviewGateState::Pending
+    );
 
     let after_consensus = service
         .update_promotion_gate(UpdatePromotionGateRequest {
@@ -242,7 +261,10 @@ fn promotion_review_tracks_gate_states_without_promoting() {
             assert_eq!(t3_state.revocation_state, T3RevocationState::Active);
             assert_eq!(open_reviews.len(), 1);
             assert_eq!(open_reviews[0].review_id, "review-1");
-            assert_eq!(open_reviews[0].result_trigger_state, ReviewGateState::Passed);
+            assert_eq!(
+                open_reviews[0].result_trigger_state,
+                ReviewGateState::Passed
+            );
             assert_eq!(
                 open_reviews[0].consensus_check_state,
                 ReviewGateState::Rejected
@@ -386,7 +408,10 @@ fn t3_promotion_requires_all_gate_checks() {
 
     assert_eq!(approval.derived_record.id, "derived-t2");
     assert_eq!(approval.derived_record.truth_layer, TruthLayer::T2);
-    assert_eq!(approval.review.decision_state, PromotionDecisionState::Approved);
+    assert_eq!(
+        approval.review.decision_state,
+        PromotionDecisionState::Approved
+    );
     assert_eq!(
         approval.derived_record.provenance.origin,
         "truth_governance"
@@ -423,7 +448,10 @@ fn t3_promotion_requires_all_gate_checks() {
                 Some("2026-04-15T13:10:00Z".to_string())
             );
             assert_eq!(open_reviews.len(), 1);
-            assert_eq!(open_reviews[0].decision_state, PromotionDecisionState::Approved);
+            assert_eq!(
+                open_reviews[0].decision_state,
+                PromotionDecisionState::Approved
+            );
         }
         other => panic!("expected promoted source to remain T3, got {other:?}"),
     }
@@ -497,7 +525,10 @@ fn rejected_promotion_stays_auditable() {
             })),
         })
         .expect("rejection should succeed");
-    assert_eq!(rejected.review.decision_state, PromotionDecisionState::Rejected);
+    assert_eq!(
+        rejected.review.decision_state,
+        PromotionDecisionState::Rejected
+    );
 
     let source_truth = repo
         .get_truth_record("t3-source")
@@ -515,7 +546,10 @@ fn rejected_promotion_stays_auditable() {
                 Some("2026-04-15T14:02:00Z".to_string())
             );
             assert_eq!(open_reviews.len(), 1);
-            assert_eq!(open_reviews[0].decision_state, PromotionDecisionState::Rejected);
+            assert_eq!(
+                open_reviews[0].decision_state,
+                PromotionDecisionState::Rejected
+            );
             assert_eq!(
                 open_reviews[0].evidence_review_state,
                 ReviewGateState::Rejected

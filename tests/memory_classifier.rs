@@ -6,7 +6,9 @@ use agent_memos::memory::taxonomy::{AspectV1, DomainV1, KindV1, TaxonomyPathV1, 
 #[test]
 fn public_classifier_api_accepts_valid_output() {
     let input = ClassificationInput::new("roadmap#phase9", "Use lexical-first as baseline.");
-    input.validate().expect("classification input should validate");
+    input
+        .validate()
+        .expect("classification input should validate");
 
     let output = ClassificationOutput::new(
         TaxonomyPathV1::new(
@@ -56,7 +58,10 @@ async fn public_keyword_classifier_produces_taxonomy_output() {
 async fn public_keyword_classifier_falls_back_to_general_observation() {
     let classifier = KeywordTaxonomyClassifier::new(DomainV1::System);
     let output = classifier
-        .classify(&ClassificationInput::new("misc#1", "obscure fragment without known keywords"))
+        .classify(&ClassificationInput::new(
+            "misc#1",
+            "obscure fragment without known keywords",
+        ))
         .await
         .expect("keyword classifier should still return fallback");
 
@@ -161,8 +166,9 @@ async fn public_keyword_classifier_supports_memory_record_entrypoint() {
             imported_via: None,
             derived_from: Vec::new(),
         },
-        content_text: "Use lexical-first retrieval as the baseline decision because explainability matters."
-            .to_string(),
+        content_text:
+            "Use lexical-first retrieval as the baseline decision because explainability matters."
+                .to_string(),
         chunk: None,
         validity: ValidityWindow::default(),
     };

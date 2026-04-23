@@ -16,8 +16,7 @@ use crate::{
         repository::{
             LocalAdaptationEntry, LocalAdaptationPayload, LocalAdaptationTargetKind,
             MemoryRepository, PersistedRuminationQueueItem, PersistedRuminationTriggerState,
-            RepositoryError, RuminationCandidate, RuminationCandidateStatus,
-            RuminationQueueStatus,
+            RepositoryError, RuminationCandidate, RuminationCandidateStatus, RuminationQueueStatus,
         },
         truth::{EvidenceRole, TruthRecord},
     },
@@ -760,15 +759,16 @@ impl<'db> RuminationService<'db> {
 
             match truth_record {
                 TruthRecord::T3 { .. } => {
-                    let review = governance.create_promotion_review(CreatePromotionReviewRequest {
-                        review_id: format!("review:{}", candidate.candidate_id),
-                        source_record_id,
-                        created_at: processed_at.to_string(),
-                        review_notes: Some(json!({
-                            "origin": "lpq",
-                            "candidate_id": candidate.candidate_id,
-                        })),
-                    })?;
+                    let review =
+                        governance.create_promotion_review(CreatePromotionReviewRequest {
+                            review_id: format!("review:{}", candidate.candidate_id),
+                            source_record_id,
+                            created_at: processed_at.to_string(),
+                            review_notes: Some(json!({
+                                "origin": "lpq",
+                                "candidate_id": candidate.candidate_id,
+                            })),
+                        })?;
 
                     for evidence_record_id in &basis_record_ids {
                         governance.attach_evidence(AttachPromotionEvidenceRequest {
@@ -791,8 +791,8 @@ impl<'db> RuminationService<'db> {
                     }
                 }
                 TruthRecord::T2 { .. } => {
-                    let ontology = governance.create_ontology_candidate(
-                        CreateOntologyCandidateRequest {
+                    let ontology =
+                        governance.create_ontology_candidate(CreateOntologyCandidateRequest {
                             candidate_id: format!("ontology:{}", candidate.candidate_id),
                             source_record_id,
                             basis_record_ids,
@@ -802,8 +802,7 @@ impl<'db> RuminationService<'db> {
                                 "subject_ref": candidate.subject_ref,
                             }),
                             created_at: processed_at.to_string(),
-                        },
-                    )?;
+                        })?;
 
                     candidate.governance_ref_id = Some(ontology.candidate_id.clone());
                     if let Some(payload) = candidate.payload.as_object_mut() {
@@ -878,9 +877,7 @@ fn from_persisted_item(
             "session_boundary" => RuminationTriggerKind::SessionBoundary,
             "evidence_accumulation" => RuminationTriggerKind::EvidenceAccumulation,
             "idle_window" => RuminationTriggerKind::IdleWindow,
-            "abnormal_pattern_accumulation" => {
-                RuminationTriggerKind::AbnormalPatternAccumulation
-            }
+            "abnormal_pattern_accumulation" => RuminationTriggerKind::AbnormalPatternAccumulation,
             other => {
                 return Err(RuminationServiceError::Repository(
                     RepositoryError::InvalidEnum {
@@ -966,8 +963,7 @@ fn derive_short_cycle_entries(
                     processed_at,
                 );
             }
-            if let Some(risk_boundary) =
-                corrections.get("risk_boundary").and_then(Value::as_object)
+            if let Some(risk_boundary) = corrections.get("risk_boundary").and_then(Value::as_object)
             {
                 append_entries_from_object(
                     &mut entries,
@@ -990,14 +986,12 @@ fn derive_short_cycle_entries(
             }
         }
         RuminationTriggerKind::ActionFailure => {
-            let summary = item
-                .payload
-                .get("summary")
-                .cloned()
-                .ok_or(RuminationServiceError::MissingShortCyclePayloadField {
+            let summary = item.payload.get("summary").cloned().ok_or(
+                RuminationServiceError::MissingShortCyclePayloadField {
                     trigger: item.trigger_kind,
                     field: "summary",
-                })?;
+                },
+            )?;
             entries.push(build_local_adaptation_entry(
                 item,
                 LocalAdaptationTargetKind::SelfState,
@@ -1009,7 +1003,8 @@ fn derive_short_cycle_entries(
             ));
 
             if let Some(risk_markers) = item.payload.get("risk_markers").and_then(Value::as_array) {
-                for (index, risk_marker) in risk_markers.iter().filter_map(Value::as_str).enumerate()
+                for (index, risk_marker) in
+                    risk_markers.iter().filter_map(Value::as_str).enumerate()
                 {
                     entries.push(build_local_adaptation_entry(
                         item,
@@ -1024,14 +1019,12 @@ fn derive_short_cycle_entries(
             }
         }
         RuminationTriggerKind::MetacogVeto => {
-            let gate_decision = item
-                .payload
-                .get("gate_decision")
-                .cloned()
-                .ok_or(RuminationServiceError::MissingShortCyclePayloadField {
+            let gate_decision = item.payload.get("gate_decision").cloned().ok_or(
+                RuminationServiceError::MissingShortCyclePayloadField {
                     trigger: item.trigger_kind,
                     field: "gate_decision",
-                })?;
+                },
+            )?;
             entries.push(build_local_adaptation_entry(
                 item,
                 LocalAdaptationTargetKind::SelfState,
@@ -1055,8 +1048,7 @@ fn derive_short_cycle_entries(
                     ));
                 }
             }
-            if let Some(metacog_flags) =
-                item.payload.get("metacog_flags").and_then(Value::as_array)
+            if let Some(metacog_flags) = item.payload.get("metacog_flags").and_then(Value::as_array)
             {
                 for flag in metacog_flags {
                     let Some(code) = flag.get("code").and_then(Value::as_str) else {
@@ -1088,19 +1080,17 @@ fn derive_long_cycle_candidates(
     item: &RuminationQueueItem,
     processed_at: &str,
 ) -> Result<Vec<RuminationCandidate>, RuminationServiceError> {
-    let source_report = item
-        .source_report
-        .clone()
-        .ok_or(RuminationServiceError::MissingLongCycleSourceReport {
+    let source_report =
+        item.source_report
+            .clone()
+            .ok_or(RuminationServiceError::MissingLongCycleSourceReport {
+                trigger: item.trigger_kind,
+            })?;
+    let primary_evidence = item.evidence_refs.first().cloned().ok_or(
+        RuminationServiceError::MissingLongCycleEvidence {
             trigger: item.trigger_kind,
-        })?;
-    let primary_evidence = item
-        .evidence_refs
-        .first()
-        .cloned()
-        .ok_or(RuminationServiceError::MissingLongCycleEvidence {
-            trigger: item.trigger_kind,
-        })?;
+        },
+    )?;
     let skill_payload = json!({
         "template_summary": format!("candidate derived from {}", item.subject_ref),
         "trigger_kind": item.trigger_kind.as_str(),

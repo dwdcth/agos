@@ -14,11 +14,13 @@ async fn public_pipeline_report_exposes_assessment_and_encoded_output() {
         .expect("pipeline should produce report");
 
     assert_eq!(report.classification.taxonomy.kind.as_str(), "decision");
-    assert!(report
-        .assessment
-        .missing_recommended
-        .iter()
-        .any(|field| field.as_str() == "IMPACT"));
+    assert!(
+        report
+            .assessment
+            .missing_recommended
+            .iter()
+            .any(|field| field.as_str() == "IMPACT")
+    );
     assert!(report.encoded.starts_with("F|DOM=project|TOP=retrieval"));
     let flat = report.flattened_record();
     assert_eq!(flat.domain, "project");

@@ -30,7 +30,7 @@
 ### Claude's Discretion
 [VERIFIED: .planning/phases/01-foundation-kernel/01-CONTEXT.md]
 - Exact TOML section names and field naming, as long as they are clear and stable.
-- Whether embedding is expressed as `enabled = true/false` alone or paired with a backend enum/string, as long as disabled-by-default behavior is explicit.
+- Exact enum values for the three retrieval modes, as long as they clearly distinguish `lexical_only`, `embedding_only`, and `hybrid`.
 - How much of the future coexistence contract is reflected in Phase 1 config, as long as Phase 1 only reserves extension seams and does not prematurely implement semantic retrieval.
 - Whether the application is a single crate or a small workspace, as long as it preserves a mempal-like modular separation and a single binary entrypoint.
 - Specific migration tooling choice and CLI command naming.

@@ -18,7 +18,10 @@ use crate::{
         status::StatusReport,
     },
     ingest::{IngestRequest, IngestService},
-    memory::record::{RecordType, Scope, SourceKind, TruthLayer},
+    memory::{
+        record::{RecordType, Scope, SourceKind, TruthLayer},
+        taxonomy::{AspectV1, DomainV1, KindV1, TopicV1},
+    },
     search::{SearchFilters, SearchRequest, SearchService},
 };
 
@@ -69,6 +72,14 @@ pub enum Commands {
         mode: Option<RetrievalMode>,
         #[arg(long = "top-k", default_value_t = SearchRequest::DEFAULT_LIMIT)]
         top_k: usize,
+        #[arg(long = "domain", value_name = "DOMAIN", value_parser = parse_domain_arg)]
+        domain: Option<String>,
+        #[arg(long = "topic", value_name = "TOPIC", value_parser = parse_topic_arg)]
+        topic: Option<String>,
+        #[arg(long = "aspect", value_name = "ASPECT", value_parser = parse_aspect_arg)]
+        aspect: Option<String>,
+        #[arg(long = "kind", value_name = "KIND", value_parser = parse_kind_arg)]
+        kind: Option<String>,
         #[arg(long, value_name = "SCOPE", value_parser = parse_scope_arg)]
         scope: Option<Scope>,
         #[arg(long = "record-type", value_name = "TYPE", value_parser = parse_record_type_arg)]
@@ -94,6 +105,14 @@ pub enum Commands {
         follow_up_queries: Vec<String>,
         #[arg(long = "top-k", default_value_t = SearchRequest::DEFAULT_LIMIT)]
         top_k: usize,
+        #[arg(long = "domain", value_name = "DOMAIN", value_parser = parse_domain_arg)]
+        domain: Option<String>,
+        #[arg(long = "topic", value_name = "TOPIC", value_parser = parse_topic_arg)]
+        topic: Option<String>,
+        #[arg(long = "aspect", value_name = "ASPECT", value_parser = parse_aspect_arg)]
+        aspect: Option<String>,
+        #[arg(long = "kind", value_name = "KIND", value_parser = parse_kind_arg)]
+        kind: Option<String>,
         #[arg(long = "max-steps", default_value_t = AgentSearchRequest::DEFAULT_MAX_STEPS)]
         max_steps: usize,
         #[arg(long)]
@@ -151,6 +170,10 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
             query,
             mode,
             top_k,
+            domain,
+            topic,
+            aspect,
+            kind,
             scope,
             record_type,
             truth_layer,
@@ -165,6 +188,10 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
                 query,
                 mode,
                 top_k,
+                domain,
+                topic,
+                aspect,
+                kind,
                 scope,
                 record_type,
                 truth_layer,
@@ -180,6 +207,10 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
             mode,
             follow_up_queries,
             top_k,
+            domain,
+            topic,
+            aspect,
+            kind,
             max_steps,
             json,
         } => agent_search_command(
@@ -189,6 +220,10 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
                 mode,
                 follow_up_queries,
                 top_k,
+                domain,
+                topic,
+                aspect,
+                kind,
                 max_steps,
                 json,
             },
@@ -218,6 +253,10 @@ struct SearchCommand {
     query: String,
     mode: Option<RetrievalMode>,
     top_k: usize,
+    domain: Option<String>,
+    topic: Option<String>,
+    aspect: Option<String>,
+    kind: Option<String>,
     scope: Option<Scope>,
     record_type: Option<RecordType>,
     truth_layer: Option<TruthLayer>,
@@ -234,6 +273,10 @@ struct AgentSearchCommand {
     mode: Option<RetrievalMode>,
     follow_up_queries: Vec<String>,
     top_k: usize,
+    domain: Option<String>,
+    topic: Option<String>,
+    aspect: Option<String>,
+    kind: Option<String>,
     max_steps: usize,
     json: bool,
 }
@@ -288,7 +331,7 @@ fn ingest_command(app: &AppContext, command: IngestCommand) -> Result<ExitCode> 
     }
 
     let db = Database::open(app.db_path())?;
-    let ingest = IngestService::new(db.conn());
+    let ingest = IngestService::with_config(db.conn(), &app.config);
     let content = match (command.path.as_ref(), command.content) {
         (Some(path), None) => std::fs::read_to_string(path)?,
         (None, Some(content)) => content,
@@ -322,6 +365,19 @@ fn ingest_command(app: &AppContext, command: IngestCommand) -> Result<ExitCode> 
 
 fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> {
     let gate_app = override_mode_app(app, command.mode)?;
+    let filters = SearchFilters {
+        domain: command.domain,
+        topic: command.topic,
+        aspect: command.aspect,
+        kind: command.kind,
+        scope: command.scope,
+        record_type: command.record_type,
+        truth_layer: command.truth_layer,
+        valid_at: command.valid_at,
+        recorded_from: command.from,
+        recorded_to: command.to,
+    };
+    validate_taxonomy_filter_combination(&filters)?;
     if let Some(exit_code) = operational_gate(&gate_app, CommandPath::Search)? {
         return Ok(exit_code);
     }
@@ -331,14 +387,7 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
     let response = service.search(
         &SearchRequest::new(command.query)
             .with_limit(command.top_k)
-            .with_filters(SearchFilters {
-                scope: command.scope,
-                record_type: command.record_type,
-                truth_layer: command.truth_layer,
-                valid_at: command.valid_at,
-                recorded_from: command.from,
-                recorded_to: command.to,
-            }),
+            .with_filters(filters),
     )?;
 
     if command.json {
@@ -351,6 +400,70 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
             println!("{}. {}", index + 1, result.record.source.uri);
             println!("   snippet: {}", result.snippet);
             println!(
+                "   record: id={} kind={} label={} scope={} type={} truth_layer={}",
+                result.record.id,
+                result.record.source.kind.as_str(),
+                result.record.source.label.as_deref().unwrap_or("none"),
+                result.record.scope.as_str(),
+                result.record.record_type.as_str(),
+                result.record.truth_layer.as_str()
+            );
+            println!(
+                "   provenance: origin={} imported_via={} derived_from={}",
+                result.record.provenance.origin,
+                result
+                    .record
+                    .provenance
+                    .imported_via
+                    .as_deref()
+                    .unwrap_or("none"),
+                if result.record.provenance.derived_from.is_empty() {
+                    "none".to_string()
+                } else {
+                    result.record.provenance.derived_from.join(",")
+                }
+            );
+            if let Some(dsl) = result.dsl.as_ref() {
+                let mut dsl_summary = format!(
+                    "{}/{}/{}/{} | {}",
+                    dsl.domain, dsl.topic, dsl.aspect, dsl.kind, dsl.claim
+                );
+                dsl_summary.push_str(&format!(" | SRC: {}", dsl.source_ref));
+                if let Some(time) = dsl.time.as_deref() {
+                    dsl_summary.push_str(&format!(" | TIME: {time}"));
+                }
+                if let Some(cond) = dsl.cond.as_deref() {
+                    dsl_summary.push_str(&format!(" | COND: {cond}"));
+                }
+                if let Some(why) = dsl.why.as_deref() {
+                    dsl_summary.push_str(&format!(" | WHY: {why}"));
+                }
+                if let Some(impact) = dsl.impact.as_deref() {
+                    dsl_summary.push_str(&format!(" | IMPACT: {impact}"));
+                }
+                println!("   dsl: {}", dsl_summary);
+            }
+            println!(
+                "   channel: {} strategies={}",
+                match result.trace.channel_contribution {
+                    crate::search::ChannelContribution::LexicalOnly => "lexical_only",
+                    crate::search::ChannelContribution::EmbeddingOnly => "embedding_only",
+                    crate::search::ChannelContribution::Hybrid => "hybrid",
+                },
+                result
+                    .trace
+                    .query_strategies
+                    .iter()
+                    .map(|strategy| match strategy {
+                        crate::search::QueryStrategy::Jieba => "jieba",
+                        crate::search::QueryStrategy::Simple => "simple",
+                        crate::search::QueryStrategy::Structured => "structured",
+                        crate::search::QueryStrategy::Embedding => "embedding",
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            println!(
                 "   citation: chunk {}/{} recorded_at={} valid_from={} valid_to={}",
                 result.citation.anchor.chunk_index + 1,
                 result.citation.anchor.chunk_count,
@@ -361,7 +474,12 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
                     .valid_from
                     .as_deref()
                     .unwrap_or("none"),
-                result.citation.validity.valid_to.as_deref().unwrap_or("none")
+                result
+                    .citation
+                    .validity
+                    .valid_to
+                    .as_deref()
+                    .unwrap_or("none")
             );
             println!("   final_score: {:.3}", result.score.final_score);
             if command.trace {
@@ -390,14 +508,24 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
 
 fn agent_search_command(app: &AppContext, command: AgentSearchCommand) -> Result<ExitCode> {
     let gate_app = override_mode_app(app, command.mode)?;
+    let mut request = AgentSearchRequest::developer_defaults(command.query)
+        .with_working_memory_limit(command.top_k)
+        .with_max_steps(command.max_steps);
+    let existing_filters = request.working_memory.filters.clone();
+    let filters = SearchFilters {
+        domain: command.domain,
+        topic: command.topic,
+        aspect: command.aspect,
+        kind: command.kind,
+        ..existing_filters
+    };
+    validate_taxonomy_filter_combination(&filters)?;
     if let Some(exit_code) = operational_gate(&gate_app, CommandPath::AgentSearch)? {
         return Ok(exit_code);
     }
 
     let db = Database::open(app.db_path())?;
-    let mut request = AgentSearchRequest::developer_defaults(command.query)
-        .with_working_memory_limit(command.top_k)
-        .with_max_steps(command.max_steps);
+    request.working_memory = request.working_memory.with_filters(filters);
     for query in command.follow_up_queries {
         request = request.with_follow_up_query(query);
     }
@@ -482,7 +610,10 @@ pub fn render_agent_search_report(report: &AgentSearchReport, json: bool) -> Res
     let mut output = vec![
         format!("executed_steps: {}", report.executed_steps),
         format!("step_limit: {}", report.step_limit),
-        format!("gate_decision: {}", gate_label(report.decision.gate.decision)),
+        format!(
+            "gate_decision: {}",
+            gate_label(report.decision.gate.decision)
+        ),
         format!("selected_branch: {selected_branch}"),
         format!("citations: {}", report.citations.len()),
     ];
@@ -494,6 +625,24 @@ pub fn render_agent_search_report(report: &AgentSearchReport, json: bool) -> Res
             citation.anchor.chunk_index + 1,
             citation.anchor.chunk_count
         ));
+    }
+
+    let dsl_summaries = report
+        .working_memory
+        .present
+        .world_fragments
+        .iter()
+        .filter_map(|fragment| fragment.dsl.as_ref())
+        .map(|dsl| {
+            format!(
+                "  - {}/{}/{}/{} | {}",
+                dsl.domain, dsl.topic, dsl.aspect, dsl.kind, dsl.claim
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    if !dsl_summaries.is_empty() {
+        output.push("memory:".to_string());
+        output.extend(dsl_summaries);
     }
 
     if !report.decision.gate.diagnostics.is_empty() {
@@ -510,12 +659,16 @@ fn format_filters(filters: &SearchFilters) -> String {
     let scope = filters.scope.map(Scope::as_str).unwrap_or("any");
     let record_type = filters.record_type.map(RecordType::as_str).unwrap_or("any");
     let truth_layer = filters.truth_layer.map(TruthLayer::as_str).unwrap_or("any");
+    let domain = filters.domain.as_deref().unwrap_or("any");
+    let topic = filters.topic.as_deref().unwrap_or("any");
+    let aspect = filters.aspect.as_deref().unwrap_or("any");
+    let kind = filters.kind.as_deref().unwrap_or("any");
     let valid_at = filters.valid_at.as_deref().unwrap_or("any");
     let recorded_from = filters.recorded_from.as_deref().unwrap_or("any");
     let recorded_to = filters.recorded_to.as_deref().unwrap_or("any");
 
     format!(
-        "scope={scope}, record_type={record_type}, truth_layer={truth_layer}, valid_at={valid_at}, from={recorded_from}, to={recorded_to}"
+        "scope={scope}, record_type={record_type}, truth_layer={truth_layer}, domain={domain}, topic={topic}, aspect={aspect}, kind={kind}, valid_at={valid_at}, from={recorded_from}, to={recorded_to}"
     )
 }
 
@@ -542,6 +695,54 @@ fn parse_retrieval_mode_arg(value: &str) -> std::result::Result<RetrievalMode, S
         "hybrid" => Ok(RetrievalMode::Hybrid),
         other => Err(format!("unsupported retrieval mode: {other}")),
     }
+}
+
+fn parse_domain_arg(value: &str) -> std::result::Result<String, String> {
+    DomainV1::parse(value)
+        .map(|value| value.as_str().to_string())
+        .ok_or_else(|| format!("unsupported taxonomy domain: {value}"))
+}
+
+fn parse_topic_arg(value: &str) -> std::result::Result<String, String> {
+    TopicV1::parse(value)
+        .map(|value| value.as_str().to_string())
+        .ok_or_else(|| format!("unsupported taxonomy topic: {value}"))
+}
+
+fn parse_aspect_arg(value: &str) -> std::result::Result<String, String> {
+    AspectV1::parse(value)
+        .map(|value| value.as_str().to_string())
+        .ok_or_else(|| format!("unsupported taxonomy aspect: {value}"))
+}
+
+fn parse_kind_arg(value: &str) -> std::result::Result<String, String> {
+    KindV1::parse(value)
+        .map(|value| value.as_str().to_string())
+        .ok_or_else(|| format!("unsupported taxonomy kind: {value}"))
+}
+
+fn validate_taxonomy_filter_combination(filters: &SearchFilters) -> Result<()> {
+    let Some(domain) = filters.domain.as_deref() else {
+        return Ok(());
+    };
+    let Some(topic) = filters.topic.as_deref() else {
+        return Ok(());
+    };
+
+    let domain = DomainV1::parse(domain)
+        .ok_or_else(|| anyhow::anyhow!("unsupported taxonomy domain: {domain}"))?;
+    let topic = TopicV1::parse(topic)
+        .ok_or_else(|| anyhow::anyhow!("unsupported taxonomy topic: {topic}"))?;
+
+    if !TopicV1::allowed_for(domain).contains(&topic) {
+        anyhow::bail!(
+            "unsupported taxonomy combination: domain={} does not allow topic={}",
+            domain.as_str(),
+            topic.as_str()
+        );
+    }
+
+    Ok(())
 }
 
 fn gate_label(decision: crate::cognition::metacog::GateDecision) -> &'static str {

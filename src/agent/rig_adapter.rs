@@ -2,7 +2,7 @@ use rig::{agent::AgentBuilder, completion::CompletionModel};
 use thiserror::Error;
 
 use crate::agent::orchestration::{
-    AgentSearchReport, AgentSearchRequest, AgentSearchRunner, AgentSearchError,
+    AgentSearchError, AgentSearchReport, AgentSearchRequest, AgentSearchRunner,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

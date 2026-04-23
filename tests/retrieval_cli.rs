@@ -9,16 +9,15 @@ use std::{
 use agent_memos::{
     core::config::{
         Config, EmbeddingBackend, EmbeddingConfig, RetrievalConfig, RetrievalMode,
-        RetrievalModeVariant, RootLlmConfig, RootRuntimeConfig, RootVectorConfig,
-        VectorBackend,
+        RetrievalModeVariant, RootLlmConfig, RootRuntimeConfig, RootVectorConfig, VectorBackend,
     },
     core::db::Database,
     ingest::{IngestRequest, IngestService},
-    memory::repository::{MemoryRepository, RecordEmbedding},
     memory::record::{
         MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceKind, SourceRef,
         TruthLayer, ValidityWindow,
     },
+    memory::repository::{MemoryRepository, RecordEmbedding},
     search::{SearchFilters, SearchRequest, SearchService, lexical::MAX_RECALL_LIMIT},
 };
 use serde_json::Value;
@@ -610,7 +609,10 @@ fn library_search_preserves_matched_query_for_mixed_recall() {
         .expect("mixed lexical + structured search should succeed");
 
     assert_eq!(response.results.len(), 1);
-    assert_eq!(response.results[0].trace.matched_query, "lexical-first baseline");
+    assert_eq!(
+        response.results[0].trace.matched_query,
+        "lexical-first baseline"
+    );
     assert!(
         response.results[0]
             .trace
@@ -1019,13 +1021,11 @@ fn library_search_dedupes_repeated_structured_query_terms_before_scoring() {
     assert_eq!(single.results.len(), 1);
     assert_eq!(repeated.results.len(), 1);
     assert_eq!(
-        repeated.results[0].score.lexical_raw,
-        single.results[0].score.lexical_raw,
+        repeated.results[0].score.lexical_raw, single.results[0].score.lexical_raw,
         "repeating the same structured query term should not inflate structured match score"
     );
     assert_eq!(
-        repeated.results[0].score.final_score,
-        single.results[0].score.final_score,
+        repeated.results[0].score.final_score, single.results[0].score.final_score,
         "repeating the same structured query term should not inflate final score"
     );
 }
@@ -1368,7 +1368,11 @@ fn library_search_preserves_record_provenance_for_structured_only_recall() {
     assert_eq!(response.results.len(), 1);
     assert_eq!(response.results[0].record.provenance.origin, "ingest");
     assert_eq!(
-        response.results[0].record.provenance.imported_via.as_deref(),
+        response.results[0]
+            .record
+            .provenance
+            .imported_via
+            .as_deref(),
         Some("ingest_service")
     );
     assert!(
@@ -1377,7 +1381,9 @@ fn library_search_preserves_record_provenance_for_structured_only_recall() {
             .provenance
             .derived_from
             .first()
-            .is_some_and(|value| value.starts_with("memo://project/library-structured-record-provenance#")),
+            .is_some_and(
+                |value| value.starts_with("memo://project/library-structured-record-provenance#")
+            ),
         "structured-only record provenance should retain the source anchor"
     );
     assert!(
@@ -1417,7 +1423,11 @@ fn library_search_preserves_record_provenance_for_mixed_recall() {
     assert_eq!(response.results.len(), 1);
     assert_eq!(response.results[0].record.provenance.origin, "ingest");
     assert_eq!(
-        response.results[0].record.provenance.imported_via.as_deref(),
+        response.results[0]
+            .record
+            .provenance
+            .imported_via
+            .as_deref(),
         Some("ingest_service")
     );
     assert!(
@@ -1426,7 +1436,9 @@ fn library_search_preserves_record_provenance_for_mixed_recall() {
             .provenance
             .derived_from
             .first()
-            .is_some_and(|value| value.starts_with("memo://project/library-mixed-record-provenance#")),
+            .is_some_and(
+                |value| value.starts_with("memo://project/library-mixed-record-provenance#")
+            ),
         "mixed record provenance should retain the source anchor"
     );
     assert!(
@@ -1528,16 +1540,19 @@ fn library_search_applies_taxonomy_filters_before_top_k_truncation() {
     );
 
     let response = SearchService::new(db.conn())
-        .search(&SearchRequest::new("baseline").with_limit(1).with_filters(SearchFilters {
-            topic: Some("retrieval".to_string()),
-            ..Default::default()
-        }))
+        .search(
+            &SearchRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(SearchFilters {
+                    topic: Some("retrieval".to_string()),
+                    ..Default::default()
+                }),
+        )
         .expect("taxonomy-filtered retrieval should succeed even with top-k truncation");
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
-        response.results[0].record.source.uri,
-        "memo://project/retrieval-top-k",
+        response.results[0].record.source.uri, "memo://project/retrieval-top-k",
         "taxonomy filtering should happen before top-k truncation removes lower-ranked matching records"
     );
 }
@@ -2063,7 +2078,10 @@ fn cli_search_json_reports_structured_only_channel_as_lexical_first() {
         search_json["results"][0]["trace"]["channel_contribution"],
         "lexical_only"
     );
-    assert_eq!(search_json["results"][0]["trace"]["matched_query"], "decision");
+    assert_eq!(
+        search_json["results"][0]["trace"]["matched_query"],
+        "decision"
+    );
     assert!(
         search_json["results"][0]["trace"]["query_strategies"]
             .as_array()
@@ -2127,15 +2145,24 @@ fn cli_search_json_preserves_citation_shape_for_structured_only_recall() {
     );
     assert_eq!(search_json["results"][0]["record"]["scope"], "project");
     assert_eq!(search_json["results"][0]["record"]["truth_layer"], "t2");
-    assert_eq!(search_json["results"][0]["record"]["record_type"], "decision");
+    assert_eq!(
+        search_json["results"][0]["record"]["record_type"],
+        "decision"
+    );
     assert!(
         search_json["results"][0]["citation"]["record_id"]
             .as_str()
             .is_some_and(|value| value.starts_with("mem-")),
         "structured-only json recall should expose the authority citation record id"
     );
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_index"], 0);
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_count"], 1);
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_index"],
+        0
+    );
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_count"],
+        1
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["anchor"]["anchor"]["kind"],
         "line_range"
@@ -2357,7 +2384,10 @@ fn cli_search_json_preserves_record_provenance_for_structured_only_recall() {
     );
     let search_json: Value =
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
-    assert_eq!(search_json["results"][0]["record"]["provenance"]["origin"], "ingest");
+    assert_eq!(
+        search_json["results"][0]["record"]["provenance"]["origin"],
+        "ingest"
+    );
     assert_eq!(
         search_json["results"][0]["record"]["provenance"]["imported_via"],
         "ingest_service"
@@ -2365,11 +2395,10 @@ fn cli_search_json_preserves_record_provenance_for_structured_only_recall() {
     assert!(
         search_json["results"][0]["record"]["provenance"]["derived_from"]
             .as_array()
-            .is_some_and(|items| items.iter().any(|value| value
-                .as_str()
-                .is_some_and(|item| item.starts_with(
-                    "memo://project/cli-json-structured-only-record-provenance#"
-                )))),
+            .is_some_and(|items| items
+                .iter()
+                .any(|value| value.as_str().is_some_and(|item| item
+                    .starts_with("memo://project/cli-json-structured-only-record-provenance#")))),
         "structured-only json recall should preserve the source-derived provenance anchor"
     );
     assert!(
@@ -2683,7 +2712,9 @@ fn cli_search_text_rejects_invalid_domain_topic_combinations() {
 
     let output = run_cli(
         &config_path,
-        &["search", "baseline", "--domain", "project", "--topic", "storage"],
+        &[
+            "search", "baseline", "--domain", "project", "--topic", "storage",
+        ],
     );
 
     assert!(
@@ -2846,7 +2877,10 @@ fn cli_search_text_rejects_invalid_rfc3339_recorded_from() {
         stderr(&init_output)
     );
 
-    let output = run_cli(&config_path, &["search", "baseline", "--from", "not-a-time"]);
+    let output = run_cli(
+        &config_path,
+        &["search", "baseline", "--from", "not-a-time"],
+    );
 
     assert!(
         !output.status.success(),
@@ -2942,7 +2976,10 @@ fn cli_search_text_rejects_invalid_rfc3339_temporal_filters() {
         stderr(&init_output)
     );
 
-    let output = run_cli(&config_path, &["search", "baseline", "--valid-at", "not-a-time"]);
+    let output = run_cli(
+        &config_path,
+        &["search", "baseline", "--valid-at", "not-a-time"],
+    );
 
     assert!(
         !output.status.success(),
@@ -3040,11 +3077,9 @@ fn library_search_rejects_inverted_temporal_ranges() {
         }))
         .expect_err("library search should reject inverted temporal ranges");
 
-    assert!(
-        err.to_string().contains(
-            "invalid temporal range: from=2026-04-20T00:00:00Z is later than to=2026-04-10T00:00:00Z"
-        )
-    );
+    assert!(err.to_string().contains(
+        "invalid temporal range: from=2026-04-20T00:00:00Z is later than to=2026-04-10T00:00:00Z"
+    ));
 }
 
 #[test]
@@ -3688,7 +3723,13 @@ fn cli_search_json_orders_recency_by_parsed_rfc3339_instant() {
 
     let search_output = run_cli(
         &config_path,
-        &["search", "parsed instants offsets", "--top-k", "2", "--json"],
+        &[
+            "search",
+            "parsed instants offsets",
+            "--top-k",
+            "2",
+            "--json",
+        ],
     );
     assert!(
         search_output.status.success(),
@@ -3700,8 +3741,7 @@ fn cli_search_json_orders_recency_by_parsed_rfc3339_instant() {
     let search_json: Value =
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
     assert_eq!(
-        search_json["results"][0]["record"]["source"]["uri"],
-        "memo://project/cli-newer-zulu",
+        search_json["results"][0]["record"]["source"]["uri"], "memo://project/cli-newer-zulu",
         "cli search should rank the truly newer instant ahead of the lexically larger offset timestamp"
     );
 }
@@ -3985,8 +4025,14 @@ fn cli_search_json_exposes_citation_recorded_at_and_anchor_shape() {
         search_json["results"][0]["citation"]["recorded_at"],
         "2026-04-15T15:12:00Z"
     );
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_index"], 0);
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_count"], 1);
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_index"],
+        0
+    );
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_count"],
+        1
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["anchor"]["anchor"]["kind"],
         "line_range"
@@ -4083,7 +4129,10 @@ fn cli_search_json_preserves_source_metadata_for_mixed_recall() {
     );
     assert_eq!(search_json["results"][0]["record"]["scope"], "project");
     assert_eq!(search_json["results"][0]["record"]["truth_layer"], "t2");
-    assert_eq!(search_json["results"][0]["record"]["record_type"], "decision");
+    assert_eq!(
+        search_json["results"][0]["record"]["record_type"],
+        "decision"
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["source_uri"],
         "memo://project/cli-json-mixed-source-metadata"
@@ -4151,7 +4200,10 @@ fn cli_search_json_preserves_record_provenance_for_mixed_recall() {
     );
     let search_json: Value =
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
-    assert_eq!(search_json["results"][0]["record"]["provenance"]["origin"], "ingest");
+    assert_eq!(
+        search_json["results"][0]["record"]["provenance"]["origin"],
+        "ingest"
+    );
     assert_eq!(
         search_json["results"][0]["record"]["provenance"]["imported_via"],
         "ingest_service"
@@ -4159,11 +4211,9 @@ fn cli_search_json_preserves_record_provenance_for_mixed_recall() {
     assert!(
         search_json["results"][0]["record"]["provenance"]["derived_from"]
             .as_array()
-            .is_some_and(|items| items.iter().any(|value| value
-                .as_str()
-                .is_some_and(|item| item.starts_with(
-                    "memo://project/cli-json-mixed-record-provenance#"
-                )))),
+            .is_some_and(|items| items.iter().any(|value| value.as_str().is_some_and(
+                |item| item.starts_with("memo://project/cli-json-mixed-record-provenance#")
+            ))),
         "mixed json recall should preserve the source-derived provenance anchor"
     );
     assert!(
@@ -4308,8 +4358,14 @@ fn cli_search_json_preserves_citation_recorded_at_and_anchor_for_mixed_recall() 
         search_json["results"][0]["citation"]["recorded_at"],
         "2026-04-15T15:47:00Z"
     );
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_index"], 0);
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_count"], 1);
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_index"],
+        0
+    );
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_count"],
+        1
+    );
     assert!(
         search_json["results"][0]["trace"]["query_strategies"]
             .as_array()
@@ -5253,8 +5309,7 @@ fn cli_search_json_applies_taxonomy_filters_before_top_k_truncation() {
         serde_json::from_str(&stdout(&output)).expect("search should emit json");
     assert_eq!(search_json["results"].as_array().map(Vec::len), Some(1));
     assert_eq!(
-        search_json["results"][0]["record"]["source"]["uri"],
-        "memo://project/cli-retrieval-top-k",
+        search_json["results"][0]["record"]["source"]["uri"], "memo://project/cli-retrieval-top-k",
         "taxonomy filtering should be applied before top-k truncation in cli search"
     );
 }
@@ -5570,7 +5625,10 @@ fn cli_search_text_clamps_zero_top_k_to_one_result() {
         stderr(&ingest_output)
     );
 
-    let output = run_cli(&config_path, &["search", "bounded text recall", "--top-k", "0"]);
+    let output = run_cli(
+        &config_path,
+        &["search", "bounded text recall", "--top-k", "0"],
+    );
     let text = stdout(&output);
     assert!(
         output.status.success(),
@@ -5631,7 +5689,10 @@ fn cli_search_text_clamps_excessive_top_k_to_max_recall_limit() {
         );
     }
 
-    let output = run_cli(&config_path, &["search", "bounded text recall", "--top-k", "999"]);
+    let output = run_cli(
+        &config_path,
+        &["search", "bounded text recall", "--top-k", "999"],
+    );
     let text = stdout(&output);
     assert!(
         output.status.success(),
@@ -5639,7 +5700,10 @@ fn cli_search_text_clamps_excessive_top_k_to_max_recall_limit() {
         stderr(&output)
     );
     assert!(
-        text.contains(&format!("results: {}", agent_memos::search::lexical::MAX_RECALL_LIMIT)),
+        text.contains(&format!(
+            "results: {}",
+            agent_memos::search::lexical::MAX_RECALL_LIMIT
+        )),
         "text output should clamp excessive top-k to MAX_RECALL_LIMIT: {text}"
     );
 }
@@ -5998,8 +6062,7 @@ fn cli_search_text_preserves_record_and_citation_shape_for_mixed_recall() {
         "mixed text recall should preserve the authority record summary: {text}"
     );
     assert!(
-        text.contains("kind=document")
-            && text.contains("label=mixed text shape memo"),
+        text.contains("kind=document") && text.contains("label=mixed text shape memo"),
         "mixed text recall should preserve source kind and label in the record summary: {text}"
     );
     assert!(
@@ -7076,7 +7139,10 @@ fn cli_search_json_exposes_dsl_sidecar_for_hybrid_ready_path() {
 
     let search_json: Value =
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
-    assert_eq!(search_json["results"][0]["trace"]["channel_contribution"], "hybrid");
+    assert_eq!(
+        search_json["results"][0]["trace"]["channel_contribution"],
+        "hybrid"
+    );
     assert_eq!(search_json["results"][0]["dsl"]["domain"], "project");
     assert_eq!(search_json["results"][0]["dsl"]["kind"], "decision");
     assert_eq!(
@@ -8443,7 +8509,10 @@ fn cli_search_json_exposes_dsl_sidecar_for_configured_hybrid_ready_path() {
 
     let search_json: Value =
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
-    assert_eq!(search_json["results"][0]["trace"]["channel_contribution"], "hybrid");
+    assert_eq!(
+        search_json["results"][0]["trace"]["channel_contribution"],
+        "hybrid"
+    );
     assert_eq!(search_json["results"][0]["dsl"]["domain"], "project");
     assert_eq!(search_json["results"][0]["dsl"]["kind"], "decision");
     assert_eq!(
@@ -9210,7 +9279,10 @@ fn cli_search_text_reports_hybrid_channel_and_embedding_strategy_when_ready() {
         },
     );
 
-    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--mode", "hybrid"]);
+    let search_output = run_cli(
+        &config_path,
+        &["search", "retrieval fusion", "--mode", "hybrid"],
+    );
     let text = stdout(&search_output);
     assert!(
         search_output.status.success(),
@@ -9335,7 +9407,10 @@ fn cli_search_text_renders_dsl_summary_for_hybrid_ready_path() {
         },
     );
 
-    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--mode", "hybrid"]);
+    let search_output = run_cli(
+        &config_path,
+        &["search", "retrieval fusion", "--mode", "hybrid"],
+    );
     let text = stdout(&search_output);
     assert!(
         search_output.status.success(),
@@ -9407,9 +9482,7 @@ fn cli_search_text_renders_dsl_summary_for_configured_embedding_only_ready_path(
     );
     assert!(text.contains("channel: embedding_only"));
     assert!(text.contains("dsl:"));
-    assert!(text.contains(
-        "SRC: memo://project/configured-embedding-only-text-ready-dsl"
-    ));
+    assert!(text.contains("SRC: memo://project/configured-embedding-only-text-ready-dsl"));
 }
 
 #[test]
@@ -9730,7 +9803,10 @@ fn cli_search_text_reports_exact_hybrid_strategy_summary_when_ready() {
         },
     );
 
-    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--mode", "hybrid"]);
+    let search_output = run_cli(
+        &config_path,
+        &["search", "retrieval fusion", "--mode", "hybrid"],
+    );
     let text = stdout(&search_output);
     assert!(
         search_output.status.success(),
@@ -10034,7 +10110,9 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
         Some(RetrievalMode::EmbeddingOnly),
     )
     .search(&SearchRequest::new("baseline"))
-    .expect("embedding_only library search should succeed even when the embedding channel is disabled");
+    .expect(
+        "embedding_only library search should succeed even when the embedding channel is disabled",
+    );
 
     assert!(
         response.results.is_empty(),
@@ -10079,9 +10157,10 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
         ..Default::default()
     };
 
-    let response = SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
-        .search(&SearchRequest::new("baseline"))
-        .expect("hybrid library search should succeed when the embedding channel is disabled");
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+            .search(&SearchRequest::new("baseline"))
+            .expect("hybrid library search should succeed when the embedding channel is disabled");
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
@@ -10097,7 +10176,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
 
 #[test]
 fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_model_is_missing()
-{
+ {
     let path = fresh_db_path("runtime-config-embedding-missing-model");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::new(db.conn());
@@ -10139,7 +10218,9 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
         Some(RetrievalMode::EmbeddingOnly),
     )
     .search(&SearchRequest::new("baseline"))
-    .expect("embedding_only library search should succeed even when the embedding model is missing");
+    .expect(
+        "embedding_only library search should succeed even when the embedding model is missing",
+    );
 
     assert!(
         response.results.is_empty(),
@@ -10185,9 +10266,10 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
         ..Default::default()
     };
 
-    let response = SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
-        .search(&SearchRequest::new("baseline"))
-        .expect("hybrid library search should succeed when the embedding model is missing");
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+            .search(&SearchRequest::new("baseline"))
+            .expect("hybrid library search should succeed when the embedding model is missing");
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
@@ -10203,7 +10285,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
 
 #[test]
 fn library_search_with_runtime_config_embedding_only_returns_no_results_when_vector_backend_is_none()
-{
+ {
     let path = fresh_db_path("runtime-config-embedding-missing-vector");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::new(db.conn());
@@ -10290,9 +10372,10 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_vector_b
         ..Default::default()
     };
 
-    let response = SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
-        .search(&SearchRequest::new("baseline"))
-        .expect("hybrid library search should succeed when the vector backend is missing");
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+            .search(&SearchRequest::new("baseline"))
+            .expect("hybrid library search should succeed when the vector backend is missing");
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
@@ -10392,7 +10475,9 @@ fn library_search_with_runtime_config_uses_configured_hybrid_mode_when_model_is_
 
     let response = SearchService::with_runtime_config(db.conn(), &config, None)
         .search(&SearchRequest::new("baseline"))
-        .expect("hybrid library search should honor the configured mode when mode_override is omitted");
+        .expect(
+            "hybrid library search should honor the configured mode when mode_override is omitted",
+        );
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
@@ -10514,13 +10599,10 @@ fn library_search_preserves_record_and_citation_shape_for_embedding_only_ready_p
         ..Default::default()
     };
 
-    let response = SearchService::with_runtime_config(
-        db.conn(),
-        &config,
-        Some(RetrievalMode::EmbeddingOnly),
-    )
-    .search(&SearchRequest::new("retrieval fusion"))
-    .expect("embedding_only ready-path search should succeed");
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::EmbeddingOnly))
+            .search(&SearchRequest::new("retrieval fusion"))
+            .expect("embedding_only ready-path search should succeed");
 
     assert_eq!(response.results.len(), 1);
     let result = &response.results[0];
@@ -10530,8 +10612,14 @@ fn library_search_preserves_record_and_citation_shape_for_embedding_only_ready_p
     assert_eq!(result.citation.record_id, result.record.id);
     assert_eq!(result.citation.source_uri, result.record.source.uri);
     assert_eq!(result.citation.recorded_at, "2026-04-18T13:30:00Z");
-    assert_eq!(result.citation.validity.valid_from.as_deref(), Some("2026-04-10T00:00:00Z"));
-    assert_eq!(result.citation.validity.valid_to.as_deref(), Some("2026-04-20T00:00:00Z"));
+    assert_eq!(
+        result.citation.validity.valid_from.as_deref(),
+        Some("2026-04-10T00:00:00Z")
+    );
+    assert_eq!(
+        result.citation.validity.valid_to.as_deref(),
+        Some("2026-04-20T00:00:00Z")
+    );
     assert_eq!(result.citation.anchor.chunk_index, 0);
     assert_eq!(result.citation.anchor.chunk_count, 1);
 }
@@ -10581,13 +10669,10 @@ fn library_search_preserves_dsl_sidecar_for_embedding_only_ready_path() {
         ..Default::default()
     };
 
-    let response = SearchService::with_runtime_config(
-        db.conn(),
-        &config,
-        Some(RetrievalMode::EmbeddingOnly),
-    )
-    .search(&SearchRequest::new("retrieval fusion"))
-    .expect("embedding_only ready-path search should preserve the dsl sidecar");
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::EmbeddingOnly))
+            .search(&SearchRequest::new("retrieval fusion"))
+            .expect("embedding_only ready-path search should preserve the dsl sidecar");
 
     assert_eq!(response.results.len(), 1);
     let dsl = response.results[0]
@@ -10596,7 +10681,10 @@ fn library_search_preserves_dsl_sidecar_for_embedding_only_ready_path() {
         .expect("embedding_only ready-path search should attach the structured dsl sidecar");
     assert_eq!(dsl.domain, "project");
     assert_eq!(dsl.kind, "decision");
-    assert_eq!(dsl.source_ref, "memo://project/library-embedding-only-dsl-sidecar");
+    assert_eq!(
+        dsl.source_ref,
+        "memo://project/library-embedding-only-dsl-sidecar"
+    );
     assert!(!dsl.claim.is_empty());
 }
 
@@ -10773,13 +10861,12 @@ fn library_search_with_runtime_config_mode_override_can_force_lexical_only_when_
         ..Default::default()
     };
 
-    let response = SearchService::with_runtime_config(
-        db.conn(),
-        &config,
-        Some(RetrievalMode::LexicalOnly),
-    )
-    .search(&SearchRequest::new("retrieval fusion"))
-    .expect("mode_override=lexical_only should succeed when the embedding channel is ready");
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::LexicalOnly))
+            .search(&SearchRequest::new("retrieval fusion"))
+            .expect(
+                "mode_override=lexical_only should succeed when the embedding channel is ready",
+            );
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
@@ -10841,13 +10928,10 @@ fn library_search_with_runtime_config_mode_override_can_force_hybrid_when_embedd
         ..Default::default()
     };
 
-    let response = SearchService::with_runtime_config(
-        db.conn(),
-        &config,
-        Some(RetrievalMode::Hybrid),
-    )
-    .search(&SearchRequest::new("retrieval fusion"))
-    .expect("mode_override=hybrid should succeed when the embedding channel is ready");
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+            .search(&SearchRequest::new("retrieval fusion"))
+            .expect("mode_override=hybrid should succeed when the embedding channel is ready");
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
@@ -10861,73 +10945,6 @@ fn library_search_with_runtime_config_mode_override_can_force_hybrid_when_embedd
             .query_strategies
             .contains(&agent_memos::search::QueryStrategy::Embedding),
         "mode_override=hybrid should surface embedding strategies when the embedding channel is ready"
-    );
-}
-
-#[test]
-fn library_search_with_runtime_config_mode_override_can_force_embedding_only_when_embedding_is_ready()
-{
-    let path = fresh_db_path("runtime-config-override-embedding-only");
-    let db = Database::open(&path).expect("database should bootstrap");
-    let ingest = IngestService::with_embedding_config(
-        db.conn(),
-        Default::default(),
-        EmbeddingConfig {
-            backend: EmbeddingBackend::Builtin,
-            model: Some("builtin-16".to_string()),
-            endpoint: None,
-        },
-    );
-
-    ingest_record(
-        &ingest,
-        FixtureRecord {
-            source_uri: "memo://project/runtime-config-override-embedding-only",
-            source_label: "runtime config override embedding_only memo",
-            content: "retrieval fusion semantic retrieval fusion citations",
-            scope: Scope::Project,
-            record_type: RecordType::Decision,
-            truth_layer: TruthLayer::T2,
-            recorded_at: "2026-04-18T12:40:00Z",
-            valid_from: None,
-            valid_to: None,
-        },
-    );
-
-    let config = Config {
-        retrieval: RetrievalConfig {
-            mode: RetrievalMode::LexicalOnly,
-        },
-        embedding: agent_memos::core::config::EmbeddingConfig {
-            backend: EmbeddingBackend::Builtin,
-            model: Some("builtin-16".to_string()),
-            endpoint: None,
-        },
-        vector: RootVectorConfig {
-            backend: VectorBackend::SqliteVec,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-
-    let response = SearchService::with_runtime_config(
-        db.conn(),
-        &config,
-        Some(RetrievalMode::EmbeddingOnly),
-    )
-    .search(&SearchRequest::new("retrieval fusion"))
-    .expect("mode_override=embedding_only should succeed when the embedding channel is ready");
-
-    assert_eq!(response.results.len(), 1);
-    assert_eq!(
-        response.results[0].trace.channel_contribution,
-        agent_memos::search::ChannelContribution::EmbeddingOnly,
-        "mode_override=embedding_only should enable embedding-only contribution when the embedding channel is ready"
-    );
-    assert_eq!(
-        response.results[0].trace.query_strategies,
-        vec![agent_memos::search::QueryStrategy::Embedding],
-        "mode_override=embedding_only should only surface embedding strategies when the embedding channel is ready"
     );
 }
 
@@ -11002,6 +11019,72 @@ fn library_search_with_runtime_config_mode_override_preserves_source_metadata_fo
 }
 
 #[test]
+fn library_search_with_runtime_config_mode_override_can_force_embedding_only_when_embedding_is_ready()
+ {
+    let path = fresh_db_path("runtime-config-override-embedding-only");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-override-embedding-only",
+            source_label: "runtime config override embedding_only memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T12:40:00Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::LexicalOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::EmbeddingOnly))
+            .search(&SearchRequest::new("retrieval fusion"))
+            .expect(
+                "mode_override=embedding_only should succeed when the embedding channel is ready",
+            );
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::EmbeddingOnly,
+        "mode_override=embedding_only should enable embedding-only contribution when the embedding channel is ready"
+    );
+    assert_eq!(
+        response.results[0].trace.query_strategies,
+        vec![agent_memos::search::QueryStrategy::Embedding],
+        "mode_override=embedding_only should only surface embedding strategies when the embedding channel is ready"
+    );
+}
+
+#[test]
 fn library_search_with_runtime_config_mode_override_preserves_source_metadata_for_embedding_only_ready_path(
 ) {
     let path = fresh_db_path("runtime-config-override-embedding-only-source-metadata");
@@ -11047,13 +11130,10 @@ fn library_search_with_runtime_config_mode_override_preserves_source_metadata_fo
         ..Default::default()
     };
 
-    let response = SearchService::with_runtime_config(
-        db.conn(),
-        &config,
-        Some(RetrievalMode::EmbeddingOnly),
-    )
-    .search(&SearchRequest::new("retrieval fusion"))
-    .expect("mode_override=embedding_only should preserve source metadata when ready");
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::EmbeddingOnly))
+            .search(&SearchRequest::new("retrieval fusion"))
+            .expect("mode_override=embedding_only should preserve source metadata when ready");
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
@@ -11122,13 +11202,10 @@ fn library_search_with_runtime_config_embedding_only_uses_truncated_raw_snippet_
         ..Default::default()
     };
 
-    let response = SearchService::with_runtime_config(
-        db.conn(),
-        &config,
-        Some(RetrievalMode::EmbeddingOnly),
-    )
-    .search(&SearchRequest::new("semantic second channel"))
-    .expect("embedding_only search should succeed when the second channel is ready");
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::EmbeddingOnly))
+            .search(&SearchRequest::new("semantic second channel"))
+            .expect("embedding_only search should succeed when the second channel is ready");
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(response.results[0].snippet, expected_snippet);
@@ -11391,8 +11468,14 @@ fn library_search_preserves_record_and_citation_shape_for_hybrid_ready_path() {
     assert_eq!(result.citation.record_id, result.record.id);
     assert_eq!(result.citation.source_uri, result.record.source.uri);
     assert_eq!(result.citation.recorded_at, "2026-04-18T13:35:00Z");
-    assert_eq!(result.citation.validity.valid_from.as_deref(), Some("2026-04-10T00:00:00Z"));
-    assert_eq!(result.citation.validity.valid_to.as_deref(), Some("2026-04-20T00:00:00Z"));
+    assert_eq!(
+        result.citation.validity.valid_from.as_deref(),
+        Some("2026-04-10T00:00:00Z")
+    );
+    assert_eq!(
+        result.citation.validity.valid_to.as_deref(),
+        Some("2026-04-20T00:00:00Z")
+    );
     assert_eq!(result.citation.anchor.chunk_index, 0);
     assert_eq!(result.citation.anchor.chunk_count, 1);
 }
@@ -11520,7 +11603,7 @@ fn library_search_with_runtime_config_reports_exact_hybrid_strategies_when_embed
 
 #[test]
 fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_backend_is_reserved()
-{
+ {
     let path = fresh_db_path("runtime-config-embedding-reserved");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::new(db.conn());
@@ -11562,7 +11645,9 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
         Some(RetrievalMode::EmbeddingOnly),
     )
     .search(&SearchRequest::new("baseline"))
-    .expect("embedding_only library search should succeed even when the embedding backend is reserved");
+    .expect(
+        "embedding_only library search should succeed even when the embedding backend is reserved",
+    );
 
     assert!(
         response.results.is_empty(),
@@ -11572,7 +11657,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
 
 #[test]
 fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embedding_backend_is_reserved()
-{
+ {
     let path = fresh_db_path("runtime-config-hybrid-reserved");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::new(db.conn());
@@ -11608,9 +11693,10 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
         ..Default::default()
     };
 
-    let response = SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
-        .search(&SearchRequest::new("baseline"))
-        .expect("hybrid library search should succeed when the embedding backend is reserved");
+    let response =
+        SearchService::with_runtime_config(db.conn(), &config, Some(RetrievalMode::Hybrid))
+            .search(&SearchRequest::new("baseline"))
+            .expect("hybrid library search should succeed when the embedding backend is reserved");
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
@@ -11626,7 +11712,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
 
 #[test]
 fn library_search_with_runtime_config_uses_configured_lexical_only_mode_when_embedding_backend_is_reserved()
-{
+ {
     let path = fresh_db_path("runtime-config-configured-lexical-only-reserved");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::new(db.conn());
@@ -11680,7 +11766,7 @@ fn library_search_with_runtime_config_uses_configured_lexical_only_mode_when_emb
 
 #[test]
 fn library_search_with_runtime_config_uses_configured_lexical_only_mode_when_vector_backend_is_none()
-{
+ {
     let path = fresh_db_path("runtime-config-configured-lexical-only-no-vector");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::new(db.conn());
@@ -11822,8 +11908,7 @@ fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_sidec
 }
 
 #[test]
-fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_model_is_missing()
-{
+fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_model_is_missing() {
     let path = fresh_db_path("variant-embedding-missing-model");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::new(db.conn());
@@ -11858,7 +11943,9 @@ fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_
 
     let response = SearchService::with_variant(db.conn(), &variant)
         .search(&SearchRequest::new("baseline"))
-        .expect("embedding_only variant search should succeed even when the embedding model is missing");
+        .expect(
+            "embedding_only variant search should succeed even when the embedding model is missing",
+        );
 
     assert!(
         response.results.is_empty(),
@@ -11955,7 +12042,9 @@ fn library_search_with_variant_embedding_only_returns_no_results_when_vector_bac
 
     let response = SearchService::with_variant(db.conn(), &variant)
         .search(&SearchRequest::new("baseline"))
-        .expect("embedding_only variant search should succeed even when the vector backend is missing");
+        .expect(
+            "embedding_only variant search should succeed even when the vector backend is missing",
+        );
 
     assert!(
         response.results.is_empty(),
@@ -12018,7 +12107,7 @@ fn library_search_with_variant_hybrid_falls_back_to_lexical_when_vector_backend_
 
 #[test]
 fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_backend_is_reserved()
-{
+ {
     let path = fresh_db_path("variant-embedding-reserved");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::new(db.conn());
@@ -12209,7 +12298,9 @@ fn library_search_with_variant_uses_lexical_only_mode_when_vector_backend_is_non
 
     let response = SearchService::with_variant(db.conn(), &variant)
         .search(&SearchRequest::new("baseline"))
-        .expect("lexical_only variant search should still succeed when the vector backend is missing");
+        .expect(
+            "lexical_only variant search should still succeed when the vector backend is missing",
+        );
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
@@ -12334,7 +12425,9 @@ fn library_search_with_variant_keeps_lexical_only_when_embedding_channel_is_read
 
     let response = SearchService::with_variant(db.conn(), &variant)
         .search(&SearchRequest::new("retrieval fusion"))
-        .expect("lexical_only variant search should still succeed when the embedding channel is ready");
+        .expect(
+            "lexical_only variant search should still succeed when the embedding channel is ready",
+        );
 
     assert_eq!(response.results.len(), 1);
     assert_eq!(
@@ -12603,6 +12696,75 @@ fn library_search_with_variant_preserves_dsl_sidecar_for_embedding_only_ready_pa
 }
 
 #[test]
+fn library_search_with_variant_preserves_record_and_citation_shape_for_embedding_only_ready_path() {
+    let path = fresh_db_path("variant-embedding-only-record-citation-shape");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-only-record-citation-shape",
+            source_label: "variant embedding only record citation memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:19:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(&SearchRequest::new("retrieval fusion"))
+        .expect("embedding_only variant ready-path search should preserve record and citation shape");
+
+    assert_eq!(response.results.len(), 1);
+    let result = &response.results[0];
+    assert_eq!(result.record.scope, Scope::Project);
+    assert_eq!(result.record.truth_layer, TruthLayer::T2);
+    assert_eq!(result.record.record_type, RecordType::Decision);
+    assert_eq!(result.citation.record_id, result.record.id);
+    assert_eq!(result.citation.source_uri, result.record.source.uri);
+    assert_eq!(result.citation.recorded_at, "2026-04-18T13:19:00Z");
+    assert_eq!(
+        result.citation.validity.valid_from.as_deref(),
+        Some("2026-04-10T00:00:00Z")
+    );
+    assert_eq!(
+        result.citation.validity.valid_to.as_deref(),
+        Some("2026-04-20T00:00:00Z")
+    );
+    assert_eq!(result.citation.anchor.chunk_index, 0);
+    assert_eq!(result.citation.anchor.chunk_count, 1);
+}
+
+#[test]
 fn library_search_with_variant_uses_unsuffixed_builtin_model_for_hybrid_ready_path() {
     let path = fresh_db_path("variant-unsuffixed-builtin-model-hybrid");
     let db = Database::open(&path).expect("database should bootstrap");
@@ -12726,75 +12888,6 @@ fn library_search_with_variant_preserves_dsl_sidecar_for_hybrid_ready_path() {
     assert_eq!(dsl.kind, "decision");
     assert_eq!(dsl.source_ref, "memo://project/variant-hybrid-dsl-sidecar");
     assert!(!dsl.claim.is_empty());
-}
-
-#[test]
-fn library_search_with_variant_preserves_record_and_citation_shape_for_embedding_only_ready_path() {
-    let path = fresh_db_path("variant-embedding-only-record-citation-shape");
-    let db = Database::open(&path).expect("database should bootstrap");
-    let ingest = IngestService::with_embedding_config(
-        db.conn(),
-        Default::default(),
-        EmbeddingConfig {
-            backend: EmbeddingBackend::Builtin,
-            model: Some("builtin-16".to_string()),
-            endpoint: None,
-        },
-    );
-
-    ingest_record(
-        &ingest,
-        FixtureRecord {
-            source_uri: "memo://project/variant-embedding-only-record-citation-shape",
-            source_label: "variant embedding only record citation memo",
-            content: "retrieval fusion semantic retrieval fusion citations",
-            scope: Scope::Project,
-            record_type: RecordType::Decision,
-            truth_layer: TruthLayer::T2,
-            recorded_at: "2026-04-18T13:19:00Z",
-            valid_from: Some("2026-04-10T00:00:00Z"),
-            valid_to: Some("2026-04-20T00:00:00Z"),
-        },
-    );
-
-    let variant = RetrievalModeVariant {
-        name: "embedding_only".to_string(),
-        db_path: path.display().to_string(),
-        mode: RetrievalMode::EmbeddingOnly,
-        embedding_backend: EmbeddingBackend::Builtin,
-        llm: RootLlmConfig::default(),
-        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
-            model: "builtin-16".to_string(),
-            ..Default::default()
-        }),
-        vector: Some(RootVectorConfig {
-            backend: VectorBackend::SqliteVec,
-            ..Default::default()
-        }),
-    };
-
-    let response = SearchService::with_variant(db.conn(), &variant)
-        .search(&SearchRequest::new("retrieval fusion"))
-        .expect("embedding_only variant ready-path search should preserve record and citation shape");
-
-    assert_eq!(response.results.len(), 1);
-    let result = &response.results[0];
-    assert_eq!(result.record.scope, Scope::Project);
-    assert_eq!(result.record.truth_layer, TruthLayer::T2);
-    assert_eq!(result.record.record_type, RecordType::Decision);
-    assert_eq!(result.citation.record_id, result.record.id);
-    assert_eq!(result.citation.source_uri, result.record.source.uri);
-    assert_eq!(result.citation.recorded_at, "2026-04-18T13:19:00Z");
-    assert_eq!(
-        result.citation.validity.valid_from.as_deref(),
-        Some("2026-04-10T00:00:00Z")
-    );
-    assert_eq!(
-        result.citation.validity.valid_to.as_deref(),
-        Some("2026-04-20T00:00:00Z")
-    );
-    assert_eq!(result.citation.anchor.chunk_index, 0);
-    assert_eq!(result.citation.anchor.chunk_count, 1);
 }
 
 #[test]
@@ -13224,180 +13317,6 @@ fn library_search_with_variant_hybrid_applies_taxonomy_filters_before_top_k() {
 }
 
 #[test]
-fn library_search_with_variant_embedding_only_applies_temporal_filters_before_top_k() {
-    let path = fresh_db_path("variant-embedding-only-temporal-top-k");
-    let db = Database::open(&path).expect("database should bootstrap");
-    let ingest = IngestService::with_embedding_config(
-        db.conn(),
-        Default::default(),
-        EmbeddingConfig {
-            backend: EmbeddingBackend::Builtin,
-            model: Some("builtin-16".to_string()),
-            endpoint: None,
-        },
-    );
-
-    ingest_record(
-        &ingest,
-        FixtureRecord {
-            source_uri: "memo://project/variant-embedding-only-current-temporal",
-            source_label: "variant embedding_only current temporal memo",
-            content: "baseline keeps lexical search explainable",
-            scope: Scope::Project,
-            record_type: RecordType::Decision,
-            truth_layer: TruthLayer::T2,
-            recorded_at: "2026-04-18T13:52:00Z",
-            valid_from: Some("2026-04-10T00:00:00Z"),
-            valid_to: Some("2026-04-20T00:00:00Z"),
-        },
-    );
-    ingest_record(
-        &ingest,
-        FixtureRecord {
-            source_uri: "memo://project/variant-embedding-only-stale-temporal",
-            source_label: "variant embedding_only stale temporal memo",
-            content: "baseline baseline keeps stale review around",
-            scope: Scope::Project,
-            record_type: RecordType::Decision,
-            truth_layer: TruthLayer::T2,
-            recorded_at: "2026-04-01T13:52:00Z",
-            valid_from: Some("2026-03-01T00:00:00Z"),
-            valid_to: Some("2026-04-05T00:00:00Z"),
-        },
-    );
-
-    let variant = RetrievalModeVariant {
-        name: "embedding_only".to_string(),
-        db_path: path.display().to_string(),
-        mode: RetrievalMode::EmbeddingOnly,
-        embedding_backend: EmbeddingBackend::Builtin,
-        llm: RootLlmConfig::default(),
-        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
-            model: "builtin-16".to_string(),
-            ..Default::default()
-        }),
-        vector: Some(RootVectorConfig {
-            backend: VectorBackend::SqliteVec,
-            ..Default::default()
-        }),
-    };
-
-    let response = SearchService::with_variant(db.conn(), &variant)
-        .search(
-            &SearchRequest::new("baseline")
-                .with_limit(1)
-                .with_filters(SearchFilters {
-                    valid_at: Some("2026-04-18T14:00:00Z".to_string()),
-                    recorded_from: Some("2026-04-10T00:00:00Z".to_string()),
-                    recorded_to: Some("2026-04-19T00:00:00Z".to_string()),
-                    ..Default::default()
-                }),
-        )
-        .expect("embedding_only variant search should apply temporal filters before top-k");
-
-    assert_eq!(response.results.len(), 1);
-    assert_eq!(
-        response.results[0].record.source.uri,
-        "memo://project/variant-embedding-only-current-temporal"
-    );
-    assert_eq!(
-        response.results[0].trace.channel_contribution,
-        agent_memos::search::ChannelContribution::EmbeddingOnly
-    );
-    assert_eq!(
-        response.applied_filters.valid_at.as_deref(),
-        Some("2026-04-18T14:00:00Z")
-    );
-}
-
-#[test]
-fn library_search_with_variant_hybrid_applies_temporal_filters_before_top_k() {
-    let path = fresh_db_path("variant-hybrid-temporal-top-k");
-    let db = Database::open(&path).expect("database should bootstrap");
-    let ingest = IngestService::with_embedding_config(
-        db.conn(),
-        Default::default(),
-        EmbeddingConfig {
-            backend: EmbeddingBackend::Builtin,
-            model: Some("builtin-16".to_string()),
-            endpoint: None,
-        },
-    );
-
-    ingest_record(
-        &ingest,
-        FixtureRecord {
-            source_uri: "memo://project/variant-hybrid-current-temporal",
-            source_label: "variant hybrid current temporal memo",
-            content: "baseline keeps lexical search explainable",
-            scope: Scope::Project,
-            record_type: RecordType::Decision,
-            truth_layer: TruthLayer::T2,
-            recorded_at: "2026-04-18T13:54:00Z",
-            valid_from: Some("2026-04-10T00:00:00Z"),
-            valid_to: Some("2026-04-20T00:00:00Z"),
-        },
-    );
-    ingest_record(
-        &ingest,
-        FixtureRecord {
-            source_uri: "memo://project/variant-hybrid-stale-temporal",
-            source_label: "variant hybrid stale temporal memo",
-            content: "baseline baseline keeps stale review around",
-            scope: Scope::Project,
-            record_type: RecordType::Decision,
-            truth_layer: TruthLayer::T2,
-            recorded_at: "2026-04-01T13:54:00Z",
-            valid_from: Some("2026-03-01T00:00:00Z"),
-            valid_to: Some("2026-04-05T00:00:00Z"),
-        },
-    );
-
-    let variant = RetrievalModeVariant {
-        name: "hybrid".to_string(),
-        db_path: path.display().to_string(),
-        mode: RetrievalMode::Hybrid,
-        embedding_backend: EmbeddingBackend::Builtin,
-        llm: RootLlmConfig::default(),
-        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
-            model: "builtin-16".to_string(),
-            ..Default::default()
-        }),
-        vector: Some(RootVectorConfig {
-            backend: VectorBackend::SqliteVec,
-            ..Default::default()
-        }),
-    };
-
-    let response = SearchService::with_variant(db.conn(), &variant)
-        .search(
-            &SearchRequest::new("baseline")
-                .with_limit(1)
-                .with_filters(SearchFilters {
-                    valid_at: Some("2026-04-18T14:00:00Z".to_string()),
-                    recorded_from: Some("2026-04-10T00:00:00Z".to_string()),
-                    recorded_to: Some("2026-04-19T00:00:00Z".to_string()),
-                    ..Default::default()
-                }),
-        )
-        .expect("hybrid variant search should apply temporal filters before top-k");
-
-    assert_eq!(response.results.len(), 1);
-    assert_eq!(
-        response.results[0].record.source.uri,
-        "memo://project/variant-hybrid-current-temporal"
-    );
-    assert_eq!(
-        response.results[0].trace.channel_contribution,
-        agent_memos::search::ChannelContribution::Hybrid
-    );
-    assert_eq!(
-        response.applied_filters.valid_at.as_deref(),
-        Some("2026-04-18T14:00:00Z")
-    );
-}
-
-#[test]
 fn library_search_with_runtime_config_embedding_only_applies_temporal_filters_before_top_k() {
     let path = fresh_db_path("runtime-config-embedding-only-temporal-top-k");
     let db = Database::open(&path).expect("database should bootstrap");
@@ -13572,8 +13491,182 @@ fn library_search_with_runtime_config_hybrid_applies_temporal_filters_before_top
 }
 
 #[test]
+fn library_search_with_variant_embedding_only_applies_temporal_filters_before_top_k() {
+    let path = fresh_db_path("variant-embedding-only-temporal-top-k");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-only-current-temporal",
+            source_label: "variant embedding_only current temporal memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:52:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-embedding-only-stale-temporal",
+            source_label: "variant embedding_only stale temporal memo",
+            content: "baseline baseline keeps stale review around",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-01T13:52:00Z",
+            valid_from: Some("2026-03-01T00:00:00Z"),
+            valid_to: Some("2026-04-05T00:00:00Z"),
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "embedding_only".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::EmbeddingOnly,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(
+            &SearchRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(SearchFilters {
+                    valid_at: Some("2026-04-18T14:00:00Z".to_string()),
+                    recorded_from: Some("2026-04-10T00:00:00Z".to_string()),
+                    recorded_to: Some("2026-04-19T00:00:00Z".to_string()),
+                    ..Default::default()
+                }),
+        )
+        .expect("embedding_only variant search should apply temporal filters before top-k");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/variant-embedding-only-current-temporal"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::EmbeddingOnly
+    );
+    assert_eq!(
+        response.applied_filters.valid_at.as_deref(),
+        Some("2026-04-18T14:00:00Z")
+    );
+}
+
+#[test]
+fn library_search_with_variant_hybrid_applies_temporal_filters_before_top_k() {
+    let path = fresh_db_path("variant-hybrid-temporal-top-k");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-current-temporal",
+            source_label: "variant hybrid current temporal memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:54:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/variant-hybrid-stale-temporal",
+            source_label: "variant hybrid stale temporal memo",
+            content: "baseline baseline keeps stale review around",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-01T13:54:00Z",
+            valid_from: Some("2026-03-01T00:00:00Z"),
+            valid_to: Some("2026-04-05T00:00:00Z"),
+        },
+    );
+
+    let variant = RetrievalModeVariant {
+        name: "hybrid".to_string(),
+        db_path: path.display().to_string(),
+        mode: RetrievalMode::Hybrid,
+        embedding_backend: EmbeddingBackend::Builtin,
+        llm: RootLlmConfig::default(),
+        embedding: Some(agent_memos::core::config::RootEmbeddingRuntimeConfig {
+            model: "builtin-16".to_string(),
+            ..Default::default()
+        }),
+        vector: Some(RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        }),
+    };
+
+    let response = SearchService::with_variant(db.conn(), &variant)
+        .search(
+            &SearchRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(SearchFilters {
+                    valid_at: Some("2026-04-18T14:00:00Z".to_string()),
+                    recorded_from: Some("2026-04-10T00:00:00Z".to_string()),
+                    recorded_to: Some("2026-04-19T00:00:00Z".to_string()),
+                    ..Default::default()
+                }),
+        )
+        .expect("hybrid variant search should apply temporal filters before top-k");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/variant-hybrid-current-temporal"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::Hybrid
+    );
+    assert_eq!(
+        response.applied_filters.valid_at.as_deref(),
+        Some("2026-04-18T14:00:00Z")
+    );
+}
+
+#[test]
 fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_model_mismatches_index()
-{
+ {
     let path = fresh_db_path("runtime-config-embedding-model-mismatch");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::with_embedding_config(
@@ -13633,7 +13726,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
 
 #[test]
 fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embedding_model_mismatches_index()
-{
+ {
     let path = fresh_db_path("runtime-config-hybrid-model-mismatch");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::with_embedding_config(
@@ -13698,7 +13791,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
 
 #[test]
 fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_model_mismatches_index()
-{
+ {
     let path = fresh_db_path("variant-embedding-model-mismatch");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::with_embedding_config(
@@ -13819,7 +13912,7 @@ fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_model
 
 #[test]
 fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_dimensions_mismatch()
-{
+ {
     let path = fresh_db_path("runtime-config-embedding-dimension-mismatch");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::with_embedding_config(
@@ -13892,7 +13985,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
 
 #[test]
 fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embedding_dimensions_mismatch()
-{
+ {
     let path = fresh_db_path("runtime-config-hybrid-dimension-mismatch");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::with_embedding_config(
@@ -13970,7 +14063,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
 
 #[test]
 fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_dimensions_mismatch()
-{
+ {
     let path = fresh_db_path("variant-embedding-dimension-mismatch");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::with_embedding_config(
@@ -14146,12 +14239,11 @@ fn cli_search_embedding_only_fails_closed_when_embedding_backend_is_disabled() {
         },
     );
 
-    let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "embedding_only"]);
-    let combined = format!(
-        "{}\n{}",
-        stdout(&search_output),
-        stderr(&search_output)
+    let search_output = run_cli(
+        &config_path,
+        &["search", "baseline", "--mode", "embedding_only"],
     );
+    let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
 
     assert!(
         !search_output.status.success(),
@@ -14204,11 +14296,7 @@ fn cli_search_hybrid_fails_closed_when_embedding_backend_is_disabled() {
     );
 
     let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "hybrid"]);
-    let combined = format!(
-        "{}\n{}",
-        stdout(&search_output),
-        stderr(&search_output)
-    );
+    let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
 
     assert!(
         !search_output.status.success(),
@@ -14267,12 +14355,11 @@ fn cli_search_embedding_only_fails_closed_when_embedding_model_is_missing() {
         },
     );
 
-    let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "embedding_only"]);
-    let combined = format!(
-        "{}\n{}",
-        stdout(&search_output),
-        stderr(&search_output)
+    let search_output = run_cli(
+        &config_path,
+        &["search", "baseline", "--mode", "embedding_only"],
     );
+    let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
 
     assert!(
         !search_output.status.success(),
@@ -14328,11 +14415,7 @@ fn cli_search_hybrid_fails_closed_when_embedding_model_is_missing() {
     );
 
     let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "hybrid"]);
-    let combined = format!(
-        "{}\n{}",
-        stdout(&search_output),
-        stderr(&search_output)
-    );
+    let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
 
     assert!(
         !search_output.status.success(),
@@ -14387,12 +14470,11 @@ fn cli_search_embedding_only_returns_empty_results_when_vector_backend_is_none()
         },
     );
 
-    let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "embedding_only"]);
-    let combined = format!(
-        "{}\n{}",
-        stdout(&search_output),
-        stderr(&search_output)
+    let search_output = run_cli(
+        &config_path,
+        &["search", "baseline", "--mode", "embedding_only"],
     );
+    let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
 
     assert!(
         search_output.status.success(),
@@ -14444,11 +14526,7 @@ fn cli_search_hybrid_falls_back_to_lexical_when_vector_backend_is_none() {
     );
 
     let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "hybrid"]);
-    let combined = format!(
-        "{}\n{}",
-        stdout(&search_output),
-        stderr(&search_output)
-    );
+    let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
 
     assert!(
         search_output.status.success(),
@@ -14503,12 +14581,11 @@ fn cli_search_embedding_only_fails_closed_when_embedding_backend_is_reserved() {
         },
     );
 
-    let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "embedding_only"]);
-    let combined = format!(
-        "{}\n{}",
-        stdout(&search_output),
-        stderr(&search_output)
+    let search_output = run_cli(
+        &config_path,
+        &["search", "baseline", "--mode", "embedding_only"],
     );
+    let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
 
     assert!(
         !search_output.status.success(),
@@ -14568,11 +14645,7 @@ fn cli_search_hybrid_fails_closed_when_embedding_backend_is_reserved() {
     );
 
     let search_output = run_cli(&config_path, &["search", "baseline", "--mode", "hybrid"]);
-    let combined = format!(
-        "{}\n{}",
-        stdout(&search_output),
-        stderr(&search_output)
-    );
+    let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
 
     assert!(
         !search_output.status.success(),

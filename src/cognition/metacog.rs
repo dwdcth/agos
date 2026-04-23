@@ -114,7 +114,9 @@ impl MetacognitionService {
                         .total_cmp(&right.projected.final_score)
                 })
                 .cloned()
-                .unwrap_or_else(|| self.synthetic_regulative_branch(&top_branch.projected.weight_snapshot));
+                .unwrap_or_else(|| {
+                    self.synthetic_regulative_branch(&top_branch.projected.weight_snapshot)
+                });
             let regulative_report = ScoredBranchReport::from(regulative_branch);
             active_risks.push(format!(
                 "soft-vetoed branch: {}",

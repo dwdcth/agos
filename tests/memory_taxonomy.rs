@@ -1,6 +1,4 @@
-use agent_memos::memory::taxonomy::{
-    AspectV1, DomainV1, KindV1, TaxonomyPathV1, TopicV1,
-};
+use agent_memos::memory::taxonomy::{AspectV1, DomainV1, KindV1, TaxonomyPathV1, TopicV1};
 
 #[test]
 fn public_taxonomy_api_parses_and_formats_values() {

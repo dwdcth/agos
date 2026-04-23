@@ -2,11 +2,15 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::memory::{
-    classifier::{ClassificationError, ClassificationInput, KeywordTaxonomyClassifier, TaxonomyClassifier},
+    classifier::{
+        ClassificationError, ClassificationInput, KeywordTaxonomyClassifier, TaxonomyClassifier,
+    },
     dsl::{FactDslError, FactDslRecord, FlatFactDslRecordV1, KindFieldAssessmentV1},
     record::{MemoryRecord, TruthLayer},
     store::{FactDslStore, FactDslStoreError, PersistedFactDslRecordV1},
-    summary::{FactSummaryError, FactSummaryGenerator, FactSummaryInput, RuleBasedSummaryGenerator},
+    summary::{
+        FactSummaryError, FactSummaryGenerator, FactSummaryInput, RuleBasedSummaryGenerator,
+    },
 };
 
 pub async fn build_fact_dsl_record<C, S>(
@@ -286,7 +290,9 @@ where
         let persisted = self
             .build_persisted(record_id, truth_layer, source_ref, raw_text)
             .await?;
-        store.put_fact_dsl(&persisted).map_err(MemoryPipelineError::Store)?;
+        store
+            .put_fact_dsl(&persisted)
+            .map_err(MemoryPipelineError::Store)?;
         Ok(persisted)
     }
 
@@ -296,7 +302,9 @@ where
         record: &MemoryRecord,
     ) -> Result<PersistedFactDslRecordV1, MemoryPipelineError> {
         let persisted = self.build_persisted_from_memory_record(record).await?;
-        store.put_fact_dsl(&persisted).map_err(MemoryPipelineError::Store)?;
+        store
+            .put_fact_dsl(&persisted)
+            .map_err(MemoryPipelineError::Store)?;
         Ok(persisted)
     }
 
@@ -309,7 +317,9 @@ where
         for record in records {
             persisted.push(self.build_persisted_from_memory_record(record).await?);
         }
-        store.put_many_fact_dsls(&persisted).map_err(MemoryPipelineError::Store)?;
+        store
+            .put_many_fact_dsls(&persisted)
+            .map_err(MemoryPipelineError::Store)?;
         Ok(persisted)
     }
 
@@ -322,21 +332,79 @@ where
         let mut persisted = Vec::with_capacity(inputs.len());
         for (record_id, source_ref, raw_text) in inputs {
             persisted.push(
-                self.build_persisted(record_id.clone(), truth_layer, source_ref.clone(), raw_text.clone())
-                    .await?,
+                self.build_persisted(
+                    record_id.clone(),
+                    truth_layer,
+                    source_ref.clone(),
+                    raw_text.clone(),
+                )
+                .await?,
             );
         }
-        store.put_many_fact_dsls(&persisted).map_err(MemoryPipelineError::Store)?;
+        store
+            .put_many_fact_dsls(&persisted)
+            .map_err(MemoryPipelineError::Store)?;
         Ok(persisted)
     }
-
 }
 
-pub type DefaultMemoryPipeline = MemoryPipeline<KeywordTaxonomyClassifier, RuleBasedSummaryGenerator>;
+pub type DefaultMemoryPipeline =
+    MemoryPipeline<KeywordTaxonomyClassifier, RuleBasedSummaryGenerator>;
 
 impl DefaultMemoryPipeline {
     pub fn default_v1() -> Self {
-        Self::new(KeywordTaxonomyClassifier::default(), RuleBasedSummaryGenerator)
+        Self::new(
+            KeywordTaxonomyClassifier::default(),
+            RuleBasedSummaryGenerator,
+        )
+    }
+
+    pub fn build_record_sync_from_memory_record(
+        &self,
+        record: &MemoryRecord,
+    ) -> Result<FactDslRecord, MemoryPipelineError> {
+        let classification = self
+            .classifier
+            .classify_record_sync(record)
+            .map_err(MemoryPipelineError::Classification)?;
+        let summary_input = classification
+            .into_summary_input(record.truth_layer, &record.source.uri, &record.content_text)
+            .map_err(MemoryPipelineError::Classification)?;
+        let draft = self
+            .summarizer
+            .summarize_sync(&summary_input)
+            .map_err(MemoryPipelineError::Summary)?;
+        summary_input
+            .into_record(draft)
+            .map_err(MemoryPipelineError::Summary)
+    }
+
+    pub fn build_persisted_sync_from_memory_record(
+        &self,
+        record: &MemoryRecord,
+    ) -> Result<PersistedFactDslRecordV1, MemoryPipelineError> {
+        let classification = self
+            .classifier
+            .classify_record_sync(record)
+            .map_err(MemoryPipelineError::Classification)?;
+        let summary_input = classification
+            .clone()
+            .into_summary_input(record.truth_layer, &record.source.uri, &record.content_text)
+            .map_err(MemoryPipelineError::Classification)?;
+        let draft = self
+            .summarizer
+            .summarize_sync(&summary_input)
+            .map_err(MemoryPipelineError::Summary)?;
+        let built = summary_input
+            .into_record(draft)
+            .map_err(MemoryPipelineError::Summary)?;
+
+        let mut persisted = PersistedFactDslRecordV1::from_fact_dsl_record(&record.id, &built)
+            .map_err(MemoryPipelineError::Store)?;
+        persisted.classification_confidence = Some(classification.confidence);
+        persisted.needs_review = classification.needs_review;
+        persisted.validate().map_err(MemoryPipelineError::Store)?;
+        Ok(persisted)
     }
 }
 
@@ -366,8 +434,12 @@ impl MemoryPipelineReport {
         self,
         record_id: impl Into<String>,
     ) -> Result<PersistedFactDslRecordV1, MemoryPipelineError> {
-        PersistedFactDslRecordV1::from_fact_dsl_record(record_id, &self.record)
-            .map_err(MemoryPipelineError::Store)
+        let mut persisted = PersistedFactDslRecordV1::from_fact_dsl_record(record_id, &self.record)
+            .map_err(MemoryPipelineError::Store)?;
+        persisted.classification_confidence = Some(self.classification.confidence);
+        persisted.needs_review = self.classification.needs_review;
+        persisted.validate().map_err(MemoryPipelineError::Store)?;
+        Ok(persisted)
     }
 
     pub fn to_json_string(&self) -> Result<String, MemoryPipelineError> {
@@ -412,8 +484,9 @@ mod tests {
         fn classify<'a>(
             &'a self,
             _input: &'a ClassificationInput,
-        ) -> Pin<Box<dyn Future<Output = Result<ClassificationOutput, ClassificationError>> + Send + 'a>>
-        {
+        ) -> Pin<
+            Box<dyn Future<Output = Result<ClassificationOutput, ClassificationError>> + Send + 'a>,
+        > {
             Box::pin(async move {
                 ClassificationOutput::new(
                     TaxonomyPathV1::new(
@@ -481,7 +554,12 @@ mod tests {
 
         assert_eq!(report.classification.taxonomy.kind, KindV1::Decision);
         assert_eq!(report.record.taxonomy.kind, KindV1::Decision);
-        assert!(report.assessment.missing_recommended.contains(&crate::memory::dsl::DslFieldV1::Impact));
+        assert!(
+            report
+                .assessment
+                .missing_recommended
+                .contains(&crate::memory::dsl::DslFieldV1::Impact)
+        );
         assert!(report.encoded.starts_with("F|DOM=project|TOP=retrieval"));
     }
 
@@ -693,18 +771,16 @@ mod tests {
                 imported_via: None,
                 derived_from: Vec::new(),
             },
-            content_text: "Use lexical-first as baseline because explainability matters.".to_string(),
+            content_text: "Use lexical-first as baseline because explainability matters."
+                .to_string(),
             chunk: None,
             validity: crate::memory::record::ValidityWindow::default(),
         };
 
-        let built = build_fact_dsl_record_from_memory_record(
-            &StubClassifier,
-            &StubSummarizer,
-            &record,
-        )
-        .await
-        .expect("pipeline should build from memory record");
+        let built =
+            build_fact_dsl_record_from_memory_record(&StubClassifier, &StubSummarizer, &record)
+                .await
+                .expect("pipeline should build from memory record");
 
         assert_eq!(built.truth_layer, TruthLayer::T2);
         assert_eq!(built.source_ref, "memo://project/retrieval");

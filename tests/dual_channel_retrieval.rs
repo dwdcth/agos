@@ -4,7 +4,12 @@ use std::{
 };
 
 use agent_memos::{
-    core::{config::{EmbeddingBackend, EmbeddingConfig, RetrievalMode, RootRuntimeConfig, VectorBackend}, db::Database},
+    core::{
+        config::{
+            EmbeddingBackend, EmbeddingConfig, RetrievalMode, RootRuntimeConfig, VectorBackend,
+        },
+        db::Database,
+    },
     ingest::{IngestRequest, IngestService},
     memory::record::{RecordType, Scope, TruthLayer},
     search::{ChannelContribution, QueryStrategy, SearchRequest, SearchService},
@@ -75,12 +80,7 @@ fn fresh_db_path(name: &str) -> PathBuf {
         .join("dual-channel.sqlite")
 }
 
-fn ingest_record(
-    service: &IngestService<'_>,
-    source_uri: &str,
-    content: &str,
-    recorded_at: &str,
-) {
+fn ingest_record(service: &IngestService<'_>, source_uri: &str, content: &str, recorded_at: &str) {
     service
         .ingest(IngestRequest {
             source_uri: source_uri.to_string(),
@@ -163,10 +163,10 @@ fn mode_specific_search_behaviors_match_generated_configs() {
         .search(&SearchRequest::new("retrieval meaning"))
         .expect("hybrid search should succeed");
     assert!(
-        hybrid_results
-            .results
-            .iter()
-            .any(|result| result.trace.query_strategies.contains(&QueryStrategy::Embedding)),
+        hybrid_results.results.iter().any(|result| result
+            .trace
+            .query_strategies
+            .contains(&QueryStrategy::Embedding)),
         "hybrid mode should preserve embedding contribution in the result trace"
     );
 }

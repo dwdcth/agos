@@ -145,8 +145,7 @@ fn resolve_home_path(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use crate::core::config::{
-        Config, EmbeddingBackend, EmbeddingConfig, RetrievalConfig, RootVectorConfig,
-        VectorBackend,
+        Config, EmbeddingBackend, EmbeddingConfig, RetrievalConfig, RootVectorConfig, VectorBackend,
     };
 
     use super::*;
@@ -168,11 +167,15 @@ mod tests {
                 table: String::new(),
                 similarity: String::new(),
             },
+            ..Default::default()
         };
 
         let lexical_readiness = RuntimeReadiness::from_config(&lexical);
         assert!(lexical_readiness.ready);
-        assert_eq!(lexical_readiness.configured_mode, RetrievalMode::LexicalOnly);
+        assert_eq!(
+            lexical_readiness.configured_mode,
+            RetrievalMode::LexicalOnly
+        );
         assert_eq!(lexical_readiness.effective_mode, RetrievalMode::LexicalOnly);
         assert!(
             lexical_readiness
@@ -183,10 +186,8 @@ mod tests {
             lexical_readiness.notes
         );
         assert!(
-            lexical_readiness
-                .notes
-                .iter()
-                .all(|note| !note.contains("lexical retrieval dependency loading and index creation are deferred")),
+            lexical_readiness.notes.iter().all(|note| !note
+                .contains("lexical retrieval dependency loading and index creation are deferred")),
             "lexical_only should reject stale deferred lexical wording: {:?}",
             lexical_readiness.notes
         );
@@ -206,6 +207,7 @@ mod tests {
                 table: "object_embeddings_vec".to_string(),
                 similarity: "cosine".to_string(),
             },
+            ..Default::default()
         };
 
         let embedding_readiness = RuntimeReadiness::from_config(&embedding_only);
@@ -243,6 +245,7 @@ mod tests {
                 table: "object_embeddings_vec".to_string(),
                 similarity: "cosine".to_string(),
             },
+            ..Default::default()
         };
 
         let hybrid_readiness = RuntimeReadiness::from_config(&hybrid);

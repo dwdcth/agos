@@ -138,12 +138,15 @@ fn sample_record() -> MemoryRecord {
 fn foundation_migration_bootstraps_clean_db() {
     let path = fresh_db_path("bootstrap");
     let parent = path.parent().expect("database path should have parent");
-    assert!(!parent.exists(), "test parent directory should start absent");
+    assert!(
+        !parent.exists(),
+        "test parent directory should start absent"
+    );
 
     let db = Database::open(&path).expect("fresh database should bootstrap");
 
     assert!(parent.exists(), "open should create parent directories");
-    assert_eq!(db.schema_version().expect("schema version"), 7);
+    assert_eq!(db.schema_version().expect("schema version"), 8);
 
     let names = table_names(&path);
     assert!(
@@ -163,9 +166,9 @@ fn foundation_migration_bootstraps_clean_db() {
         "truth-governance and layered-memory side tables should exist: {names:?}"
     );
     assert!(
-        !names.iter().any(|name| {
-            name.contains("sqlite_vec") || name.starts_with("rig_")
-        }),
+        !names
+            .iter()
+            .any(|name| { name.contains("sqlite_vec") || name.starts_with("rig_") }),
         "lexical plan should not introduce semantic or agent tables: {names:?}"
     );
 }
@@ -174,11 +177,11 @@ fn foundation_migration_bootstraps_clean_db() {
 fn foundation_migration_reopen_is_idempotent() {
     let path = fresh_db_path("reopen");
     let first = Database::open(&path).expect("first open should succeed");
-    assert_eq!(first.schema_version().expect("first schema version"), 7);
+    assert_eq!(first.schema_version().expect("first schema version"), 8);
     drop(first);
 
     let second = Database::open(&path).expect("second open should succeed");
-    assert_eq!(second.schema_version().expect("second schema version"), 7);
+    assert_eq!(second.schema_version().expect("second schema version"), 8);
     let names = table_names(&path);
     assert!(names.contains(&"memory_records".to_string()));
     assert!(names.contains(&"memory_records_fts".to_string()));
@@ -243,7 +246,10 @@ fn lexical_sidecar_rebuilds_from_authority_rows() {
         .expect("record should insert cleanly");
 
     let initial_count = lexical_match_count(db.conn(), "local");
-    assert_eq!(initial_count, 1, "triggers should index inserted authority rows");
+    assert_eq!(
+        initial_count, 1,
+        "triggers should index inserted authority rows"
+    );
 
     db.conn()
         .execute(
@@ -252,14 +258,23 @@ fn lexical_sidecar_rebuilds_from_authority_rows() {
         )
         .expect("fts rows should be clearable for rebuild");
     let cleared_count = lexical_match_count(db.conn(), "local");
-    assert_eq!(cleared_count, 0, "fts rows should be cleared before rebuild");
+    assert_eq!(
+        cleared_count, 0,
+        "fts rows should be cleared before rebuild"
+    );
 
     db.conn()
-        .execute("INSERT INTO memory_records_fts(memory_records_fts) VALUES('rebuild')", [])
+        .execute(
+            "INSERT INTO memory_records_fts(memory_records_fts) VALUES('rebuild')",
+            [],
+        )
         .expect("fts rebuild helper should succeed");
 
     let rebuilt_count = lexical_match_count(db.conn(), "local");
-    assert_eq!(rebuilt_count, 1, "rebuild should repopulate from authority rows");
+    assert_eq!(
+        rebuilt_count, 1,
+        "rebuild should repopulate from authority rows"
+    );
 }
 
 #[test]
@@ -288,7 +303,11 @@ fn memory_record_types_stay_strongly_typed() {
     assert!(matches!(record.record_type, RecordType::Observation));
     assert!(matches!(record.truth_layer, TruthLayer::T2));
     assert!(matches!(
-        record.chunk.as_ref().expect("chunk metadata should exist").anchor,
+        record
+            .chunk
+            .as_ref()
+            .expect("chunk metadata should exist")
+            .anchor,
         ChunkAnchor::LineRange { .. }
     ));
     assert_eq!(
@@ -322,7 +341,7 @@ fn rumination_schema_bootstraps_additive_phase_5_and_later_side_tables() {
     let path = fresh_db_path("rumination-schema");
     let db = Database::open(&path).expect("database should bootstrap");
 
-    assert_eq!(db.schema_version().expect("schema version"), 7);
+    assert_eq!(db.schema_version().expect("schema version"), 8);
 
     let names = table_names(&path);
     assert!(

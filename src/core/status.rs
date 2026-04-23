@@ -127,8 +127,7 @@ impl StatusReport {
                     .to_string(),
             );
         } else if !matches!(inspection.base_table_state, CapabilityState::Ready) {
-            readiness_notes
-                .push("foundation base tables are incomplete or missing".to_string());
+            readiness_notes.push("foundation base tables are incomplete or missing".to_string());
         } else if matches!(inspection.lexical_index_state, CapabilityState::Missing)
             && matches!(
                 app.config.retrieval.mode,
@@ -248,9 +247,11 @@ fn active_channels_label(report: &StatusReport) -> &'static str {
 fn gated_channels_label(report: &StatusReport) -> &'static str {
     match report.configured_mode {
         RetrievalMode::LexicalOnly => {
-            if matches!(report.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::Reserved)
-                && (!matches!(report.embedding_dependency_state, CapabilityState::Ready)
-                    || !matches!(report.embedding_index_readiness, CapabilityState::Ready))
+            if matches!(
+                report.embedding_backend,
+                EmbeddingBackend::Builtin | EmbeddingBackend::Reserved
+            ) && (!matches!(report.embedding_dependency_state, CapabilityState::Ready)
+                || !matches!(report.embedding_index_readiness, CapabilityState::Ready))
             {
                 "embedding"
             } else {
@@ -360,21 +361,17 @@ fn embedding_dependency_state(
         (RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid, EmbeddingBackend::Disabled, _) => {
             CapabilityState::Missing
         }
-        (
-            RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
-            EmbeddingBackend::Reserved,
-            _,
-        ) => CapabilityState::Deferred,
+        (RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid, EmbeddingBackend::Reserved, _) => {
+            CapabilityState::Deferred
+        }
         (
             RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
             EmbeddingBackend::Builtin,
             Some(_),
         ) => CapabilityState::Ready,
-        (
-            RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
-            EmbeddingBackend::Builtin,
-            None,
-        ) => CapabilityState::Deferred,
+        (RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid, EmbeddingBackend::Builtin, None) => {
+            CapabilityState::Deferred
+        }
     }
 }
 

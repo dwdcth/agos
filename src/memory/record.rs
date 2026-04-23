@@ -157,18 +157,9 @@ pub struct ChunkMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChunkAnchor {
-    CharRange {
-        start_char: u32,
-        end_char: u32,
-    },
-    LineRange {
-        start_line: u32,
-        end_line: u32,
-    },
-    TurnRange {
-        start_turn: u32,
-        end_turn: u32,
-    },
+    CharRange { start_char: u32, end_char: u32 },
+    LineRange { start_line: u32, end_line: u32 },
+    TurnRange { start_turn: u32, end_turn: u32 },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

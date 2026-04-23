@@ -220,8 +220,7 @@ fn lexical_search_dedupes_repeated_query_terms_before_keyword_scoring() {
     assert_eq!(single.results.len(), 1);
     assert_eq!(repeated.results.len(), 1);
     assert_eq!(
-        repeated.results[0].score.keyword_bonus,
-        single.results[0].score.keyword_bonus,
+        repeated.results[0].score.keyword_bonus, single.results[0].score.keyword_bonus,
         "repeating the same query tokens should not inflate keyword bonus"
     );
 }
@@ -255,8 +254,7 @@ fn lexical_search_orders_recency_by_parsed_rfc3339_instant() {
 
     assert_eq!(results.results.len(), 2);
     assert_eq!(
-        results.results[0].record.source.uri,
-        "memo://project/newer-zulu",
+        results.results[0].record.source.uri, "memo://project/newer-zulu",
         "recency bonus should rank the truly newer instant ahead of the lexically larger offset timestamp"
     );
     assert!(
@@ -289,16 +287,17 @@ fn lexical_search_applies_recorded_from_filter_by_parsed_rfc3339_instant() {
     );
 
     let results = SearchService::new(db.conn())
-        .search(&SearchRequest::new("parsed instants offsets").with_filters(SearchFilters {
-            recorded_from: Some("2026-04-16T06:15:00Z".to_string()),
-            ..Default::default()
-        }))
+        .search(
+            &SearchRequest::new("parsed instants offsets").with_filters(SearchFilters {
+                recorded_from: Some("2026-04-16T06:15:00Z".to_string()),
+                ..Default::default()
+            }),
+        )
         .expect("lexical search should respect parsed recorded_from filters");
 
     assert_eq!(results.results.len(), 1);
     assert_eq!(
-        results.results[0].record.source.uri,
-        "memo://project/newer-zulu-filter",
+        results.results[0].record.source.uri, "memo://project/newer-zulu-filter",
         "recorded_from should exclude the older offset-formatted instant even when its raw string sorts later"
     );
 }
@@ -1068,7 +1067,10 @@ fn lexical_search_preserves_record_id_for_mixed_recall() {
         .expect("mixed lexical + structured search should succeed");
 
     assert_eq!(results.results.len(), 1);
-    assert_eq!(results.results[0].citation.record_id, results.results[0].record.id);
+    assert_eq!(
+        results.results[0].citation.record_id,
+        results.results[0].record.id
+    );
     assert!(
         results.results[0]
             .trace

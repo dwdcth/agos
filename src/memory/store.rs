@@ -1,4 +1,9 @@
-use std::{cell::RefCell, collections::BTreeMap, fs, path::{Path, PathBuf}};
+use std::{
+    cell::RefCell,
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -12,13 +17,20 @@ use crate::memory::{
 pub struct PersistedFactDslRecordV1 {
     pub record_id: String,
     pub payload: FlatFactDslRecordV1,
+    pub classification_confidence: Option<f32>,
+    pub needs_review: bool,
 }
 
 impl PersistedFactDslRecordV1 {
-    pub fn new(record_id: impl Into<String>, payload: FlatFactDslRecordV1) -> Result<Self, FactDslStoreError> {
+    pub fn new(
+        record_id: impl Into<String>,
+        payload: FlatFactDslRecordV1,
+    ) -> Result<Self, FactDslStoreError> {
         let persisted = Self {
             record_id: record_id.into(),
             payload,
+            classification_confidence: None,
+            needs_review: false,
         };
         persisted.validate()?;
         Ok(persisted)
@@ -38,6 +50,13 @@ impl PersistedFactDslRecordV1 {
     pub fn validate(&self) -> Result<(), FactDslStoreError> {
         if self.record_id.trim().is_empty() {
             return Err(FactDslStoreError::MissingRecordId);
+        }
+        if let Some(confidence) = self.classification_confidence {
+            if !(0.0..=1.0).contains(&confidence) {
+                return Err(FactDslStoreError::InvalidClassificationConfidence(
+                    confidence,
+                ));
+            }
         }
         self.payload
             .clone()
@@ -60,11 +79,17 @@ impl PersistedFactDslRecordV1 {
 pub trait FactDslStore {
     fn put_fact_dsl(&self, persisted: &PersistedFactDslRecordV1) -> Result<(), FactDslStoreError>;
 
-    fn get_fact_dsl(&self, record_id: &str) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError>;
+    fn get_fact_dsl(
+        &self,
+        record_id: &str,
+    ) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError>;
 
     fn list_fact_dsls(&self) -> Result<Vec<PersistedFactDslRecordV1>, FactDslStoreError>;
 
-    fn delete_fact_dsl(&self, record_id: &str) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError>;
+    fn delete_fact_dsl(
+        &self,
+        record_id: &str,
+    ) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError>;
 
     fn put_many_fact_dsls(
         &self,
@@ -146,7 +171,10 @@ impl FactDslStore for InMemoryFactDslStore {
         Ok(())
     }
 
-    fn get_fact_dsl(&self, record_id: &str) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
+    fn get_fact_dsl(
+        &self,
+        record_id: &str,
+    ) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
         Ok(self.rows.borrow().get(record_id).cloned())
     }
 
@@ -154,7 +182,10 @@ impl FactDslStore for InMemoryFactDslStore {
         Ok(self.rows.borrow().values().cloned().collect())
     }
 
-    fn delete_fact_dsl(&self, record_id: &str) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
+    fn delete_fact_dsl(
+        &self,
+        record_id: &str,
+    ) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
         Ok(self.rows.borrow_mut().remove(record_id))
     }
 }
@@ -204,7 +235,10 @@ impl FactDslStore for JsonFileFactDslStore {
         self.save_rows(&rows)
     }
 
-    fn get_fact_dsl(&self, record_id: &str) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
+    fn get_fact_dsl(
+        &self,
+        record_id: &str,
+    ) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
         Ok(self.load_rows()?.remove(record_id))
     }
 
@@ -212,7 +246,10 @@ impl FactDslStore for JsonFileFactDslStore {
         Ok(self.load_rows()?.into_values().collect())
     }
 
-    fn delete_fact_dsl(&self, record_id: &str) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
+    fn delete_fact_dsl(
+        &self,
+        record_id: &str,
+    ) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
         let mut rows = self.load_rows()?;
         let removed = rows.remove(record_id);
         self.save_rows(&rows)?;
@@ -224,6 +261,8 @@ impl FactDslStore for JsonFileFactDslStore {
 pub enum FactDslStoreError {
     #[error("missing persisted record id")]
     MissingRecordId,
+    #[error("invalid persisted classification confidence: {0}")]
+    InvalidClassificationConfidence(f32),
     #[error(transparent)]
     Dsl(#[from] FactDslError),
     #[error(transparent)]
@@ -246,6 +285,7 @@ mod tests {
         record::TruthLayer,
         taxonomy::{AspectV1, DomainV1, KindV1, TaxonomyPathV1, TopicV1},
     };
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn sample_record() -> FactDslRecord {
         FactDslRecord {
@@ -265,6 +305,16 @@ mod tests {
             truth_layer: TruthLayer::T2,
             source_ref: "roadmap#phase9".to_string(),
         }
+    }
+
+    fn fresh_json_store_path(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        std::env::temp_dir()
+            .join("agent-memos-store-tests")
+            .join(format!("{name}-{unique}.json"))
     }
 
     #[test]
@@ -313,9 +363,7 @@ mod tests {
 
     #[test]
     fn json_file_store_persists_and_loads_rows() {
-        let path = std::env::temp_dir()
-            .join("agent-memos-store-tests")
-            .join(format!("{}.json", std::process::id()));
+        let path = fresh_json_store_path("internal");
         let _ = fs::remove_file(&path);
 
         let store = JsonFileFactDslStore::new(&path);
@@ -343,7 +391,9 @@ mod tests {
         let persisted = PersistedFactDslRecordV1::from_fact_dsl_record("mem-1", &sample_record())
             .expect("persisted wrapper should build");
 
-        let path = persisted.taxonomy_path().expect("taxonomy path should parse");
+        let path = persisted
+            .taxonomy_path()
+            .expect("taxonomy path should parse");
         assert_eq!(path.domain, DomainV1::Project);
         assert_eq!(path.kind, KindV1::Decision);
     }
@@ -354,7 +404,9 @@ mod tests {
         let persisted = PersistedFactDslRecordV1::from_fact_dsl_record("mem-1", &sample_record())
             .expect("persisted wrapper should build");
 
-        store.put_fact_dsl(&persisted).expect("store should persist");
+        store
+            .put_fact_dsl(&persisted)
+            .expect("store should persist");
 
         let by_domain = store
             .list_fact_dsls_by_domain(DomainV1::Project)
@@ -373,13 +425,20 @@ mod tests {
         let persisted = PersistedFactDslRecordV1::from_fact_dsl_record("mem-1", &sample_record())
             .expect("persisted wrapper should build");
 
-        store.put_fact_dsl(&persisted).expect("store should persist");
+        store
+            .put_fact_dsl(&persisted)
+            .expect("store should persist");
         let removed = store
             .delete_fact_dsl("mem-1")
             .expect("delete should succeed")
             .expect("row should be removed");
         assert_eq!(removed, persisted);
-        assert!(store.get_fact_dsl("mem-1").expect("lookup should succeed").is_none());
+        assert!(
+            store
+                .get_fact_dsl("mem-1")
+                .expect("lookup should succeed")
+                .is_none()
+        );
     }
 
     #[test]
@@ -388,7 +447,9 @@ mod tests {
         let persisted = PersistedFactDslRecordV1::from_fact_dsl_record("mem-1", &sample_record())
             .expect("persisted wrapper should build");
 
-        store.put_fact_dsl(&persisted).expect("store should persist");
+        store
+            .put_fact_dsl(&persisted)
+            .expect("store should persist");
 
         let by_topic = store
             .list_fact_dsls_by_topic(TopicV1::Retrieval)

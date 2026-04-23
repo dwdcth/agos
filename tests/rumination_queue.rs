@@ -116,12 +116,14 @@ fn sample_fragment(record_id: &str, source_uri: &str) -> EvidenceFragment {
         record_id: record.id,
         snippet: "rig stays orchestration only".to_string(),
         citation,
+        provenance: record.provenance,
         truth_context: TruthContext {
             truth_layer: TruthLayer::T2,
             t3_state: None,
             open_review_ids: Vec::new(),
             open_candidate_ids: Vec::new(),
         },
+        dsl: None,
         trace: ResultTrace {
             matched_query: "rig boundary".to_string(),
             query_strategies: Vec::new(),
@@ -349,8 +351,14 @@ fn scheduler_routes_locked_trigger_classes_into_explicit_queues() {
 
     assert_eq!(spq_state.last_decision, "enqueued");
     assert_eq!(lpq_state.last_decision, "enqueued");
-    assert_eq!(spq_state.last_item_id.as_deref(), Some(spq_items[0].item_id.as_str()));
-    assert_eq!(lpq_state.last_item_id.as_deref(), Some(lpq_items[0].item_id.as_str()));
+    assert_eq!(
+        spq_state.last_item_id.as_deref(),
+        Some(spq_items[0].item_id.as_str())
+    );
+    assert_eq!(
+        lpq_state.last_item_id.as_deref(),
+        Some(lpq_items[0].item_id.as_str())
+    );
 }
 
 #[test]
@@ -382,7 +390,9 @@ fn scheduler_dedupes_repeated_active_triggers() {
     )
     .expect("event should normalize");
 
-    let first_decision = service.schedule(first).expect("first event should schedule");
+    let first_decision = service
+        .schedule(first)
+        .expect("first event should schedule");
     let second_decision = service
         .schedule(second)
         .expect("second event should return a dedupe decision");
@@ -507,7 +517,11 @@ fn scheduler_enforces_cooldown_and_budget_caps_durably() {
     let spq_items = repo
         .list_rumination_queue_items("spq")
         .expect("spq items should load");
-    assert_eq!(spq_items.len(), 2, "only the first and next-bucket items should enqueue");
+    assert_eq!(
+        spq_items.len(),
+        2,
+        "only the first and next-bucket items should enqueue"
+    );
 
     let blocked_state = repo
         .get_rumination_trigger_state("spq", "user_correction:task://budget-hit:report-c")
@@ -599,7 +613,10 @@ fn claimed_items_can_be_retried_after_backoff() {
     let before_backoff = service
         .claim_next_ready("2026-04-16T10:04:59Z")
         .expect("claim before backoff expiry should succeed");
-    assert!(before_backoff.is_none(), "item should wait until retry backoff expires");
+    assert!(
+        before_backoff.is_none(),
+        "item should wait until retry backoff expires"
+    );
 
     let after_backoff = service
         .claim_next_ready("2026-04-16T10:05:00Z")
@@ -611,5 +628,8 @@ fn claimed_items_can_be_retried_after_backoff() {
         .list_rumination_queue_items("spq")
         .expect("spq items should load");
     assert_eq!(persisted[0].attempt_count, 1);
-    assert_eq!(persisted[0].last_error.as_deref(), Some("transient failure"));
+    assert_eq!(
+        persisted[0].last_error.as_deref(),
+        Some("transient failure")
+    );
 }

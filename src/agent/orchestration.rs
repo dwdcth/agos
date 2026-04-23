@@ -8,9 +8,7 @@ use thiserror::Error;
 use crate::{
     cognition::{
         action::{ActionCandidate, ActionKind},
-        assembly::{
-            ActionSeed, SelfStateProvider, WorkingMemoryAssembler, WorkingMemoryRequest,
-        },
+        assembly::{ActionSeed, SelfStateProvider, WorkingMemoryAssembler, WorkingMemoryRequest},
         metacog::MetacognitionService,
         report::DecisionReport,
         value::{ScoredBranch, ValueConfig, ValueScorer, ValueVector},
@@ -92,7 +90,9 @@ impl AgentSearchRequest {
     pub fn developer_defaults(query: impl Into<String>) -> Self {
         let query = query.into();
         let working_memory = WorkingMemoryRequest::new(query.clone())
-            .with_active_goal(format!("produce a cited decision-support report for: {query}"))
+            .with_active_goal(format!(
+                "produce a cited decision-support report for: {query}"
+            ))
             .with_action_seed(ActionSeed::new(
                 ActionCandidate::new(ActionKind::Epistemic, "collect more evidence")
                     .with_intent("retrieve stronger support before acting"),
@@ -255,19 +255,22 @@ where
                 let search_request = SearchRequest::new(query.clone())
                     .with_limit(request.step_limit)
                     .with_filters(request.working_memory.filters.clone());
-                let response = self
-                    .retriever
-                    .search(&search_request)
-                    .map_err(|source| AgentSearchError::Retrieval {
+                let response = self.retriever.search(&search_request).map_err(|source| {
+                    AgentSearchError::Retrieval {
                         query: query.clone(),
                         source,
-                    })?;
+                    }
+                })?;
                 integrated_results.extend(response.results.iter().cloned());
                 Ok(RetrievalStepReport {
                     query,
                     applied_filters: response.applied_filters.clone(),
                     result_count: response.results.len(),
-                    citations: response.results.into_iter().map(|result| result.citation).collect(),
+                    citations: response
+                        .results
+                        .into_iter()
+                        .map(|result| result.citation)
+                        .collect(),
                 })
             })
             .collect::<Result<Vec<_>, AgentSearchError>>()?;
@@ -400,10 +403,12 @@ impl ScoringPort for WorkingMemoryScoringPort {
                         summary: branch.candidate.summary.clone(),
                     })?;
 
-                Ok(self.scorer.score_branch(crate::cognition::value::BranchValueInput::new(
-                    branch.clone(),
-                    branch_value.value.clone(),
-                )))
+                Ok(self
+                    .scorer
+                    .score_branch(crate::cognition::value::BranchValueInput::new(
+                        branch.clone(),
+                        branch_value.value.clone(),
+                    )))
             })
             .collect()
     }
@@ -440,7 +445,11 @@ impl<'db, P>
 where
     P: SelfStateProvider,
 {
-    pub fn with_services(conn: &'db Connection, self_state_provider: P, value_config: ValueConfig) -> Self {
+    pub fn with_services(
+        conn: &'db Connection,
+        self_state_provider: P,
+        value_config: ValueConfig,
+    ) -> Self {
         Self::new(
             SearchServicePort::new(conn),
             WorkingMemoryAssemblyPort::new(conn, self_state_provider),

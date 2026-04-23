@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::{future::Future, pin::Pin};
 
-use thiserror::Error;
+use crate::memory::taxonomy::{AspectV1, DomainV1, KindV1, TaxonomyPathV1, TopicV1};
 use crate::memory::{
     record::{MemoryRecord, TruthLayer},
     summary::FactSummaryInput,
 };
-use crate::memory::taxonomy::{AspectV1, DomainV1, KindV1, TaxonomyPathV1, TopicV1};
+use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassificationInput {
@@ -81,7 +81,9 @@ impl ClassificationOutput {
     }
 
     pub fn validate(&self) -> Result<(), ClassificationError> {
-        self.taxonomy.validate().map_err(ClassificationError::Taxonomy)?;
+        self.taxonomy
+            .validate()
+            .map_err(ClassificationError::Taxonomy)?;
         if !(0.0..=1.0).contains(&self.confidence) {
             return Err(ClassificationError::InvalidConfidence(self.confidence));
         }
@@ -163,7 +165,10 @@ impl KeywordTaxonomyClassifier {
         self
     }
 
-    fn classify_sync(&self, input: &ClassificationInput) -> Result<ClassificationOutput, ClassificationError> {
+    pub fn classify_sync(
+        &self,
+        input: &ClassificationInput,
+    ) -> Result<ClassificationOutput, ClassificationError> {
         Ok(self.classify_with_report_sync(input)?.0)
     }
 
@@ -233,12 +238,15 @@ impl KeywordTaxonomyClassifier {
             DomainV1::External,
         ];
 
-        choose_best(text, &candidates, |domain| domain_keywords(*domain)).unwrap_or(self.default_domain)
+        choose_best(text, &candidates, |domain| domain_keywords(*domain))
+            .unwrap_or(self.default_domain)
     }
 
     fn classify_topic(&self, domain: DomainV1, text: &str) -> TopicV1 {
-        choose_best(text, TopicV1::allowed_for(domain), |topic| topic_keywords(domain, *topic))
-            .unwrap_or(TopicV1::General)
+        choose_best(text, TopicV1::allowed_for(domain), |topic| {
+            topic_keywords(domain, *topic)
+        })
+        .unwrap_or(TopicV1::General)
     }
 
     fn classify_aspect(&self, text: &str) -> AspectV1 {
@@ -257,7 +265,8 @@ impl KeywordTaxonomyClassifier {
             AspectV1::Constraint,
         ];
 
-        choose_best(text, &candidates, |aspect| aspect_keywords(*aspect)).unwrap_or(AspectV1::General)
+        choose_best(text, &candidates, |aspect| aspect_keywords(*aspect))
+            .unwrap_or(AspectV1::General)
     }
 
     fn classify_kind(&self, text: &str) -> KindV1 {
@@ -287,18 +296,30 @@ impl TaxonomyClassifier for KeywordTaxonomyClassifier {
 }
 
 impl KeywordTaxonomyClassifier {
-    pub fn classify_with_report<'a>(&'a self, input: &'a ClassificationInput) -> ClassificationReportFuture<'a> {
+    pub fn classify_with_report<'a>(
+        &'a self,
+        input: &'a ClassificationInput,
+    ) -> ClassificationReportFuture<'a> {
         Box::pin(async move { self.classify_with_report_sync(input) })
     }
 
     pub fn classify_record<'a>(
         &'a self,
         record: &'a MemoryRecord,
-    ) -> Pin<Box<dyn Future<Output = Result<ClassificationOutput, ClassificationError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<ClassificationOutput, ClassificationError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let input = ClassificationInput::from_record(record);
             self.classify_sync(&input)
         })
+    }
+
+    pub fn classify_record_sync(
+        &self,
+        record: &MemoryRecord,
+    ) -> Result<ClassificationOutput, ClassificationError> {
+        let input = ClassificationInput::from_record(record);
+        self.classify_sync(&input)
     }
 
     pub fn classify_record_with_report<'a>(
@@ -328,11 +349,7 @@ fn choose_best<T: Copy>(
         }
     }
 
-    if best_score == 0 {
-        None
-    } else {
-        best
-    }
+    if best_score == 0 { None } else { best }
 }
 
 fn score_keywords(text: &str, keywords: &'static [&'static str]) -> usize {
@@ -362,20 +379,48 @@ fn matched_keywords(text: &str, keywords: &'static [&'static str]) -> Vec<String
 fn domain_keywords(domain: DomainV1) -> &'static [&'static str] {
     match domain {
         DomainV1::Project => &[
-            "roadmap", "phase", "project", "memory", "retrieval", "agent", "truth", "config",
-            "docs", "testing",
+            "roadmap",
+            "phase",
+            "project",
+            "memory",
+            "retrieval",
+            "agent",
+            "truth",
+            "config",
+            "docs",
+            "testing",
         ],
         DomainV1::System => &[
-            "runtime", "architecture", "storage", "model", "security", "performance",
-            "integration", "database", "latency",
+            "runtime",
+            "architecture",
+            "storage",
+            "model",
+            "security",
+            "performance",
+            "integration",
+            "database",
+            "latency",
         ],
         DomainV1::Process => &[
-            "plan", "planning", "implement", "verification", "review", "experiment",
-            "benchmark", "workflow",
+            "plan",
+            "planning",
+            "implement",
+            "verification",
+            "review",
+            "experiment",
+            "benchmark",
+            "workflow",
         ],
         DomainV1::External => &[
-            "provider", "dependency", "api", "regulation", "vendor", "cost", "clerk",
-            "auth0", "openai",
+            "provider",
+            "dependency",
+            "api",
+            "regulation",
+            "vendor",
+            "cost",
+            "clerk",
+            "auth0",
+            "openai",
         ],
     }
 }
@@ -485,7 +530,10 @@ mod tests {
             false,
         );
 
-        assert!(matches!(output, Err(ClassificationError::InvalidConfidence(_))));
+        assert!(matches!(
+            output,
+            Err(ClassificationError::InvalidConfidence(_))
+        ));
     }
 
     #[test]
