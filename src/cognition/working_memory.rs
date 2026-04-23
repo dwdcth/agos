@@ -4,7 +4,8 @@ use thiserror::Error;
 use crate::{
     cognition::action::ActionBranch,
     memory::{
-        record::TruthLayer,
+        dsl::FlatFactDslRecordV1,
+        record::{Provenance, TruthLayer},
         truth::{T3State, TruthRecord},
     },
     search::{Citation, ResultTrace, ScoreBreakdown},
@@ -87,7 +88,9 @@ pub struct EvidenceFragment {
     pub record_id: String,
     pub snippet: String,
     pub citation: Citation,
+    pub provenance: Provenance,
     pub truth_context: TruthContext,
+    pub dsl: Option<FlatFactDslRecordV1>,
     pub trace: ResultTrace,
     pub score: ScoreBreakdown,
 }

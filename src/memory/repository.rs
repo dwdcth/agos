@@ -8,17 +8,23 @@ use crate::memory::record::{
     ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope,
     SourceKind, SourceRef, TruthLayer, ValidityWindow,
 };
+use crate::memory::store::{FactDslStore, FactDslStoreError, PersistedFactDslRecordV1};
 use crate::memory::truth::{
     CandidateReviewState, EvidenceRole, OntologyCandidate, OntologyCandidateState,
     PromotionDecisionState, PromotionEvidence, PromotionReview, ReviewGateState, T3Confidence,
     T3RevocationState, T3State, TruthRecord,
 };
-use crate::memory::store::{FactDslStore, FactDslStoreError, PersistedFactDslRecordV1};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeCount {
     pub scope: Scope,
     pub count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayeredMemoryRecord {
+    pub record: MemoryRecord,
+    pub dsl: Option<PersistedFactDslRecordV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -412,6 +418,51 @@ impl<'db> MemoryRepository<'db> {
         Ok(records)
     }
 
+    pub fn get_layered_record(
+        &self,
+        id: &str,
+    ) -> Result<Option<LayeredMemoryRecord>, RepositoryError> {
+        let Some(record) = self.get_record(id)? else {
+            return Ok(None);
+        };
+        let dsl = <Self as FactDslStore>::get_fact_dsl(self, id).map_err(|error| {
+            RepositoryError::Json(serde_json::Error::io(std::io::Error::other(
+                error.to_string(),
+            )))
+        })?;
+
+        Ok(Some(LayeredMemoryRecord { record, dsl }))
+    }
+
+    pub fn list_layered_records(&self) -> Result<Vec<LayeredMemoryRecord>, RepositoryError> {
+        let records = self.list_records()?;
+        records
+            .into_iter()
+            .map(|record| {
+                let dsl =
+                    <Self as FactDslStore>::get_fact_dsl(self, &record.id).map_err(|error| {
+                        RepositoryError::Json(serde_json::Error::io(std::io::Error::other(
+                            error.to_string(),
+                        )))
+                    })?;
+                Ok(LayeredMemoryRecord { record, dsl })
+            })
+            .collect()
+    }
+
+    pub fn list_layered_records_for_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<LayeredMemoryRecord>, RepositoryError> {
+        let mut layered = Vec::new();
+        for id in ids {
+            if let Some(record) = self.get_layered_record(id)? {
+                layered.push(record);
+            }
+        }
+        Ok(layered)
+    }
+
     pub fn insert_record_embedding(
         &self,
         embedding: &RecordEmbedding,
@@ -504,7 +555,9 @@ impl<'db> MemoryRepository<'db> {
                 cond,
                 impact,
                 conf,
-                rel_json
+                rel_json,
+                classification_confidence,
+                needs_review
             FROM fact_dsl_records
             ORDER BY record_id ASC
             "#,
@@ -561,10 +614,7 @@ impl<'db> MemoryRepository<'db> {
         Ok(())
     }
 
-    pub fn insert_promotion_review(
-        &self,
-        review: &PromotionReview,
-    ) -> Result<(), RepositoryError> {
+    pub fn insert_promotion_review(&self, review: &PromotionReview) -> Result<(), RepositoryError> {
         let review_notes_json = review
             .review_notes
             .as_ref()
@@ -696,10 +746,7 @@ impl<'db> MemoryRepository<'db> {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    pub fn update_promotion_review(
-        &self,
-        review: &PromotionReview,
-    ) -> Result<(), RepositoryError> {
+    pub fn update_promotion_review(&self, review: &PromotionReview) -> Result<(), RepositoryError> {
         let review_notes_json = review
             .review_notes
             .as_ref()
@@ -1095,7 +1142,11 @@ impl<'db> MemoryRepository<'db> {
 
         self.conn.execute(
             &sql,
-            params![item_id, RuminationQueueStatus::Completed.as_str(), processed_at],
+            params![
+                item_id,
+                RuminationQueueStatus::Completed.as_str(),
+                processed_at
+            ],
         )?;
 
         Ok(())
@@ -1613,9 +1664,11 @@ impl FactDslStore for MemoryRepository<'_> {
                 cond,
                 impact,
                 conf,
-                rel_json
+                rel_json,
+                classification_confidence,
+                needs_review
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
             ON CONFLICT(record_id) DO UPDATE SET
                 domain = excluded.domain,
                 topic = excluded.topic,
@@ -1629,7 +1682,9 @@ impl FactDslStore for MemoryRepository<'_> {
                 cond = excluded.cond,
                 impact = excluded.impact,
                 conf = excluded.conf,
-                rel_json = excluded.rel_json
+                rel_json = excluded.rel_json,
+                classification_confidence = excluded.classification_confidence,
+                needs_review = excluded.needs_review
             "#,
             params![
                 &persisted.record_id,
@@ -1651,13 +1706,18 @@ impl FactDslStore for MemoryRepository<'_> {
                     .as_ref()
                     .map(serde_json::to_string)
                     .transpose()?,
+                &persisted.classification_confidence,
+                persisted.needs_review,
             ],
         )?;
 
         Ok(())
     }
 
-    fn get_fact_dsl(&self, record_id: &str) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
+    fn get_fact_dsl(
+        &self,
+        record_id: &str,
+    ) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
         let mut statement = self.conn.prepare(
             r#"
             SELECT
@@ -1672,17 +1732,21 @@ impl FactDslStore for MemoryRepository<'_> {
                 why,
                 time_hint,
                 cond,
-                impact,
-                conf,
-                rel_json
-            FROM fact_dsl_records
-            WHERE record_id = ?1
-            "#,
+                    impact,
+                    conf,
+                    rel_json,
+                    classification_confidence,
+                    needs_review
+                FROM fact_dsl_records
+                WHERE record_id = ?1
+                "#,
         )?;
 
         let mut rows = statement.query([record_id])?;
         match rows.next()? {
-            Some(row) => map_fact_dsl_row(row).map(Some).map_err(|error| FactDslStoreError::Store(error.to_string())),
+            Some(row) => map_fact_dsl_row(row)
+                .map(Some)
+                .map_err(|error| FactDslStoreError::Store(error.to_string())),
             None => Ok(None),
         }
     }
@@ -1692,7 +1756,10 @@ impl FactDslStore for MemoryRepository<'_> {
             .map_err(|error| FactDslStoreError::Store(error.to_string()))
     }
 
-    fn delete_fact_dsl(&self, record_id: &str) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
+    fn delete_fact_dsl(
+        &self,
+        record_id: &str,
+    ) -> Result<Option<PersistedFactDslRecordV1>, FactDslStoreError> {
         let existing = self.get_fact_dsl(record_id)?;
         if existing.is_some() {
             self.conn.execute(
@@ -1830,13 +1897,15 @@ fn map_promotion_review_row(row: &rusqlite::Row<'_>) -> Result<PromotionReview, 
                 "invalid consensus review state".into(),
             )
         })?,
-        metacog_approval_state: ReviewGateState::parse(&metacog_approval_state).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(
-                6,
-                rusqlite::types::Type::Text,
-                "invalid metacognitive approval state".into(),
-            )
-        })?,
+        metacog_approval_state: ReviewGateState::parse(&metacog_approval_state).ok_or_else(
+            || {
+                rusqlite::Error::FromSqlConversionFailure(
+                    6,
+                    rusqlite::types::Type::Text,
+                    "invalid metacognitive approval state".into(),
+                )
+            },
+        )?,
         decision_state: PromotionDecisionState::parse(&decision_state).ok_or_else(|| {
             rusqlite::Error::FromSqlConversionFailure(
                 7,
@@ -1954,14 +2023,15 @@ fn map_ontology_candidate_row(
                     "invalid predictive utility state".into(),
                 )
             })?,
-        structural_review_state: CandidateReviewState::parse(&structural_review_state)
-            .ok_or_else(|| {
+        structural_review_state: CandidateReviewState::parse(&structural_review_state).ok_or_else(
+            || {
                 rusqlite::Error::FromSqlConversionFailure(
                     8,
                     rusqlite::types::Type::Text,
                     "invalid structural review state".into(),
                 )
-            })?,
+            },
+        )?,
         candidate_state: OntologyCandidateState::parse(&candidate_state).ok_or_else(|| {
             rusqlite::Error::FromSqlConversionFailure(
                 9,
@@ -2066,11 +2136,7 @@ fn map_local_adaptation_row(
     let target_kind = row.get::<_, String>(2)?;
     let payload_json = row.get::<_, String>(4)?;
     let payload = serde_json::from_str(&payload_json).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(
-            4,
-            rusqlite::types::Type::Text,
-            Box::new(error),
-        )
+        rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(error))
     })?;
 
     Ok(LocalAdaptationEntry {
@@ -2099,11 +2165,7 @@ fn map_rumination_candidate_row(
     let payload_json = row.get::<_, String>(4)?;
     let evidence_refs_json = row.get::<_, String>(5)?;
     let mut payload: Value = serde_json::from_str(&payload_json).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(
-            4,
-            rusqlite::types::Type::Text,
-            Box::new(error),
-        )
+        rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(error))
     })?;
     let governance_ref_id = payload
         .get("governance_ref_id")
@@ -2206,6 +2268,8 @@ fn map_fact_dsl_row(row: &rusqlite::Row<'_>) -> Result<PersistedFactDslRecordV1,
                 .map(|value| serde_json::from_str(&value))
                 .transpose()?,
         },
+        classification_confidence: row.get(14)?,
+        needs_review: row.get::<_, i64>(15)? != 0,
     })
 }
 

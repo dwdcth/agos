@@ -15,7 +15,9 @@ use agent_memos::{
             WorkingMemoryBuildError, WorkingMemoryBuilder,
         },
     },
-    core::config::{Config, EmbeddingBackend, RetrievalConfig, RetrievalMode, RootVectorConfig, VectorBackend},
+    core::config::{
+        Config, EmbeddingBackend, RetrievalConfig, RetrievalMode, RootVectorConfig, VectorBackend,
+    },
     core::db::Database,
     ingest::{IngestRequest, IngestService},
     memory::{
@@ -408,7 +410,11 @@ fn assembler_preserves_present_control_state_from_request() {
         .expect("assembly should preserve present control state");
 
     assert_eq!(
-        working_memory.present.active_goal.as_ref().map(|goal| goal.summary.as_str()),
+        working_memory
+            .present
+            .active_goal
+            .as_ref()
+            .map(|goal| goal.summary.as_str()),
         Some("select the safest cited next step")
     );
     assert_eq!(
@@ -419,7 +425,10 @@ fn assembler_preserves_present_control_state_from_request() {
         ]
     );
     assert_eq!(working_memory.present.metacog_flags.len(), 1);
-    assert_eq!(working_memory.present.metacog_flags[0].code, "trace_required");
+    assert_eq!(
+        working_memory.present.metacog_flags[0].code,
+        "trace_required"
+    );
     assert_eq!(
         working_memory.present.metacog_flags[0].detail.as_deref(),
         Some("preserve citations for decision gating")
@@ -695,7 +704,7 @@ fn assembler_injects_request_local_adaptation_entries_into_self_state() {
                             value: json!("conservative"),
                             trigger_kind: "request_override".to_string(),
                             evidence_refs: vec![
-                                "memo://project/request-local-adaptation".to_string()
+                                "memo://project/request-local-adaptation".to_string(),
                             ],
                         },
                         source_queue_item_id: None,
@@ -711,7 +720,7 @@ fn assembler_injects_request_local_adaptation_entries_into_self_state() {
                             value: json!("requires_human_review"),
                             trigger_kind: "request_override".to_string(),
                             evidence_refs: vec![
-                                "memo://project/request-local-adaptation".to_string()
+                                "memo://project/request-local-adaptation".to_string(),
                             ],
                         },
                         source_queue_item_id: None,
@@ -727,7 +736,7 @@ fn assembler_injects_request_local_adaptation_entries_into_self_state() {
                             value: json!("prefer_regulative_first"),
                             trigger_kind: "request_override".to_string(),
                             evidence_refs: vec![
-                                "memo://project/request-local-adaptation".to_string()
+                                "memo://project/request-local-adaptation".to_string(),
                             ],
                         },
                         source_queue_item_id: None,
@@ -762,7 +771,8 @@ fn assembler_injects_request_local_adaptation_entries_into_self_state() {
             .self_state
             .facts
             .iter()
-            .any(|fact| fact.key == "private_t3:hypothesis" && fact.value == "prefer_regulative_first"),
+            .any(|fact| fact.key == "private_t3:hypothesis"
+                && fact.value == "prefer_regulative_first"),
         "adaptive self-state provider should inject request-scoped private-t3 facts"
     );
 }
@@ -804,7 +814,7 @@ fn assembler_preserves_request_local_adaptation_fact_source_as_none() {
                         value: json!("conservative"),
                         trigger_kind: "request_override".to_string(),
                         evidence_refs: vec![
-                            "memo://project/request-local-adaptation-source-none".to_string()
+                            "memo://project/request-local-adaptation-source-none".to_string(),
                         ],
                     },
                     source_queue_item_id: None,
@@ -862,7 +872,7 @@ fn assembler_displays_non_string_request_local_adaptation_payloads_in_self_state
                         value: json!(false),
                         trigger_kind: "request_override".to_string(),
                         evidence_refs: vec![
-                            "memo://project/request-local-adaptation-non-string".to_string()
+                            "memo://project/request-local-adaptation-non-string".to_string(),
                         ],
                     },
                     source_queue_item_id: None,
@@ -922,7 +932,7 @@ fn assembler_preserves_request_local_adaptation_ordering() {
                             value: json!("aggressive"),
                             trigger_kind: "request_override".to_string(),
                             evidence_refs: vec![
-                                "memo://project/request-local-adaptation-order".to_string()
+                                "memo://project/request-local-adaptation-order".to_string(),
                             ],
                         },
                         source_queue_item_id: None,
@@ -939,7 +949,7 @@ fn assembler_preserves_request_local_adaptation_ordering() {
                             value: json!("conservative"),
                             trigger_kind: "request_override".to_string(),
                             evidence_refs: vec![
-                                "memo://project/request-local-adaptation-order".to_string()
+                                "memo://project/request-local-adaptation-order".to_string(),
                             ],
                         },
                         source_queue_item_id: None,
@@ -998,7 +1008,7 @@ fn assembler_orders_request_local_adaptation_after_subject_adaptation_for_same_k
                 value: json!("conservative"),
                 trigger_kind: "user_preference".to_string(),
                 evidence_refs: vec![
-                    "memo://project/subject-request-local-adaptation-order".to_string()
+                    "memo://project/subject-request-local-adaptation-order".to_string(),
                 ],
             },
             source_queue_item_id: None,
@@ -1024,7 +1034,7 @@ fn assembler_orders_request_local_adaptation_after_subject_adaptation_for_same_k
                         value: json!("aggressive"),
                         trigger_kind: "request_override".to_string(),
                         evidence_refs: vec![
-                            "memo://project/subject-request-local-adaptation-order".to_string()
+                            "memo://project/subject-request-local-adaptation-order".to_string(),
                         ],
                     },
                     source_queue_item_id: None,
@@ -1089,7 +1099,7 @@ fn assembler_preserves_request_local_adaptations_when_subject_lookup_is_empty() 
                         trigger_kind: "request_override".to_string(),
                         evidence_refs: vec![
                             "memo://project/subject-request-local-adaptation-empty-lookup"
-                                .to_string()
+                                .to_string(),
                         ],
                     },
                     source_queue_item_id: None,
@@ -1097,7 +1107,9 @@ fn assembler_preserves_request_local_adaptations_when_subject_lookup_is_empty() 
                     updated_at: "2026-04-16T10:14:31Z".to_string(),
                 }]),
         )
-        .expect("assembly should preserve request local adaptations even when subject lookup is empty");
+        .expect(
+            "assembly should preserve request local adaptations even when subject lookup is empty",
+        );
 
     assert!(
         working_memory
@@ -1142,7 +1154,9 @@ fn assembler_injects_risk_boundary_and_private_t3_local_adaptations() {
             payload: LocalAdaptationPayload {
                 value: json!("requires_human_review"),
                 trigger_kind: "safety_rule".to_string(),
-                evidence_refs: vec!["memo://project/subject-local-adaptation-boundaries".to_string()],
+                evidence_refs: vec![
+                    "memo://project/subject-local-adaptation-boundaries".to_string(),
+                ],
             },
             source_queue_item_id: None,
             created_at: "2026-04-16T10:14:40Z".to_string(),
@@ -1158,7 +1172,9 @@ fn assembler_injects_risk_boundary_and_private_t3_local_adaptations() {
             payload: LocalAdaptationPayload {
                 value: json!("prefer_regulative_first"),
                 trigger_kind: "private_mapping".to_string(),
-                evidence_refs: vec!["memo://project/subject-local-adaptation-boundaries".to_string()],
+                evidence_refs: vec![
+                    "memo://project/subject-local-adaptation-boundaries".to_string(),
+                ],
             },
             source_queue_item_id: None,
             created_at: "2026-04-16T10:14:41Z".to_string(),
@@ -1192,7 +1208,8 @@ fn assembler_injects_risk_boundary_and_private_t3_local_adaptations() {
             .self_state
             .facts
             .iter()
-            .any(|fact| fact.key == "private_t3:hypothesis" && fact.value == "prefer_regulative_first"),
+            .any(|fact| fact.key == "private_t3:hypothesis"
+                && fact.value == "prefer_regulative_first"),
         "adaptive self-state provider should inject private-t3 local adaptation facts"
     );
 }
@@ -1228,7 +1245,9 @@ fn assembler_displays_non_string_local_adaptation_payloads_in_self_state() {
             payload: LocalAdaptationPayload {
                 value: json!(false),
                 trigger_kind: "safety_rule".to_string(),
-                evidence_refs: vec!["memo://project/subject-local-adaptation-non-string".to_string()],
+                evidence_refs: vec![
+                    "memo://project/subject-local-adaptation-non-string".to_string(),
+                ],
             },
             source_queue_item_id: None,
             created_at: "2026-04-16T10:14:42Z".to_string(),
@@ -1290,7 +1309,7 @@ fn assembler_merges_subject_and_request_local_adaptations() {
                 value: json!("conservative"),
                 trigger_kind: "user_preference".to_string(),
                 evidence_refs: vec![
-                    "memo://project/subject-request-local-adaptation-merge".to_string()
+                    "memo://project/subject-request-local-adaptation-merge".to_string(),
                 ],
             },
             source_queue_item_id: None,
@@ -1316,7 +1335,7 @@ fn assembler_merges_subject_and_request_local_adaptations() {
                         value: json!("requires_human_review"),
                         trigger_kind: "request_override".to_string(),
                         evidence_refs: vec![
-                            "memo://project/subject-request-local-adaptation-merge".to_string()
+                            "memo://project/subject-request-local-adaptation-merge".to_string(),
                         ],
                     },
                     source_queue_item_id: None,
@@ -1460,7 +1479,7 @@ fn assembler_orders_subject_local_adaptations_by_entry_id_when_timestamps_match(
                 value: json!("aggressive"),
                 trigger_kind: "user_preference".to_string(),
                 evidence_refs: vec![
-                    "memo://project/subject-local-adaptation-entry-id-order".to_string()
+                    "memo://project/subject-local-adaptation-entry-id-order".to_string(),
                 ],
             },
             source_queue_item_id: None,
@@ -1478,7 +1497,7 @@ fn assembler_orders_subject_local_adaptations_by_entry_id_when_timestamps_match(
                 value: json!("conservative"),
                 trigger_kind: "user_preference".to_string(),
                 evidence_refs: vec![
-                    "memo://project/subject-local-adaptation-entry-id-order".to_string()
+                    "memo://project/subject-local-adaptation-entry-id-order".to_string(),
                 ],
             },
             source_queue_item_id: None,
@@ -1537,14 +1556,13 @@ fn assembler_preserves_action_candidate_summary_and_intent() {
 
     let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
         .assemble(
-            &WorkingMemoryRequest::new("candidate seed")
-                .with_action_seed(ActionSeed::new(
-                    ActionCandidate::new(
-                        ActionKind::Epistemic,
-                        "inspect the retrieved evidence before acting",
-                    )
-                    .with_intent("reduce uncertainty before selecting an action"),
-                )),
+            &WorkingMemoryRequest::new("candidate seed").with_action_seed(ActionSeed::new(
+                ActionCandidate::new(
+                    ActionKind::Epistemic,
+                    "inspect the retrieved evidence before acting",
+                )
+                .with_intent("reduce uncertainty before selecting an action"),
+            )),
         )
         .expect("assembly should preserve action candidate summary and intent");
 
@@ -1582,8 +1600,8 @@ fn assembler_preserves_action_candidate_parameters_and_expected_effects() {
 
     let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
         .assemble(
-            &WorkingMemoryRequest::new("candidate parameters")
-                .with_action_seed(ActionSeed::new(ActionCandidate {
+            &WorkingMemoryRequest::new("candidate parameters").with_action_seed(ActionSeed::new(
+                ActionCandidate {
                     kind: ActionKind::Instrumental,
                     summary: "apply the selected action".to_string(),
                     intent: Some("execute once evidence is sufficient".to_string()),
@@ -1595,14 +1613,18 @@ fn assembler_preserves_action_candidate_parameters_and_expected_effects() {
                         "state advances".to_string(),
                         "citations remain intact".to_string(),
                     ],
-                })),
+                },
+            )),
         )
         .expect("assembly should preserve action candidate parameters and effects");
 
     assert_eq!(working_memory.branches.len(), 1);
     assert_eq!(
         working_memory.branches[0].candidate.parameters,
-        vec!["target=file:src/main.rs".to_string(), "mode=safe".to_string()]
+        vec![
+            "target=file:src/main.rs".to_string(),
+            "mode=safe".to_string()
+        ]
     );
     assert_eq!(
         working_memory.branches[0].candidate.expected_effects,
@@ -1661,9 +1683,7 @@ fn assembler_preserves_default_branch_supporting_evidence_provenance() {
             .provenance
             .derived_from
             .iter()
-            .any(|value| value.starts_with(
-                "memo://project/default-branch-support-provenance#"
-            )),
+            .any(|value| value.starts_with("memo://project/default-branch-support-provenance#")),
         "default branch-support path should preserve the source-derived provenance anchor"
     );
     assert!(
@@ -1740,7 +1760,10 @@ fn working_memory_request_bounded_limit_matches_search_recall_ceiling() {
 fn working_memory_request_new_starts_with_default_empty_runtime_state() {
     let request = WorkingMemoryRequest::new("default request");
     assert_eq!(request.limit, WorkingMemoryRequest::DEFAULT_LIMIT);
-    assert_eq!(request.filters, agent_memos::search::SearchFilters::default());
+    assert_eq!(
+        request.filters,
+        agent_memos::search::SearchFilters::default()
+    );
     assert!(request.subject_ref.is_none());
     assert!(request.task_context.is_none());
     assert!(request.active_goal.is_none());
@@ -1865,8 +1888,14 @@ fn minimal_self_state_provider_preserves_request_control_fields_and_truth_facts(
         snapshot.task_context.as_deref(),
         Some("keep current control state visible")
     );
-    assert_eq!(snapshot.capability_flags, vec!["lexical_search_ready".to_string()]);
-    assert_eq!(snapshot.readiness_flags, vec!["truth_governance_ready".to_string()]);
+    assert_eq!(
+        snapshot.capability_flags,
+        vec!["lexical_search_ready".to_string()]
+    );
+    assert_eq!(
+        snapshot.readiness_flags,
+        vec!["truth_governance_ready".to_string()]
+    );
     assert_eq!(
         snapshot.facts,
         vec![SelfStateFact {
@@ -2036,7 +2065,10 @@ fn assembler_preserves_branch_identity_on_whitespace_query() {
         .expect("assembly should preserve branch identity on blank query");
 
     assert_eq!(working_memory.branches.len(), 1);
-    assert_eq!(working_memory.branches[0].candidate.kind, ActionKind::Regulative);
+    assert_eq!(
+        working_memory.branches[0].candidate.kind,
+        ActionKind::Regulative
+    );
     assert_eq!(
         working_memory.branches[0].candidate.summary,
         "pause and request clarification"
@@ -2089,14 +2121,20 @@ fn assembler_preserves_action_candidate_fields_on_whitespace_query() {
         .expect("assembly should preserve candidate fields on blank query");
 
     assert_eq!(working_memory.branches.len(), 1);
-    assert_eq!(working_memory.branches[0].candidate.kind, ActionKind::Instrumental);
+    assert_eq!(
+        working_memory.branches[0].candidate.kind,
+        ActionKind::Instrumental
+    );
     assert_eq!(
         working_memory.branches[0].candidate.intent.as_deref(),
         Some("execute once evidence is sufficient")
     );
     assert_eq!(
         working_memory.branches[0].candidate.parameters,
-        vec!["target=file:src/main.rs".to_string(), "mode=safe".to_string()]
+        vec![
+            "target=file:src/main.rs".to_string(),
+            "mode=safe".to_string()
+        ]
     );
     assert_eq!(
         working_memory.branches[0].candidate.expected_effects,
@@ -2148,7 +2186,10 @@ fn assembler_preserves_default_branch_supporting_evidence_score() {
 
     assert_eq!(working_memory.branches.len(), 1);
     assert_eq!(working_memory.branches[0].supporting_evidence.len(), 1);
-    assert_eq!(working_memory.branches[0].supporting_evidence[0].score, expected_score);
+    assert_eq!(
+        working_memory.branches[0].supporting_evidence[0].score,
+        expected_score
+    );
 }
 
 #[test]
@@ -2340,13 +2381,19 @@ fn assembler_preserves_default_branch_supporting_evidence_truth_context() {
     let fragment = &working_memory.branches[0].supporting_evidence[0];
     assert_eq!(fragment.record_id, record.record_ids[0]);
     assert_eq!(fragment.truth_context.truth_layer, TruthLayer::T3);
-    assert_eq!(fragment.truth_context.open_review_ids, vec![review.review_id]);
+    assert_eq!(
+        fragment.truth_context.open_review_ids,
+        vec![review.review_id]
+    );
     let t3_state = fragment
         .truth_context
         .t3_state
         .as_ref()
         .expect("default branch-support path should preserve t3 state");
-    assert_eq!(t3_state.last_reviewed_at.as_deref(), Some("2026-04-16T10:47:30Z"));
+    assert_eq!(
+        t3_state.last_reviewed_at.as_deref(),
+        Some("2026-04-16T10:47:30Z")
+    );
 }
 
 #[test]
@@ -2479,7 +2526,9 @@ fn assembler_preserves_default_branch_supporting_evidence_citation_source_kind()
     assert_eq!(working_memory.branches.len(), 1);
     assert_eq!(working_memory.branches[0].supporting_evidence.len(), 1);
     assert_eq!(
-        working_memory.branches[0].supporting_evidence[0].citation.source_kind,
+        working_memory.branches[0].supporting_evidence[0]
+            .citation
+            .source_kind,
         SourceKind::Note
     );
 }
@@ -2704,16 +2753,17 @@ fn assembler_preserves_default_branch_supporting_evidence_filter_trace() {
 
     let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
         .assemble(
-            &WorkingMemoryRequest::new("decision").with_filters(agent_memos::search::SearchFilters {
-                scope: Some(Scope::Project),
-                record_type: Some(RecordType::Decision),
-                truth_layer: Some(TruthLayer::T2),
-                ..Default::default()
-            })
-            .with_action_seed(ActionSeed::new(ActionCandidate::new(
-                ActionKind::Epistemic,
-                "inspect all supporting evidence",
-            ))),
+            &WorkingMemoryRequest::new("decision")
+                .with_filters(agent_memos::search::SearchFilters {
+                    scope: Some(Scope::Project),
+                    record_type: Some(RecordType::Decision),
+                    truth_layer: Some(TruthLayer::T2),
+                    ..Default::default()
+                })
+                .with_action_seed(ActionSeed::new(ActionCandidate::new(
+                    ActionKind::Epistemic,
+                    "inspect all supporting evidence",
+                ))),
         )
         .expect("assembly should preserve default branch-support filter trace");
 
@@ -2755,16 +2805,17 @@ fn assembler_preserves_default_branch_supporting_evidence_temporal_filter_trace(
 
     let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
         .assemble(
-            &WorkingMemoryRequest::new("decision").with_filters(agent_memos::search::SearchFilters {
-                valid_at: Some("2026-04-16T12:00:00Z".to_string()),
-                recorded_from: Some("2026-04-16T00:00:00Z".to_string()),
-                recorded_to: Some("2026-04-17T00:00:00Z".to_string()),
-                ..Default::default()
-            })
-            .with_action_seed(ActionSeed::new(ActionCandidate::new(
-                ActionKind::Epistemic,
-                "inspect all supporting evidence",
-            ))),
+            &WorkingMemoryRequest::new("decision")
+                .with_filters(agent_memos::search::SearchFilters {
+                    valid_at: Some("2026-04-16T12:00:00Z".to_string()),
+                    recorded_from: Some("2026-04-16T00:00:00Z".to_string()),
+                    recorded_to: Some("2026-04-17T00:00:00Z".to_string()),
+                    ..Default::default()
+                })
+                .with_action_seed(ActionSeed::new(ActionCandidate::new(
+                    ActionKind::Epistemic,
+                    "inspect all supporting evidence",
+                ))),
         )
         .expect("assembly should preserve default branch-support temporal filter trace");
 
@@ -2821,7 +2872,10 @@ fn assembler_preserves_default_branch_supporting_evidence_trace_summary() {
     assert_eq!(working_memory.branches.len(), 1);
     assert_eq!(working_memory.branches[0].supporting_evidence.len(), 1);
     let fragment = &working_memory.branches[0].supporting_evidence[0];
-    assert_eq!(fragment.trace.channel_contribution, ChannelContribution::LexicalOnly);
+    assert_eq!(
+        fragment.trace.channel_contribution,
+        ChannelContribution::LexicalOnly
+    );
     assert_eq!(fragment.trace.matched_query, "lexical-first baseline");
     assert!(
         fragment
@@ -2995,7 +3049,10 @@ fn assembler_preserves_integrated_follow_up_provenance_on_fragments() {
             .iter()
             .any(|value| value.starts_with("memo://project/follow-up-provenance#"))
     );
-    assert_eq!(follow_up_fragment.trace.matched_query, "follow-up provenance result");
+    assert_eq!(
+        follow_up_fragment.trace.matched_query,
+        "follow-up provenance result"
+    );
 }
 
 #[test]
@@ -3585,6 +3642,114 @@ fn assembler_preserves_integrated_result_order_when_query_is_whitespace() {
 }
 
 #[test]
+fn assembler_hydrates_dsl_from_repository_for_integrated_results_on_whitespace_query() {
+    let path = fresh_db_path("integrated-results-whitespace-hydrates-dsl");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    let record = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/whitespace-integrated-hydrates-dsl".to_string(),
+            source_label: Some("whitespace-integrated-hydrates-dsl".to_string()),
+            source_kind: Some(SourceKind::Note),
+            content: "lexical-first baseline should still carry a structured dsl payload"
+                .to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:11:20Z".to_string(),
+            valid_from: Some("2026-04-10T00:00:00Z".to_string()),
+            valid_to: Some("2026-04-20T00:00:00Z".to_string()),
+        })
+        .expect("ingest should succeed");
+
+    let record_id = record.record_ids[0].clone();
+    let search = SearchService::new(db.conn());
+    let mut integrated_results = search
+        .search(&SearchRequest::new("lexical-first baseline").with_limit(1))
+        .expect("search should succeed")
+        .results;
+    integrated_results[0].snippet = "caller provided integrated snippet".to_string();
+    integrated_results[0].dsl = None;
+
+    let assembler = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider);
+    let working_memory = assembler
+        .assemble(&WorkingMemoryRequest::new("   ").with_integrated_results(integrated_results))
+        .expect("assembly should hydrate missing dsl payloads from the repository");
+
+    assert_eq!(working_memory.present.world_fragments.len(), 1);
+    let fragment = &working_memory.present.world_fragments[0];
+    assert_eq!(fragment.record_id, record_id);
+    assert_eq!(
+        fragment.snippet, "caller provided integrated snippet",
+        "dsl hydration should not overwrite the caller-provided integrated snippet"
+    );
+    let dsl = fragment
+        .dsl
+        .as_ref()
+        .expect("repository-backed dsl payload should be restored on blank-query assembly");
+    assert_eq!(dsl.domain, "project");
+    assert_eq!(dsl.kind, "decision");
+    assert!(!dsl.claim.is_empty());
+}
+
+#[test]
+fn assembler_hydrates_dsl_for_explicit_branch_support_on_whitespace_query() {
+    let path = fresh_db_path("integrated-results-whitespace-branch-hydrates-dsl");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    let record = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/whitespace-integrated-branch-hydrates-dsl".to_string(),
+            source_label: Some("whitespace-integrated-branch-hydrates-dsl".to_string()),
+            source_kind: Some(SourceKind::Note),
+            content: "explicit branch support should inherit structured dsl hydration".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:11:25Z".to_string(),
+            valid_from: Some("2026-04-10T00:00:00Z".to_string()),
+            valid_to: Some("2026-04-20T00:00:00Z".to_string()),
+        })
+        .expect("ingest should succeed");
+
+    let record_id = record.record_ids[0].clone();
+    let search = SearchService::new(db.conn());
+    let mut integrated_results = search
+        .search(&SearchRequest::new("explicit branch support").with_limit(1))
+        .expect("search should succeed")
+        .results;
+    integrated_results[0].dsl = None;
+
+    let assembler = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider);
+    let working_memory = assembler
+        .assemble(
+            &WorkingMemoryRequest::new("   ")
+                .with_integrated_results(integrated_results)
+                .with_action_seed(
+                    ActionSeed::new(ActionCandidate::new(
+                        ActionKind::Epistemic,
+                        "review the explicit branch evidence",
+                    ))
+                    .with_supporting_record_ids(vec![record_id.clone()]),
+                ),
+        )
+        .expect("assembly should hydrate missing dsl payloads for explicit branch support");
+
+    assert_eq!(working_memory.branches.len(), 1);
+    let fragment = &working_memory.branches[0].supporting_evidence[0];
+    assert_eq!(fragment.record_id, record_id);
+    let dsl = fragment
+        .dsl
+        .as_ref()
+        .expect("branch support should receive repository-backed dsl hydration");
+    assert_eq!(dsl.domain, "project");
+    assert_eq!(dsl.kind, "decision");
+    assert!(!dsl.claim.is_empty());
+}
+
+#[test]
 fn assembler_uses_integrated_results_for_default_branch_support_on_whitespace_query() {
     let path = fresh_db_path("whitespace-integrated-branch-support");
     let db = Database::open(&path).expect("database should open");
@@ -3595,8 +3760,9 @@ fn assembler_uses_integrated_results_for_default_branch_support_on_whitespace_qu
             source_uri: "memo://project/whitespace-integrated-branch-support".to_string(),
             source_label: Some("whitespace-integrated-branch-support".to_string()),
             source_kind: None,
-            content: "explicit integrated evidence should feed default branch support on blank queries"
-                .to_string(),
+            content:
+                "explicit integrated evidence should feed default branch support on blank queries"
+                    .to_string(),
             scope: Scope::Project,
             record_type: RecordType::Decision,
             truth_layer: TruthLayer::T2,
@@ -3808,10 +3974,9 @@ fn assembler_dedupes_duplicate_integrated_results_by_record_id() {
 
     let working_memory = assembler
         .assemble(
-            &WorkingMemoryRequest::new("duplicate integrated result").with_limit(1).with_integrated_results(vec![
-                duplicated.clone(),
-                duplicated,
-            ]),
+            &WorkingMemoryRequest::new("duplicate integrated result")
+                .with_limit(1)
+                .with_integrated_results(vec![duplicated.clone(), duplicated]),
         )
         .expect("assembly should dedupe duplicate integrated results");
 
@@ -4260,7 +4425,10 @@ fn assembler_preserves_branch_supporting_evidence_truth_context_for_integrated_f
         .t3_state
         .as_ref()
         .expect("branch supporting evidence should preserve t3 state");
-    assert_eq!(t3_state.last_reviewed_at.as_deref(), Some("2026-04-16T12:35:30Z"));
+    assert_eq!(
+        t3_state.last_reviewed_at.as_deref(),
+        Some("2026-04-16T12:35:30Z")
+    );
 }
 
 #[test]
@@ -4432,7 +4600,10 @@ fn assembler_preserves_branch_supporting_evidence_trace_for_integrated_follow_up
                 .contains(&agent_memos::search::QueryStrategy::Structured),
         "branch supporting evidence should preserve both lexical and structured trace provenance"
     );
-    assert_eq!(follow_up_fragment.trace.matched_query, "lexical-first baseline");
+    assert_eq!(
+        follow_up_fragment.trace.matched_query,
+        "lexical-first baseline"
+    );
 }
 
 #[test]
@@ -4478,16 +4649,14 @@ fn assembler_preserves_branch_supporting_evidence_filter_trace_for_integrated_fo
         .expect("primary search should succeed")
         .results;
     let follow_up_result = search
-        .search(
-            &SearchRequest::new("decision")
-                .with_limit(1)
-                .with_filters(agent_memos::search::SearchFilters {
-                    scope: Some(Scope::Project),
-                    record_type: Some(RecordType::Decision),
-                    truth_layer: Some(TruthLayer::T2),
-                    ..Default::default()
-                }),
-        )
+        .search(&SearchRequest::new("decision").with_limit(1).with_filters(
+            agent_memos::search::SearchFilters {
+                scope: Some(Scope::Project),
+                record_type: Some(RecordType::Decision),
+                truth_layer: Some(TruthLayer::T2),
+                ..Default::default()
+            },
+        ))
         .expect("follow-up search should succeed")
         .results;
     let mut integrated_results = primary_result;
@@ -4514,7 +4683,10 @@ fn assembler_preserves_branch_supporting_evidence_filter_trace_for_integrated_fo
         .find(|fragment| fragment.record_id == follow_up_id)
         .expect("branch supporting evidence should include follow-up fragment");
 
-    assert_eq!(follow_up_fragment.trace.applied_filters.scope, Some(Scope::Project));
+    assert_eq!(
+        follow_up_fragment.trace.applied_filters.scope,
+        Some(Scope::Project)
+    );
     assert_eq!(
         follow_up_fragment.trace.applied_filters.record_type,
         Some(RecordType::Decision)
@@ -5263,9 +5435,8 @@ fn assembler_preserves_structured_only_record_provenance_on_fragments() {
             .provenance
             .derived_from
             .iter()
-            .any(|value| value.starts_with(
-                "memo://project/structured-only-record-provenance-assembly#"
-            )),
+            .any(|value| value
+                .starts_with("memo://project/structured-only-record-provenance-assembly#")),
         "structured-only fragments should preserve the source-derived provenance anchor"
     );
     assert!(
@@ -5840,14 +6011,20 @@ fn assembler_preserves_structured_only_open_review_ids_in_truth_context() {
     assert_eq!(working_memory.present.world_fragments.len(), 1);
     let fragment = &working_memory.present.world_fragments[0];
     assert_eq!(fragment.record_id, record.record_ids[0]);
-    assert_eq!(fragment.truth_context.open_review_ids, vec![review.review_id]);
+    assert_eq!(
+        fragment.truth_context.open_review_ids,
+        vec![review.review_id]
+    );
     assert!(fragment.truth_context.open_candidate_ids.is_empty());
     let t3_state = fragment
         .truth_context
         .t3_state
         .as_ref()
         .expect("structured-only T3 fragments should carry t3 state");
-    assert_eq!(t3_state.last_reviewed_at.as_deref(), Some("2026-04-16T13:44:49Z"));
+    assert_eq!(
+        t3_state.last_reviewed_at.as_deref(),
+        Some("2026-04-16T13:44:49Z")
+    );
 }
 
 #[test]
@@ -6017,14 +6194,20 @@ fn assembler_preserves_mixed_open_review_ids_in_truth_context() {
     assert_eq!(working_memory.present.world_fragments.len(), 1);
     let fragment = &working_memory.present.world_fragments[0];
     assert_eq!(fragment.record_id, record.record_ids[0]);
-    assert_eq!(fragment.truth_context.open_review_ids, vec![review.review_id]);
+    assert_eq!(
+        fragment.truth_context.open_review_ids,
+        vec![review.review_id]
+    );
     assert!(fragment.truth_context.open_candidate_ids.is_empty());
     let t3_state = fragment
         .truth_context
         .t3_state
         .as_ref()
         .expect("mixed T3 fragments should carry t3 state");
-    assert_eq!(t3_state.last_reviewed_at.as_deref(), Some("2026-04-16T13:44:56Z"));
+    assert_eq!(
+        t3_state.last_reviewed_at.as_deref(),
+        Some("2026-04-16T13:44:56Z")
+    );
     assert!(
         fragment
             .trace
@@ -6277,7 +6460,10 @@ fn assembler_preserves_mixed_score_on_fragments() {
     let fragment = &working_memory.present.world_fragments[0];
     assert_eq!(fragment.score, expected_score);
     assert!(
-        fragment.trace.query_strategies.contains(&agent_memos::search::QueryStrategy::Simple)
+        fragment
+            .trace
+            .query_strategies
+            .contains(&agent_memos::search::QueryStrategy::Simple)
             && fragment
                 .trace
                 .query_strategies
@@ -6446,7 +6632,10 @@ fn assembler_preserves_hybrid_trace_on_fragments() {
 
     assert_eq!(working_memory.present.world_fragments.len(), 1);
     let fragment = &working_memory.present.world_fragments[0];
-    assert_eq!(fragment.trace.channel_contribution, ChannelContribution::Hybrid);
+    assert_eq!(
+        fragment.trace.channel_contribution,
+        ChannelContribution::Hybrid
+    );
     assert_eq!(
         fragment.trace.query_strategies,
         vec![
@@ -6950,7 +7139,10 @@ fn assembler_preserves_mixed_record_provenance_on_fragments() {
         "mixed fragments should preserve the source-derived provenance anchor"
     );
     assert!(
-        fragment.trace.query_strategies.contains(&agent_memos::search::QueryStrategy::Simple)
+        fragment
+            .trace
+            .query_strategies
+            .contains(&agent_memos::search::QueryStrategy::Simple)
             && fragment
                 .trace
                 .query_strategies

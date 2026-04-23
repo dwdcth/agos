@@ -33,6 +33,7 @@ pub fn rerank_results(
                 citation: Citation::from_record(&candidate.record)?,
                 record: candidate.record,
                 snippet: candidate.snippet,
+                dsl: None,
                 score: candidate.score,
                 trace: ResultTrace {
                     matched_query: request.query.clone(),
@@ -59,9 +60,7 @@ pub fn rerank_results(
     })
 }
 
-fn channel_contribution(
-    strategies: &[crate::search::QueryStrategy],
-) -> ChannelContribution {
+fn channel_contribution(strategies: &[crate::search::QueryStrategy]) -> ChannelContribution {
     let has_embedding = strategies.contains(&crate::search::QueryStrategy::Embedding);
     let has_lexical = strategies
         .iter()

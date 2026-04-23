@@ -1,4 +1,6 @@
 use serde::Serialize;
+use std::collections::{BTreeMap, BTreeSet};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     memory::record::RecordType,
@@ -32,7 +34,7 @@ pub fn score_candidates(
         return Vec::new();
     }
 
-    let recency_order = recency_order(&candidates);
+    let (recency_positions, recency_slots) = recency_positions(&candidates);
     let query_terms = query_terms(&request.query);
     candidates
         .into_iter()
@@ -41,11 +43,11 @@ pub fn score_candidates(
             let keyword_bonus = keyword_bonus(&query_terms, &candidate);
             let importance_bonus = importance_bonus(candidate.record.record_type);
             let recency_bonus = recency_bonus(
-                recency_order
-                    .iter()
-                    .position(|recorded_at| recorded_at == &candidate.record.timestamp.recorded_at)
+                recency_positions
+                    .get(&candidate.record.id)
+                    .copied()
                     .unwrap_or(usize::MAX),
-                recency_order.len(),
+                recency_slots,
             );
             let emotion_bonus = 0.0;
             let final_score =
@@ -85,6 +87,9 @@ fn query_terms(query: &str) -> Vec<String> {
         terms.push(lowered);
     }
 
+    let mut seen = BTreeSet::new();
+    terms.retain(|term| seen.insert(term.clone()));
+
     terms
 }
 
@@ -97,6 +102,32 @@ fn keyword_bonus(terms: &[String], candidate: &LexicalCandidate) -> f32 {
         .unwrap_or("")
         .to_lowercase();
     let content = candidate.record.content_text.to_lowercase();
+    let structured_fields = candidate
+        .dsl
+        .as_ref()
+        .map(|dsl| {
+            let mut fields = vec![
+                dsl.domain.to_lowercase(),
+                dsl.topic.to_lowercase(),
+                dsl.aspect.to_lowercase(),
+                dsl.kind.to_lowercase(),
+                dsl.claim.to_lowercase(),
+                dsl.source_ref.to_lowercase(),
+            ];
+            for extra in [
+                dsl.why.as_deref(),
+                dsl.time.as_deref(),
+                dsl.cond.as_deref(),
+                dsl.impact.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                fields.push(extra.to_lowercase());
+            }
+            fields
+        })
+        .unwrap_or_default();
     let mut bonus: f32 = 0.0;
 
     for term in terms {
@@ -108,9 +139,12 @@ fn keyword_bonus(terms: &[String], candidate: &LexicalCandidate) -> f32 {
         if content.contains(term) {
             bonus += if matched { 0.01 } else { 0.02 };
         }
+        if structured_fields.iter().any(|field| field.contains(term)) {
+            bonus += if matched { 0.03 } else { 0.05 };
+        }
     }
 
-    bonus.min(0.18)
+    bonus.min(0.24)
 }
 
 fn importance_bonus(record_type: RecordType) -> f32 {
@@ -121,15 +155,43 @@ fn importance_bonus(record_type: RecordType) -> f32 {
     }
 }
 
-fn recency_order(candidates: &[LexicalCandidate]) -> Vec<String> {
-    let mut recorded = candidates
+fn recency_positions(candidates: &[LexicalCandidate]) -> (BTreeMap<String, usize>, usize) {
+    let mut parsed_slots = candidates
         .iter()
+        .filter_map(|candidate| parse_recorded_at(&candidate.record.timestamp.recorded_at))
+        .collect::<Vec<_>>();
+    parsed_slots.sort();
+    parsed_slots.dedup();
+    parsed_slots.reverse();
+
+    let mut fallback_slots = candidates
+        .iter()
+        .filter(|candidate| parse_recorded_at(&candidate.record.timestamp.recorded_at).is_none())
         .map(|candidate| candidate.record.timestamp.recorded_at.clone())
         .collect::<Vec<_>>();
-    recorded.sort();
-    recorded.dedup();
-    recorded.reverse();
-    recorded
+    fallback_slots.sort();
+    fallback_slots.dedup();
+    fallback_slots.reverse();
+
+    let mut positions = BTreeMap::new();
+    for candidate in candidates {
+        let position =
+            if let Some(parsed) = parse_recorded_at(&candidate.record.timestamp.recorded_at) {
+                parsed_slots
+                    .iter()
+                    .position(|slot| *slot == parsed)
+                    .unwrap_or(usize::MAX)
+            } else {
+                let fallback_position = fallback_slots
+                    .iter()
+                    .position(|slot| slot == &candidate.record.timestamp.recorded_at)
+                    .unwrap_or(usize::MAX);
+                parsed_slots.len().saturating_add(fallback_position)
+            };
+        positions.insert(candidate.record.id.clone(), position);
+    }
+
+    (positions, parsed_slots.len() + fallback_slots.len())
 }
 
 fn recency_bonus(position: usize, total: usize) -> f32 {
@@ -146,7 +208,14 @@ fn sorted_strategies(mut strategies: Vec<QueryStrategy>) -> Vec<QueryStrategy> {
     strategies.sort_by_key(|strategy| match strategy {
         QueryStrategy::Jieba => 0,
         QueryStrategy::Simple => 1,
-        QueryStrategy::Embedding => 2,
+        QueryStrategy::Structured => 2,
+        QueryStrategy::Embedding => 3,
     });
     strategies
+}
+
+fn parse_recorded_at(value: &str) -> Option<i128> {
+    OffsetDateTime::parse(value, &Rfc3339)
+        .ok()
+        .map(|value| value.unix_timestamp_nanos())
 }

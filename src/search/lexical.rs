@@ -1,11 +1,15 @@
 use rusqlite::{Connection, params};
 use serde::Serialize;
 use thiserror::Error;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
-    memory::record::{
-        ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope,
-        SourceKind, SourceRef, TruthLayer, ValidityWindow,
+    memory::{
+        dsl::FlatFactDslRecordV1,
+        record::{
+            ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType,
+            Scope, SourceKind, SourceRef, TruthLayer, ValidityWindow,
+        },
     },
     search::SearchRequest,
 };
@@ -88,6 +92,7 @@ const SIMPLE_SQL: &str = r#"
 pub enum QueryStrategy {
     Jieba,
     Simple,
+    Structured,
     Embedding,
 }
 
@@ -96,6 +101,7 @@ pub struct LexicalCandidate {
     pub record: MemoryRecord,
     pub lexical_raw: f32,
     pub snippet: String,
+    pub dsl: Option<FlatFactDslRecordV1>,
     pub query_strategies: Vec<QueryStrategy>,
 }
 
@@ -106,10 +112,7 @@ pub enum LexicalSearchError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error("invalid {field} stored in database: {value}")]
-    InvalidEnum {
-        field: &'static str,
-        value: String,
-    },
+    InvalidEnum { field: &'static str, value: String },
     #[error("incomplete chunk metadata stored for record {record_id}")]
     IncompleteChunkMetadata { record_id: String },
 }
@@ -133,22 +136,42 @@ impl<'db> LexicalSearch<'db> {
         Self { conn }
     }
 
-    pub fn recall(&self, request: &SearchRequest) -> Result<Vec<LexicalCandidate>, LexicalSearchError> {
+    pub fn recall(
+        &self,
+        request: &SearchRequest,
+    ) -> Result<Vec<LexicalCandidate>, LexicalSearchError> {
         let query = request.query.trim();
         if query.is_empty() {
             return Ok(Vec::new());
         }
 
-        let limit = request.bounded_limit();
+        let apply_temporal_filters = has_temporal_filters(request);
+        let limit = if apply_temporal_filters {
+            MAX_RECALL_LIMIT
+        } else {
+            request.bounded_limit()
+        };
         let limit = i64::try_from(limit).expect("bounded recall limit should fit in i64");
         let mut candidates = Vec::new();
         let filters = RecallFilters {
             scope: request.filters.scope_value(),
             record_type: request.filters.record_type_value(),
             truth_layer: request.filters.truth_layer_value(),
-            valid_at: request.filters.valid_at.as_deref(),
-            recorded_from: request.filters.recorded_from.as_deref(),
-            recorded_to: request.filters.recorded_to.as_deref(),
+            valid_at: if apply_temporal_filters {
+                None
+            } else {
+                request.filters.valid_at.as_deref()
+            },
+            recorded_from: if apply_temporal_filters {
+                None
+            } else {
+                request.filters.recorded_from.as_deref()
+            },
+            recorded_to: if apply_temporal_filters {
+                None
+            } else {
+                request.filters.recorded_to.as_deref()
+            },
         };
 
         self.collect_candidates(
@@ -167,6 +190,10 @@ impl<'db> LexicalSearch<'db> {
             filters,
             &mut candidates,
         )?;
+
+        if apply_temporal_filters {
+            candidates.retain(|candidate| matches_temporal_filters(&candidate.record, request));
+        }
 
         candidates.sort_by(|left, right| {
             left.lexical_raw
@@ -204,7 +231,10 @@ impl<'db> LexicalSearch<'db> {
             let lexical_raw = row.get::<_, f32>(18)?;
             let snippet = row.get::<_, String>(19)?;
 
-            if let Some(existing) = candidates.iter_mut().find(|candidate| candidate.record.id == record.id) {
+            if let Some(existing) = candidates
+                .iter_mut()
+                .find(|candidate| candidate.record.id == record.id)
+            {
                 if lexical_raw < existing.lexical_raw {
                     existing.lexical_raw = lexical_raw;
                 }
@@ -221,12 +251,114 @@ impl<'db> LexicalSearch<'db> {
                 record,
                 lexical_raw,
                 snippet,
+                dsl: None,
                 query_strategies: vec![strategy],
             });
         }
 
         Ok(())
     }
+}
+
+fn has_temporal_filters(request: &SearchRequest) -> bool {
+    request.filters.valid_at.is_some()
+        || request.filters.recorded_from.is_some()
+        || request.filters.recorded_to.is_some()
+}
+
+fn matches_temporal_filters(record: &MemoryRecord, request: &SearchRequest) -> bool {
+    if let Some(valid_at) = request.filters.valid_at.as_deref()
+        && !matches_optional_timestamp(
+            record.validity.valid_from.as_deref(),
+            valid_at,
+            TimestampComparison::LessOrEqual,
+        )
+    {
+        return false;
+    }
+    if let Some(valid_at) = request.filters.valid_at.as_deref()
+        && !matches_optional_timestamp(
+            record.validity.valid_to.as_deref(),
+            valid_at,
+            TimestampComparison::GreaterOrEqual,
+        )
+    {
+        return false;
+    }
+    if let Some(recorded_from) = request.filters.recorded_from.as_deref()
+        && !matches_required_timestamp(
+            &record.timestamp.recorded_at,
+            recorded_from,
+            TimestampComparison::GreaterOrEqual,
+        )
+    {
+        return false;
+    }
+    if let Some(recorded_to) = request.filters.recorded_to.as_deref()
+        && !matches_required_timestamp(
+            &record.timestamp.recorded_at,
+            recorded_to,
+            TimestampComparison::LessOrEqual,
+        )
+    {
+        return false;
+    }
+
+    true
+}
+
+#[derive(Clone, Copy)]
+enum TimestampComparison {
+    LessOrEqual,
+    GreaterOrEqual,
+}
+
+fn matches_optional_timestamp(
+    candidate: Option<&str>,
+    filter: &str,
+    comparison: TimestampComparison,
+) -> bool {
+    let Some(candidate) = candidate else {
+        return true;
+    };
+    matches_required_timestamp(candidate, filter, comparison)
+}
+
+fn matches_required_timestamp(
+    candidate: &str,
+    filter: &str,
+    comparison: TimestampComparison,
+) -> bool {
+    match (parse_rfc3339(candidate), parse_rfc3339(filter)) {
+        (Some(candidate), Some(filter)) => compare_timestamps(candidate, filter, comparison),
+        _ => compare_timestamp_strings(candidate, filter, comparison),
+    }
+}
+
+fn compare_timestamps(
+    candidate: OffsetDateTime,
+    filter: OffsetDateTime,
+    comparison: TimestampComparison,
+) -> bool {
+    match comparison {
+        TimestampComparison::LessOrEqual => candidate <= filter,
+        TimestampComparison::GreaterOrEqual => candidate >= filter,
+    }
+}
+
+fn compare_timestamp_strings(
+    candidate: &str,
+    filter: &str,
+    comparison: TimestampComparison,
+) -> bool {
+    match comparison {
+        TimestampComparison::LessOrEqual => candidate <= filter,
+        TimestampComparison::GreaterOrEqual => candidate >= filter,
+    }
+}
+
+fn parse_rfc3339(value: &str) -> Option<OffsetDateTime> {
+    OffsetDateTime::parse(value, &Rfc3339).ok()
 }
 
 fn map_record_row(row: &rusqlite::Row<'_>) -> Result<MemoryRecord, LexicalSearchError> {

@@ -1,4 +1,5 @@
 use rusqlite::Connection;
+use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 use crate::{
@@ -147,7 +148,8 @@ impl WorkingMemoryRequest {
     }
 
     pub fn bounded_limit(&self) -> usize {
-        self.limit.clamp(1, SearchRequest::DEFAULT_LIMIT.max(self.limit))
+        self.limit
+            .clamp(1, crate::search::lexical::MAX_RECALL_LIMIT)
     }
 
     pub fn selected_truth_facts(&self, truths: &[TruthRecord]) -> Vec<SelfStateFact> {
@@ -163,14 +165,19 @@ impl WorkingMemoryRequest {
 }
 
 pub trait SelfStateProvider {
-    fn snapshot(&self, request: &WorkingMemoryRequest, truths: &[TruthRecord]) -> SelfStateSnapshot;
+    fn snapshot(&self, request: &WorkingMemoryRequest, truths: &[TruthRecord])
+    -> SelfStateSnapshot;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MinimalSelfStateProvider;
 
 impl SelfStateProvider for MinimalSelfStateProvider {
-    fn snapshot(&self, request: &WorkingMemoryRequest, truths: &[TruthRecord]) -> SelfStateSnapshot {
+    fn snapshot(
+        &self,
+        request: &WorkingMemoryRequest,
+        truths: &[TruthRecord],
+    ) -> SelfStateSnapshot {
         SelfStateSnapshot {
             task_context: request.task_context.clone(),
             capability_flags: request.capability_flags.clone(),
@@ -195,7 +202,11 @@ impl<P> SelfStateProvider for AdaptiveSelfStateProvider<P>
 where
     P: SelfStateProvider,
 {
-    fn snapshot(&self, request: &WorkingMemoryRequest, truths: &[TruthRecord]) -> SelfStateSnapshot {
+    fn snapshot(
+        &self,
+        request: &WorkingMemoryRequest,
+        truths: &[TruthRecord],
+    ) -> SelfStateSnapshot {
         let mut snapshot = self.base.snapshot(request, truths);
         snapshot.facts.extend(
             request
@@ -217,7 +228,9 @@ pub enum WorkingMemoryAssemblyError {
     Build(#[from] WorkingMemoryBuildError),
     #[error("missing truth projection for retrieved record {record_id}")]
     MissingTruthProjection { record_id: String },
-    #[error("action seed references record {record_id}, but it was not present in retrieved fragments")]
+    #[error(
+        "action seed references record {record_id}, but it was not present in retrieved fragments"
+    )]
     MissingSupportingRecord { record_id: String },
 }
 
@@ -244,9 +257,12 @@ where
         request: &WorkingMemoryRequest,
     ) -> Result<WorkingMemory, WorkingMemoryAssemblyError> {
         let overlay_request = if let Some(subject_ref) = request.subject_ref.as_deref() {
-            request.clone().with_local_adaptation_entries(
-                self.repository.list_local_adaptation_entries(subject_ref)?,
-            )
+            let mut local_adaptation_entries =
+                self.repository.list_local_adaptation_entries(subject_ref)?;
+            local_adaptation_entries.extend(request.local_adaptation_entries.iter().cloned());
+            request
+                .clone()
+                .with_local_adaptation_entries(local_adaptation_entries)
         } else {
             request.clone()
         };
@@ -272,9 +288,27 @@ where
                 }
             }
         }
+        let mut seen_record_ids = BTreeSet::new();
+        merged_results.retain(|result| seen_record_ids.insert(result.record.id.clone()));
 
         let mut truths = Vec::with_capacity(merged_results.len());
         let mut world_fragments = Vec::with_capacity(merged_results.len());
+        let layered_records = merged_results
+            .iter()
+            .any(|result| result.dsl.is_none())
+            .then(|| {
+                self.repository.list_layered_records_for_ids(
+                    &merged_results
+                        .iter()
+                        .map(|result| result.record.id.clone())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .transpose()?
+            .unwrap_or_default()
+            .into_iter()
+            .map(|record| (record.record.id.clone(), record))
+            .collect::<BTreeMap<_, _>>();
         for result in merged_results {
             let truth = self
                 .repository
@@ -286,7 +320,13 @@ where
                 record_id: result.record.id.clone(),
                 snippet: result.snippet,
                 citation: result.citation,
+                provenance: result.record.provenance.clone(),
                 truth_context: TruthContext::from_truth_record(&truth),
+                dsl: result.dsl.clone().or_else(|| {
+                    layered_records
+                        .get(&result.record.id)
+                        .and_then(|record| record.dsl.as_ref().map(|dsl| dsl.payload.clone()))
+                }),
                 trace: result.trace,
                 score: result.score,
             };
@@ -340,8 +380,12 @@ fn materialize_branch(
     let supporting_evidence = if seed.supporting_record_ids.is_empty() {
         world_fragments.to_vec()
     } else {
+        let mut seen_record_ids = BTreeSet::new();
         let mut evidence = Vec::with_capacity(seed.supporting_record_ids.len());
         for record_id in &seed.supporting_record_ids {
+            if !seen_record_ids.insert(record_id.clone()) {
+                continue;
+            }
             let fragment = world_fragments
                 .iter()
                 .find(|fragment| fragment.record_id == *record_id)
