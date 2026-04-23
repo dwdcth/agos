@@ -7149,6 +7149,70 @@ fn cli_search_json_uses_configured_embedding_only_mode_when_second_channel_is_re
 }
 
 #[test]
+fn cli_search_json_exposes_dsl_sidecar_for_configured_embedding_only_ready_path() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("configured-embedding-only-json-ready-dsl");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "embedding_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/configured-embedding-only-json-ready-dsl",
+            source_label: "configured embedding_only json ready dsl memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:11:30Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--json"]);
+    assert!(
+        search_output.status.success(),
+        "cli json search should expose dsl for configured embedding_only ready mode: stdout={} stderr={}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    let search_json: Value =
+        serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
+    assert_eq!(
+        search_json["results"][0]["trace"]["channel_contribution"],
+        "embedding_only"
+    );
+    assert_eq!(search_json["results"][0]["dsl"]["domain"], "project");
+    assert_eq!(search_json["results"][0]["dsl"]["kind"], "decision");
+    assert_eq!(
+        search_json["results"][0]["dsl"]["source_ref"],
+        "memo://project/configured-embedding-only-json-ready-dsl"
+    );
+}
+
+#[test]
 fn cli_search_json_uses_configured_hybrid_mode_when_second_channel_is_ready() {
     let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
         .expect("root config should parse");
@@ -7208,6 +7272,67 @@ fn cli_search_json_uses_configured_hybrid_mode_when_second_channel_is_ready() {
         search_json["results"][0]["trace"]["query_strategies"],
         serde_json::json!(["Jieba", "Simple", "Structured", "Embedding"]),
         "configured hybrid json search should preserve the full ready-path strategy ordering"
+    );
+}
+
+#[test]
+fn cli_search_json_exposes_dsl_sidecar_for_configured_hybrid_ready_path() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("configured-hybrid-json-ready-dsl");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "hybrid",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/configured-hybrid-json-ready-dsl",
+            source_label: "configured hybrid json ready dsl memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:12:30Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--json"]);
+    assert!(
+        search_output.status.success(),
+        "cli json search should expose dsl for configured hybrid ready mode: stdout={} stderr={}",
+        stdout(&search_output),
+        stderr(&search_output)
+    );
+
+    let search_json: Value =
+        serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
+    assert_eq!(search_json["results"][0]["trace"]["channel_contribution"], "hybrid");
+    assert_eq!(search_json["results"][0]["dsl"]["domain"], "project");
+    assert_eq!(search_json["results"][0]["dsl"]["kind"], "decision");
+    assert_eq!(
+        search_json["results"][0]["dsl"]["source_ref"],
+        "memo://project/configured-hybrid-json-ready-dsl"
     );
 }
 
@@ -7459,6 +7584,116 @@ fn cli_search_text_renders_dsl_summary_for_hybrid_ready_path() {
         text.contains("SRC: memo://project/mode-selection-text-hybrid-dsl"),
         "hybrid ready-path text output should preserve the DSL source reference: {text}"
     );
+}
+
+#[test]
+fn cli_search_text_renders_dsl_summary_for_configured_embedding_only_ready_path() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("configured-embedding-only-text-ready-dsl");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "embedding_only",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/configured-embedding-only-text-ready-dsl",
+            source_label: "configured embedding_only text ready dsl memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:11:40Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion"]);
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "cli text search should expose dsl for configured embedding_only ready mode: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(text.contains("channel: embedding_only"));
+    assert!(text.contains("dsl:"));
+    assert!(text.contains(
+        "SRC: memo://project/configured-embedding-only-text-ready-dsl"
+    ));
+}
+
+#[test]
+fn cli_search_text_renders_dsl_summary_for_configured_hybrid_ready_path() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config should parse");
+
+    let dir = unique_temp_dir("configured-hybrid-text-ready-dsl");
+    let db_path = dir.join("agent-memos.sqlite");
+    let config_path = dir.join("config.toml");
+    write_config_with_mode(
+        &config_path,
+        &db_path,
+        "hybrid",
+        "builtin",
+        Some(&config.embedding.model),
+        Some("sqlite_vec"),
+    );
+
+    let db = Database::open(&db_path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(config.embedding.model.clone()),
+            endpoint: None,
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/configured-hybrid-text-ready-dsl",
+            source_label: "configured hybrid text ready dsl memo",
+            content: "retrieval fusion semantic retrieval fusion citations",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-17T10:12:40Z",
+            valid_from: None,
+            valid_to: None,
+        },
+    );
+
+    let search_output = run_cli(&config_path, &["search", "retrieval fusion"]);
+    let text = stdout(&search_output);
+    assert!(
+        search_output.status.success(),
+        "cli text search should expose dsl for configured hybrid ready mode: stdout={text} stderr={}",
+        stderr(&search_output)
+    );
+    assert!(text.contains("channel: hybrid"));
+    assert!(text.contains("dsl:"));
+    assert!(text.contains("SRC: memo://project/configured-hybrid-text-ready-dsl"));
 }
 
 #[test]
