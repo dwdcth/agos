@@ -11078,6 +11078,180 @@ fn library_search_with_variant_hybrid_applies_taxonomy_filters_before_top_k() {
 }
 
 #[test]
+fn library_search_with_runtime_config_embedding_only_applies_temporal_filters_before_top_k() {
+    let path = fresh_db_path("runtime-config-embedding-only-temporal-top-k");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-embedding-only-current-temporal",
+            source_label: "runtime config embedding_only current temporal memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:48:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-embedding-only-stale-temporal",
+            source_label: "runtime config embedding_only stale temporal memo",
+            content: "baseline baseline keeps stale review around",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-01T13:48:00Z",
+            valid_from: Some("2026-03-01T00:00:00Z"),
+            valid_to: Some("2026-04-05T00:00:00Z"),
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::EmbeddingOnly,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(
+            &SearchRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(SearchFilters {
+                    valid_at: Some("2026-04-18T14:00:00Z".to_string()),
+                    recorded_from: Some("2026-04-10T00:00:00Z".to_string()),
+                    recorded_to: Some("2026-04-19T00:00:00Z".to_string()),
+                    ..Default::default()
+                }),
+        )
+        .expect("configured embedding_only search should apply temporal filters before top-k");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/runtime-config-embedding-only-current-temporal"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::EmbeddingOnly
+    );
+    assert_eq!(
+        response.applied_filters.valid_at.as_deref(),
+        Some("2026-04-18T14:00:00Z")
+    );
+}
+
+#[test]
+fn library_search_with_runtime_config_hybrid_applies_temporal_filters_before_top_k() {
+    let path = fresh_db_path("runtime-config-hybrid-temporal-top-k");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+    );
+
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-hybrid-current-temporal",
+            source_label: "runtime config hybrid current temporal memo",
+            content: "baseline keeps lexical search explainable",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-18T13:50:00Z",
+            valid_from: Some("2026-04-10T00:00:00Z"),
+            valid_to: Some("2026-04-20T00:00:00Z"),
+        },
+    );
+    ingest_record(
+        &ingest,
+        FixtureRecord {
+            source_uri: "memo://project/runtime-config-hybrid-stale-temporal",
+            source_label: "runtime config hybrid stale temporal memo",
+            content: "baseline baseline keeps stale review around",
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-01T13:50:00Z",
+            valid_from: Some("2026-03-01T00:00:00Z"),
+            valid_to: Some("2026-04-05T00:00:00Z"),
+        },
+    );
+
+    let config = Config {
+        retrieval: RetrievalConfig {
+            mode: RetrievalMode::Hybrid,
+        },
+        embedding: agent_memos::core::config::EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some("builtin-16".to_string()),
+            endpoint: None,
+        },
+        vector: RootVectorConfig {
+            backend: VectorBackend::SqliteVec,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(
+            &SearchRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(SearchFilters {
+                    valid_at: Some("2026-04-18T14:00:00Z".to_string()),
+                    recorded_from: Some("2026-04-10T00:00:00Z".to_string()),
+                    recorded_to: Some("2026-04-19T00:00:00Z".to_string()),
+                    ..Default::default()
+                }),
+        )
+        .expect("configured hybrid search should apply temporal filters before top-k");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/runtime-config-hybrid-current-temporal"
+    );
+    assert_eq!(
+        response.results[0].trace.channel_contribution,
+        agent_memos::search::ChannelContribution::Hybrid
+    );
+    assert_eq!(
+        response.applied_filters.valid_at.as_deref(),
+        Some("2026-04-18T14:00:00Z")
+    );
+}
+
+#[test]
 fn library_search_with_runtime_config_embedding_only_returns_no_results_when_embedding_model_mismatches_index()
 {
     let path = fresh_db_path("runtime-config-embedding-model-mismatch");
