@@ -3135,6 +3135,83 @@ fn assembler_hydrates_missing_dsl_for_integrated_follow_up_world_fragments() {
 }
 
 #[test]
+fn assembler_filters_integrated_results_by_taxonomy_filters() {
+    let path = fresh_db_path("integrated-results-taxonomy-filter");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    let retrieval = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/integrated-taxonomy-retrieval".to_string(),
+            source_label: Some("integrated-taxonomy-retrieval".to_string()),
+            source_kind: None,
+            content: "retrieval baseline keeps lexical search explainable".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:12:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("retrieval ingest should succeed");
+    let config = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/integrated-taxonomy-config".to_string(),
+            source_label: Some("integrated-taxonomy-config".to_string()),
+            source_kind: None,
+            content: "config baseline keeps toml setting review stable".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:13:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("config ingest should succeed");
+
+    let retrieval_id = retrieval.record_ids[0].clone();
+    let config_id = config.record_ids[0].clone();
+    let search = SearchService::new(db.conn());
+    let integrated_results = search
+        .search(&SearchRequest::new("baseline").with_limit(2))
+        .expect("baseline search should succeed")
+        .results;
+
+    let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
+        .assemble(
+            &WorkingMemoryRequest::new("baseline")
+                .with_limit(1)
+                .with_filters(agent_memos::search::SearchFilters {
+                    topic: Some("retrieval".to_string()),
+                    ..Default::default()
+                })
+                .with_integrated_results(integrated_results),
+        )
+        .expect("assembly should filter caller-provided integrated results by taxonomy");
+
+    let record_ids = working_memory
+        .present
+        .world_fragments
+        .iter()
+        .map(|fragment| fragment.record_id.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(record_ids, vec![retrieval_id.as_str()]);
+    assert!(
+        !record_ids.contains(&config_id.as_str()),
+        "taxonomy filters should exclude non-matching caller-provided integrated results"
+    );
+    assert_eq!(
+        working_memory.present.world_fragments[0]
+            .dsl
+            .as_ref()
+            .expect("filtered fragment should retain dsl payload")
+            .topic,
+        "retrieval"
+    );
+}
+
+#[test]
 fn assembler_respects_taxonomy_filters_from_retrieval_request() {
     let path = fresh_db_path("taxonomy-filtered-assembly");
     let db = Database::open(&path).expect("database should open");

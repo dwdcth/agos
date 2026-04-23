@@ -1,6 +1,7 @@
 use rusqlite::Connection;
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     cognition::{
@@ -309,6 +310,9 @@ where
             .into_iter()
             .map(|record| (record.record.id.clone(), record))
             .collect::<BTreeMap<_, _>>();
+        merged_results.retain(|result| {
+            integrated_result_matches_filters(result, &overlay_request.filters, &layered_records)
+        });
         for result in merged_results {
             let truth = self
                 .repository
@@ -403,4 +407,127 @@ fn materialize_branch(
         supporting_evidence,
         risk_markers: seed.risk_markers.clone(),
     })
+}
+
+fn integrated_result_matches_filters(
+    result: &SearchResult,
+    filters: &SearchFilters,
+    layered_records: &BTreeMap<String, crate::memory::repository::LayeredMemoryRecord>,
+) -> bool {
+    if let Some(scope) = filters.scope
+        && result.record.scope != scope
+    {
+        return false;
+    }
+    if let Some(record_type) = filters.record_type
+        && result.record.record_type != record_type
+    {
+        return false;
+    }
+    if let Some(truth_layer) = filters.truth_layer
+        && result.record.truth_layer != truth_layer
+    {
+        return false;
+    }
+    if let Some(valid_at) = filters.valid_at.as_deref() {
+        if let Some(valid_from) = result.record.validity.valid_from.as_deref()
+            && !matches_required_timestamp(valid_from, valid_at, TimestampComparison::LessOrEqual)
+        {
+            return false;
+        }
+        if let Some(valid_to) = result.record.validity.valid_to.as_deref()
+            && !matches_required_timestamp(valid_to, valid_at, TimestampComparison::GreaterOrEqual)
+        {
+            return false;
+        }
+    }
+    if let Some(recorded_from) = filters.recorded_from.as_deref()
+        && !matches_required_timestamp(
+            result.record.timestamp.recorded_at.as_str(),
+            recorded_from,
+            TimestampComparison::GreaterOrEqual,
+        )
+    {
+        return false;
+    }
+    if let Some(recorded_to) = filters.recorded_to.as_deref()
+        && !matches_required_timestamp(
+            result.record.timestamp.recorded_at.as_str(),
+            recorded_to,
+            TimestampComparison::LessOrEqual,
+        )
+    {
+        return false;
+    }
+    if filters.domain.is_some()
+        || filters.topic.is_some()
+        || filters.aspect.is_some()
+        || filters.kind.is_some()
+    {
+        let dsl = result.dsl.as_ref().or_else(|| {
+            layered_records
+                .get(&result.record.id)
+                .and_then(|record| record.dsl.as_ref().map(|dsl| &dsl.payload))
+        });
+        let Some(dsl) = dsl else {
+            return false;
+        };
+        for (expected, actual) in [
+            (filters.domain.as_deref(), dsl.domain.as_str()),
+            (filters.topic.as_deref(), dsl.topic.as_str()),
+            (filters.aspect.as_deref(), dsl.aspect.as_str()),
+            (filters.kind.as_deref(), dsl.kind.as_str()),
+        ] {
+            if let Some(expected) = expected
+                && !expected.eq_ignore_ascii_case(actual)
+            {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+#[derive(Clone, Copy)]
+enum TimestampComparison {
+    LessOrEqual,
+    GreaterOrEqual,
+}
+
+fn matches_required_timestamp(
+    candidate: &str,
+    filter: &str,
+    comparison: TimestampComparison,
+) -> bool {
+    match (parse_rfc3339(candidate), parse_rfc3339(filter)) {
+        (Some(candidate), Some(filter)) => compare_timestamps(candidate, filter, comparison),
+        _ => compare_timestamp_strings(candidate, filter, comparison),
+    }
+}
+
+fn parse_rfc3339(value: &str) -> Option<OffsetDateTime> {
+    OffsetDateTime::parse(value, &Rfc3339).ok()
+}
+
+fn compare_timestamps(
+    candidate: OffsetDateTime,
+    filter: OffsetDateTime,
+    comparison: TimestampComparison,
+) -> bool {
+    match comparison {
+        TimestampComparison::LessOrEqual => candidate <= filter,
+        TimestampComparison::GreaterOrEqual => candidate >= filter,
+    }
+}
+
+fn compare_timestamp_strings(
+    candidate: &str,
+    filter: &str,
+    comparison: TimestampComparison,
+) -> bool {
+    match comparison {
+        TimestampComparison::LessOrEqual => candidate <= filter,
+        TimestampComparison::GreaterOrEqual => candidate >= filter,
+    }
 }
