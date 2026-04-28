@@ -2,6 +2,21 @@ use serde::Serialize;
 
 use crate::cognition::working_memory::EvidenceFragment;
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ActionSource {
+    #[default]
+    Manual,
+    SkillTemplate {
+        template_id: String,
+    },
+}
+
+impl ActionSource {
+    pub fn is_skill_generated(&self) -> bool {
+        matches!(self, Self::SkillTemplate { .. })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionKind {
@@ -60,6 +75,8 @@ pub struct ActionBranch {
     pub candidate: ActionCandidate,
     pub supporting_evidence: Vec<EvidenceFragment>,
     pub risk_markers: Vec<String>,
+    #[serde(skip_serializing)]
+    pub source: ActionSource,
 }
 
 impl ActionBranch {
@@ -68,6 +85,7 @@ impl ActionBranch {
             candidate,
             supporting_evidence: Vec::new(),
             risk_markers: Vec::new(),
+            source: ActionSource::Manual,
         }
     }
 
@@ -78,6 +96,11 @@ impl ActionBranch {
 
     pub fn with_risk_marker(mut self, risk_marker: impl Into<String>) -> Self {
         self.risk_markers.push(risk_marker.into());
+        self
+    }
+
+    pub fn with_source(mut self, source: ActionSource) -> Self {
+        self.source = source;
         self
     }
 }

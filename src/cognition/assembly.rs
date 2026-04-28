@@ -5,10 +5,11 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     cognition::{
-        action::{ActionBranch, ActionCandidate},
+        action::{ActionBranch, ActionCandidate, ActionSource},
         self_model::{
             ProjectedSelfModel, RuntimeSelfState, SelfModelReadModel, StableSelfKnowledge,
         },
+        skill_memory::{ProjectedSkillCandidate, SkillMemoryTemplate, SkillProjectionContext},
         working_memory::{
             ActiveGoal, EvidenceFragment, MetacognitiveFlag, PresentFrame, SelfStateFact,
             SelfStateSnapshot, WorkingMemory, WorkingMemoryBuildError,
@@ -27,6 +28,7 @@ pub struct ActionSeed {
     pub candidate: ActionCandidate,
     pub supporting_record_ids: Vec<String>,
     pub risk_markers: Vec<String>,
+    pub source: ActionSource,
 }
 
 impl ActionSeed {
@@ -35,6 +37,7 @@ impl ActionSeed {
             candidate,
             supporting_record_ids: Vec::new(),
             risk_markers: Vec::new(),
+            source: ActionSource::Manual,
         }
     }
 
@@ -45,6 +48,11 @@ impl ActionSeed {
 
     pub fn with_risk_marker(mut self, risk_marker: impl Into<String>) -> Self {
         self.risk_markers.push(risk_marker.into());
+        self
+    }
+
+    pub fn with_source(mut self, source: ActionSource) -> Self {
+        self.source = source;
         self
     }
 }
@@ -62,6 +70,7 @@ pub struct WorkingMemoryRequest {
     pub capability_flags: Vec<String>,
     pub readiness_flags: Vec<String>,
     pub action_seeds: Vec<ActionSeed>,
+    pub skill_templates: Vec<SkillMemoryTemplate>,
     pub local_adaptation_entries: Vec<LocalAdaptationEntry>,
     pub persisted_self_model: Option<SelfModelReadModel>,
     pub integrated_results: Vec<SearchResult>,
@@ -83,6 +92,7 @@ impl WorkingMemoryRequest {
             capability_flags: Vec::new(),
             readiness_flags: Vec::new(),
             action_seeds: Vec::new(),
+            skill_templates: Vec::new(),
             local_adaptation_entries: Vec::new(),
             persisted_self_model: None,
             integrated_results: Vec::new(),
@@ -136,6 +146,11 @@ impl WorkingMemoryRequest {
 
     pub fn with_action_seed(mut self, action_seed: ActionSeed) -> Self {
         self.action_seeds.push(action_seed);
+        self
+    }
+
+    pub fn with_skill_template(mut self, skill_template: SkillMemoryTemplate) -> Self {
+        self.skill_templates.push(skill_template);
         self
     }
 
@@ -374,8 +389,14 @@ where
             metacog_flags: overlay_request.metacog_flags.clone(),
         };
 
-        let branches = overlay_request
+        let skill_seeds = project_skill_action_seeds(&overlay_request, &world_fragments);
+        let action_seeds = overlay_request
             .action_seeds
+            .iter()
+            .cloned()
+            .chain(skill_seeds)
+            .collect::<Vec<_>>();
+        let branches = action_seeds
             .iter()
             .map(|seed| materialize_branch(seed, &world_fragments))
             .collect::<Result<Vec<_>, _>>()?;
@@ -385,6 +406,23 @@ where
             .extend_branches(branches)
             .build()?)
     }
+}
+
+pub fn project_skill_action_seeds(
+    request: &WorkingMemoryRequest,
+    world_fragments: &[EvidenceFragment],
+) -> Vec<ActionSeed> {
+    let context = SkillProjectionContext {
+        request,
+        world_fragments,
+    };
+
+    request
+        .skill_templates
+        .iter()
+        .filter_map(|template| template.project(&context))
+        .map(ProjectedSkillCandidate::into_action_seed)
+        .collect()
 }
 
 fn materialize_branch(
@@ -416,6 +454,7 @@ fn materialize_branch(
         candidate: seed.candidate.clone(),
         supporting_evidence,
         risk_markers: seed.risk_markers.clone(),
+        source: seed.source.clone(),
     })
 }
 

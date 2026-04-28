@@ -398,6 +398,21 @@ impl ScoringPort for WorkingMemoryScoringPort {
                         value.kind == branch.candidate.kind
                             && value.summary == branch.candidate.summary
                     })
+                    .or_else(|| {
+                        if !branch.source.is_skill_generated() {
+                            return None;
+                        }
+
+                        let mut same_kind = branch_values
+                            .iter()
+                            .filter(|value| value.kind == branch.candidate.kind);
+                        let first = same_kind.next()?;
+                        if same_kind.next().is_none() {
+                            Some(first)
+                        } else {
+                            None
+                        }
+                    })
                     .ok_or_else(|| ValueScoringError::MissingBranchValue {
                         kind: branch.candidate.kind.as_str(),
                         summary: branch.candidate.summary.clone(),

@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for the Rust cognition implementation task."}
+{"file": ".trellis/spec/backend/skill-memory-contracts.md", "reason": "Primary executable contract for restoring explicit skill-memory projection."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Preserve adjacent world-model projection and avoid seam regression."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Preserve adjacent self-model projection and avoid seam regression."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Preserve retrieval and downstream compatibility contracts where skill-generated branches surface."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality expectations for implementation."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared thinking guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase crosses cognition assembly, downstream consumers, and tests."}
+{"file": ".trellis/tasks/archive/2026-04/04-26-v12-phase-14-skill-memory-foundation/prd.md", "reason": "Archived reference for the explicit skill-memory foundation that needs to be restored."}

@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for verification."}
+{"file": ".trellis/spec/backend/skill-memory-contracts.md", "reason": "Verify explicit skill-memory projection contracts."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Verify adjacent world-model behavior is not regressed."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Verify adjacent self-model behavior is not regressed."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Verify downstream compatibility and cross-layer contracts."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality checklist for code review."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared verification guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check data flow across cognition assembly, branch consumers, and tests."}
