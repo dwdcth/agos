@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for verification."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Verify implementation satisfies explicit world-model projection contracts."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Verify trace, score, attention, and retrieval metadata compatibility."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Verify adjacent self-model projection behavior is not regressed."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality checklist for code review."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared verification thinking guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check cross-layer data flow through storage, retrieval, cognition, CLI, and agent-search consumers."}

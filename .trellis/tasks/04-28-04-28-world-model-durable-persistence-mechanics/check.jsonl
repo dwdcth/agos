@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for verification."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Verify world-model projection and metadata preservation contracts."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Verify retrieval trace, score, and downstream compatibility are preserved."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify migration and repository persistence behavior."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Compare against existing snapshot/read-model pattern and ensure no seam mixing."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality checklist for code review."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared verification guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check data flow across migration, repository, cognition conversion, and downstream tests."}

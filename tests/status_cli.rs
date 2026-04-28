@@ -224,7 +224,7 @@ fn init_creates_database_and_inspect_schema_reports_foundation_state() {
         stderr(&inspect_output)
     );
     assert!(
-        inspect_text.contains("schema_version: 8"),
+        inspect_text.contains("schema_version: 10"),
         "inspect schema should report schema_version: {inspect_text}"
     );
     assert!(
@@ -309,7 +309,7 @@ fn init_output_is_truthful_after_successful_bootstrap() {
         "init should confirm initialization: {text}"
     );
     assert!(
-        text.contains("schema_version: 8"),
+        text.contains("schema_version: 10"),
         "init should report the post-bootstrap schema version: {text}"
     );
     assert!(

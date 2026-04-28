@@ -169,7 +169,7 @@ fn malformed_record_without_chunk(
 fn library_search_returns_citations_and_filter_trace() {
     let path = fresh_db_path("library-shape");
     let db = Database::open(&path).expect("database should open");
-    assert_eq!(db.schema_version().expect("schema version"), 8);
+    assert_eq!(db.schema_version().expect("schema version"), 10);
     let ingest = IngestService::new(db.conn());
 
     ingest_record(
@@ -7324,7 +7324,10 @@ fn cli_search_json_hybrid_applies_taxonomy_filters_before_top_k_when_ready() {
         search_json["results"][0]["record"]["source"]["uri"],
         "memo://project/cli-json-hybrid-retrieval-top-k"
     );
-    assert_eq!(search_json["results"][0]["trace"]["channel_contribution"], "hybrid");
+    assert_eq!(
+        search_json["results"][0]["trace"]["channel_contribution"],
+        "hybrid"
+    );
     assert_eq!(search_json["applied_filters"]["topic"], "retrieval");
 }
 
@@ -7419,7 +7422,10 @@ fn cli_search_json_embedding_only_applies_temporal_filters_before_top_k_when_rea
         search_json["results"][0]["trace"]["channel_contribution"],
         "embedding_only"
     );
-    assert_eq!(search_json["applied_filters"]["valid_at"], "2026-04-17T12:00:00Z");
+    assert_eq!(
+        search_json["applied_filters"]["valid_at"],
+        "2026-04-17T12:00:00Z"
+    );
 }
 
 #[test]
@@ -7509,8 +7515,14 @@ fn cli_search_json_hybrid_applies_temporal_filters_before_top_k_when_ready() {
         search_json["results"][0]["record"]["source"]["uri"],
         "memo://project/cli-json-hybrid-current-temporal"
     );
-    assert_eq!(search_json["results"][0]["trace"]["channel_contribution"], "hybrid");
-    assert_eq!(search_json["applied_filters"]["valid_at"], "2026-04-17T12:00:00Z");
+    assert_eq!(
+        search_json["results"][0]["trace"]["channel_contribution"],
+        "hybrid"
+    );
+    assert_eq!(
+        search_json["applied_filters"]["valid_at"],
+        "2026-04-17T12:00:00Z"
+    );
 }
 
 #[test]
@@ -7602,7 +7614,10 @@ fn cli_search_json_configured_embedding_only_applies_temporal_filters_before_top
         search_json["results"][0]["trace"]["channel_contribution"],
         "embedding_only"
     );
-    assert_eq!(search_json["applied_filters"]["valid_at"], "2026-04-17T12:00:00Z");
+    assert_eq!(
+        search_json["applied_filters"]["valid_at"],
+        "2026-04-17T12:00:00Z"
+    );
 }
 
 #[test]
@@ -7690,8 +7705,14 @@ fn cli_search_json_configured_hybrid_applies_temporal_filters_before_top_k() {
         search_json["results"][0]["record"]["source"]["uri"],
         "memo://project/configured-hybrid-current-temporal"
     );
-    assert_eq!(search_json["results"][0]["trace"]["channel_contribution"], "hybrid");
-    assert_eq!(search_json["applied_filters"]["valid_at"], "2026-04-17T12:00:00Z");
+    assert_eq!(
+        search_json["results"][0]["trace"]["channel_contribution"],
+        "hybrid"
+    );
+    assert_eq!(
+        search_json["applied_filters"]["valid_at"],
+        "2026-04-17T12:00:00Z"
+    );
 }
 
 #[test]
@@ -7757,7 +7778,10 @@ fn cli_search_json_preserves_record_and_citation_shape_for_embedding_only_ready_
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
     assert_eq!(search_json["results"][0]["record"]["scope"], "project");
     assert_eq!(search_json["results"][0]["record"]["truth_layer"], "t2");
-    assert_eq!(search_json["results"][0]["record"]["record_type"], "decision");
+    assert_eq!(
+        search_json["results"][0]["record"]["record_type"],
+        "decision"
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["source_uri"],
         "memo://project/cli-json-embedding-only-citation-shape"
@@ -7766,8 +7790,14 @@ fn cli_search_json_preserves_record_and_citation_shape_for_embedding_only_ready_
         search_json["results"][0]["citation"]["recorded_at"],
         "2026-04-17T10:19:00Z"
     );
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_index"], 0);
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_count"], 1);
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_index"],
+        0
+    );
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_count"],
+        1
+    );
 }
 
 #[test]
@@ -7827,7 +7857,10 @@ fn cli_search_json_preserves_record_and_citation_shape_for_hybrid_ready_path() {
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
     assert_eq!(search_json["results"][0]["record"]["scope"], "project");
     assert_eq!(search_json["results"][0]["record"]["truth_layer"], "t2");
-    assert_eq!(search_json["results"][0]["record"]["record_type"], "decision");
+    assert_eq!(
+        search_json["results"][0]["record"]["record_type"],
+        "decision"
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["source_uri"],
         "memo://project/cli-json-hybrid-citation-shape"
@@ -7836,8 +7869,14 @@ fn cli_search_json_preserves_record_and_citation_shape_for_hybrid_ready_path() {
         search_json["results"][0]["citation"]["recorded_at"],
         "2026-04-17T10:20:00Z"
     );
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_index"], 0);
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_count"], 1);
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_index"],
+        0
+    );
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_count"],
+        1
+    );
 }
 
 #[test]
@@ -7901,12 +7940,18 @@ fn cli_search_json_preserves_source_metadata_for_embedding_only_ready_path() {
 
     let search_json: Value =
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
-    assert_eq!(search_json["results"][0]["record"]["source"]["kind"], "document");
+    assert_eq!(
+        search_json["results"][0]["record"]["source"]["kind"],
+        "document"
+    );
     assert_eq!(
         search_json["results"][0]["record"]["source"]["label"],
         "cli json embedding_only source memo"
     );
-    assert_eq!(search_json["results"][0]["citation"]["source_kind"], "document");
+    assert_eq!(
+        search_json["results"][0]["citation"]["source_kind"],
+        "document"
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["source_label"],
         "cli json embedding_only source memo"
@@ -7968,12 +8013,18 @@ fn cli_search_json_preserves_source_metadata_for_hybrid_ready_path() {
 
     let search_json: Value =
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
-    assert_eq!(search_json["results"][0]["record"]["source"]["kind"], "document");
+    assert_eq!(
+        search_json["results"][0]["record"]["source"]["kind"],
+        "document"
+    );
     assert_eq!(
         search_json["results"][0]["record"]["source"]["label"],
         "cli json hybrid source memo"
     );
-    assert_eq!(search_json["results"][0]["citation"]["source_kind"], "document");
+    assert_eq!(
+        search_json["results"][0]["citation"]["source_kind"],
+        "document"
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["source_label"],
         "cli json hybrid source memo"
@@ -8079,7 +8130,10 @@ fn cli_search_text_preserves_source_metadata_for_hybrid_ready_path() {
         },
     );
 
-    let search_output = run_cli(&config_path, &["search", "retrieval fusion", "--mode", "hybrid"]);
+    let search_output = run_cli(
+        &config_path,
+        &["search", "retrieval fusion", "--mode", "hybrid"],
+    );
     let text = stdout(&search_output);
     assert!(
         search_output.status.success(),
@@ -8575,7 +8629,10 @@ fn cli_search_json_preserves_record_and_citation_shape_for_configured_embedding_
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
     assert_eq!(search_json["results"][0]["record"]["scope"], "project");
     assert_eq!(search_json["results"][0]["record"]["truth_layer"], "t2");
-    assert_eq!(search_json["results"][0]["record"]["record_type"], "decision");
+    assert_eq!(
+        search_json["results"][0]["record"]["record_type"],
+        "decision"
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["source_uri"],
         "memo://project/configured-embedding-only-json-citation-shape"
@@ -8584,8 +8641,14 @@ fn cli_search_json_preserves_record_and_citation_shape_for_configured_embedding_
         search_json["results"][0]["citation"]["recorded_at"],
         "2026-04-17T10:21:00Z"
     );
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_index"], 0);
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_count"], 1);
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_index"],
+        0
+    );
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_count"],
+        1
+    );
 }
 
 #[test]
@@ -8642,7 +8705,10 @@ fn cli_search_json_preserves_record_and_citation_shape_for_configured_hybrid_rea
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
     assert_eq!(search_json["results"][0]["record"]["scope"], "project");
     assert_eq!(search_json["results"][0]["record"]["truth_layer"], "t2");
-    assert_eq!(search_json["results"][0]["record"]["record_type"], "decision");
+    assert_eq!(
+        search_json["results"][0]["record"]["record_type"],
+        "decision"
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["source_uri"],
         "memo://project/configured-hybrid-json-citation-shape"
@@ -8651,8 +8717,14 @@ fn cli_search_json_preserves_record_and_citation_shape_for_configured_hybrid_rea
         search_json["results"][0]["citation"]["recorded_at"],
         "2026-04-17T10:22:00Z"
     );
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_index"], 0);
-    assert_eq!(search_json["results"][0]["citation"]["anchor"]["chunk_count"], 1);
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_index"],
+        0
+    );
+    assert_eq!(
+        search_json["results"][0]["citation"]["anchor"]["chunk_count"],
+        1
+    );
 }
 
 #[test]
@@ -8707,12 +8779,18 @@ fn cli_search_json_preserves_source_metadata_for_configured_embedding_only_ready
 
     let search_json: Value =
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
-    assert_eq!(search_json["results"][0]["record"]["source"]["kind"], "document");
+    assert_eq!(
+        search_json["results"][0]["record"]["source"]["kind"],
+        "document"
+    );
     assert_eq!(
         search_json["results"][0]["record"]["source"]["label"],
         "configured embedding_only json source memo"
     );
-    assert_eq!(search_json["results"][0]["citation"]["source_kind"], "document");
+    assert_eq!(
+        search_json["results"][0]["citation"]["source_kind"],
+        "document"
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["source_label"],
         "configured embedding_only json source memo"
@@ -8771,12 +8849,18 @@ fn cli_search_json_preserves_source_metadata_for_configured_hybrid_ready_path() 
 
     let search_json: Value =
         serde_json::from_str(&stdout(&search_output)).expect("search should emit json");
-    assert_eq!(search_json["results"][0]["record"]["source"]["kind"], "document");
+    assert_eq!(
+        search_json["results"][0]["record"]["source"]["kind"],
+        "document"
+    );
     assert_eq!(
         search_json["results"][0]["record"]["source"]["label"],
         "configured hybrid json source memo"
     );
-    assert_eq!(search_json["results"][0]["citation"]["source_kind"], "document");
+    assert_eq!(
+        search_json["results"][0]["citation"]["source_kind"],
+        "document"
+    );
     assert_eq!(
         search_json["results"][0]["citation"]["source_label"],
         "configured hybrid json source memo"
@@ -10949,8 +11033,8 @@ fn library_search_with_runtime_config_mode_override_can_force_hybrid_when_embedd
 }
 
 #[test]
-fn library_search_with_runtime_config_mode_override_preserves_source_metadata_for_hybrid_ready_path(
-) {
+fn library_search_with_runtime_config_mode_override_preserves_source_metadata_for_hybrid_ready_path()
+ {
     let path = fresh_db_path("runtime-config-override-hybrid-source-metadata");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::with_embedding_config(
@@ -11085,8 +11169,8 @@ fn library_search_with_runtime_config_mode_override_can_force_embedding_only_whe
 }
 
 #[test]
-fn library_search_with_runtime_config_mode_override_preserves_source_metadata_for_embedding_only_ready_path(
-) {
+fn library_search_with_runtime_config_mode_override_preserves_source_metadata_for_embedding_only_ready_path()
+ {
     let path = fresh_db_path("runtime-config-override-embedding-only-source-metadata");
     let db = Database::open(&path).expect("database should bootstrap");
     let ingest = IngestService::with_embedding_config(
@@ -12691,7 +12775,10 @@ fn library_search_with_variant_preserves_dsl_sidecar_for_embedding_only_ready_pa
         .expect("embedding_only variant search should attach the structured dsl sidecar");
     assert_eq!(dsl.domain, "project");
     assert_eq!(dsl.kind, "decision");
-    assert_eq!(dsl.source_ref, "memo://project/variant-embedding-only-dsl-sidecar");
+    assert_eq!(
+        dsl.source_ref,
+        "memo://project/variant-embedding-only-dsl-sidecar"
+    );
     assert!(!dsl.claim.is_empty());
 }
 
@@ -12742,7 +12829,9 @@ fn library_search_with_variant_preserves_record_and_citation_shape_for_embedding
 
     let response = SearchService::with_variant(db.conn(), &variant)
         .search(&SearchRequest::new("retrieval fusion"))
-        .expect("embedding_only variant ready-path search should preserve record and citation shape");
+        .expect(
+            "embedding_only variant ready-path search should preserve record and citation shape",
+        );
 
     assert_eq!(response.results.len(), 1);
     let result = &response.results[0];

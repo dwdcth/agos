@@ -146,7 +146,7 @@ fn foundation_migration_bootstraps_clean_db() {
     let db = Database::open(&path).expect("fresh database should bootstrap");
 
     assert!(parent.exists(), "open should create parent directories");
-    assert_eq!(db.schema_version().expect("schema version"), 8);
+    assert_eq!(db.schema_version().expect("schema version"), 10);
 
     let names = table_names(&path);
     assert!(
@@ -177,11 +177,11 @@ fn foundation_migration_bootstraps_clean_db() {
 fn foundation_migration_reopen_is_idempotent() {
     let path = fresh_db_path("reopen");
     let first = Database::open(&path).expect("first open should succeed");
-    assert_eq!(first.schema_version().expect("first schema version"), 8);
+    assert_eq!(first.schema_version().expect("first schema version"), 10);
     drop(first);
 
     let second = Database::open(&path).expect("second open should succeed");
-    assert_eq!(second.schema_version().expect("second schema version"), 8);
+    assert_eq!(second.schema_version().expect("second schema version"), 10);
     let names = table_names(&path);
     assert!(names.contains(&"memory_records".to_string()));
     assert!(names.contains(&"memory_records_fts".to_string()));
@@ -341,7 +341,7 @@ fn rumination_schema_bootstraps_additive_phase_5_and_later_side_tables() {
     let path = fresh_db_path("rumination-schema");
     let db = Database::open(&path).expect("database should bootstrap");
 
-    assert_eq!(db.schema_version().expect("schema version"), 8);
+    assert_eq!(db.schema_version().expect("schema version"), 10);
 
     let names = table_names(&path);
     assert!(
@@ -349,6 +349,7 @@ fn rumination_schema_bootstraps_additive_phase_5_and_later_side_tables() {
             && names.contains(&"lpq_queue_items".to_string())
             && names.contains(&"rumination_trigger_state".to_string())
             && names.contains(&"local_adaptation_entries".to_string())
+            && names.contains(&"self_model_snapshots".to_string())
             && names.contains(&"rumination_candidates".to_string()),
         "phase 5 side tables should exist: {names:?}"
     );
@@ -365,6 +366,7 @@ fn rumination_schema_bootstraps_additive_phase_5_and_later_side_tables() {
     let lpq_columns = table_columns(&path, "lpq_queue_items");
     let trigger_state_columns = table_columns(&path, "rumination_trigger_state");
     let local_adaptation_columns = table_columns(&path, "local_adaptation_entries");
+    let self_model_snapshot_columns = table_columns(&path, "self_model_snapshots");
     let candidate_columns = table_columns(&path, "rumination_candidates");
 
     let mirrored_queue_columns = vec![
@@ -434,6 +436,21 @@ fn rumination_schema_bootstraps_additive_phase_5_and_later_side_tables() {
     }
 
     for column in [
+        "subject_ref",
+        "snapshot_id",
+        "entries_json",
+        "compacted_through_updated_at",
+        "compacted_through_entry_id",
+        "created_at",
+        "updated_at",
+    ] {
+        assert!(
+            self_model_snapshot_columns.contains(&column.to_string()),
+            "self-model snapshot table missing {column}: {self_model_snapshot_columns:?}"
+        );
+    }
+
+    for column in [
         "candidate_id",
         "source_queue_item_id",
         "candidate_kind",
@@ -453,6 +470,7 @@ fn rumination_schema_bootstraps_additive_phase_5_and_later_side_tables() {
     let spq_indexes = table_indexes(&path, "spq_queue_items");
     let lpq_indexes = table_indexes(&path, "lpq_queue_items");
     let trigger_indexes = table_indexes(&path, "rumination_trigger_state");
+    let self_model_snapshot_indexes = table_indexes(&path, "self_model_snapshots");
 
     assert!(
         spq_indexes.iter().any(|name| name.contains("ready"))
@@ -463,6 +481,53 @@ fn rumination_schema_bootstraps_additive_phase_5_and_later_side_tables() {
         trigger_indexes.iter().any(|name| name.contains("dedupe"))
             && trigger_indexes.iter().any(|name| name.contains("cooldown")),
         "trigger-state table should expose dedupe/cooldown indexes: {trigger_indexes:?}"
+    );
+    assert!(
+        self_model_snapshot_indexes
+            .iter()
+            .any(|name| name.contains("compaction_cursor")),
+        "self-model snapshot table should expose a compaction cursor index: {self_model_snapshot_indexes:?}"
+    );
+}
+
+#[test]
+fn world_model_snapshot_schema_bootstraps_additive_phase_10_side_table() {
+    let path = fresh_db_path("world-model-snapshot-schema");
+    let db = Database::open(&path).expect("database should bootstrap");
+
+    assert_eq!(db.schema_version().expect("schema version"), 10);
+
+    let names = table_names(&path);
+    assert!(
+        names.contains(&"world_model_snapshots".to_string()),
+        "world-model snapshot table should exist after the additive phase 10 migration: {names:?}"
+    );
+    assert!(
+        names.contains(&"self_model_snapshots".to_string())
+            && names.contains(&"memory_records".to_string())
+            && names.contains(&"memory_records_fts".to_string()),
+        "world-model persistence must stay additive over existing snapshot and retrieval tables: {names:?}"
+    );
+
+    let columns = table_columns(&path, "world_model_snapshots");
+    for column in [
+        "subject_ref",
+        "world_key",
+        "snapshot_id",
+        "fragments_json",
+        "created_at",
+        "updated_at",
+    ] {
+        assert!(
+            columns.contains(&column.to_string()),
+            "world-model snapshot table missing {column}: {columns:?}"
+        );
+    }
+
+    let indexes = table_indexes(&path, "world_model_snapshots");
+    assert!(
+        indexes.iter().any(|name| name.contains("subject_scope")),
+        "world-model snapshot table should expose a uniqueness boundary for subject_ref + world_key: {indexes:?}"
     );
 }
 

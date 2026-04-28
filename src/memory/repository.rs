@@ -4,6 +4,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::core::config::EmbeddingBackend;
+use crate::memory::dsl::FlatFactDslRecordV1;
 use crate::memory::record::{
     ChunkAnchor, ChunkMetadata, MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope,
     SourceKind, SourceRef, TruthLayer, ValidityWindow,
@@ -113,7 +114,7 @@ pub struct PersistedRuminationTriggerState {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalAdaptationTargetKind {
     SelfState,
@@ -156,6 +157,23 @@ impl LocalAdaptationPayload {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelfModelResolutionState {
+    Unresolved,
+    Accepted,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelfModelGovernanceMetadata {
+    pub resolution: SelfModelResolutionState,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicting_entry_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_reason: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalAdaptationEntry {
     pub entry_id: String,
@@ -164,6 +182,134 @@ pub struct LocalAdaptationEntry {
     pub key: String,
     pub payload: LocalAdaptationPayload,
     pub source_queue_item_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedSelfModelSnapshotEntry {
+    pub target_kind: LocalAdaptationTargetKind,
+    pub key: String,
+    pub value: String,
+    pub active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub governance: Option<SelfModelGovernanceMetadata>,
+    pub source_queue_item_id: Option<String>,
+    pub updated_at: String,
+    pub entry_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistedSelfModelSnapshot {
+    pub subject_ref: String,
+    pub snapshot_id: String,
+    pub entries: Vec<PersistedSelfModelSnapshotEntry>,
+    pub compacted_through_updated_at: String,
+    pub compacted_through_entry_id: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedSelfModelState {
+    pub snapshot: Option<PersistedSelfModelSnapshot>,
+    pub tail_entries: Vec<LocalAdaptationEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedWorldModelCitationAnchor {
+    pub chunk_index: u32,
+    pub chunk_count: u32,
+    pub anchor: ChunkAnchor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedWorldModelCitation {
+    pub record_id: String,
+    pub source_uri: String,
+    pub source_kind: SourceKind,
+    pub source_label: Option<String>,
+    pub recorded_at: String,
+    pub validity: ValidityWindow,
+    pub anchor: PersistedWorldModelCitationAnchor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedWorldModelTruthContext {
+    pub truth_layer: TruthLayer,
+    pub t3_state: Option<T3State>,
+    pub open_review_ids: Vec<String>,
+    pub open_candidate_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersistedWorldModelQueryStrategy {
+    Jieba,
+    Simple,
+    Structured,
+    Embedding,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersistedWorldModelChannelContribution {
+    LexicalOnly,
+    EmbeddingOnly,
+    Hybrid,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedWorldModelAppliedFilters {
+    pub scope: Option<Scope>,
+    pub record_type: Option<RecordType>,
+    pub truth_layer: Option<TruthLayer>,
+    pub domain: Option<String>,
+    pub topic: Option<String>,
+    pub aspect: Option<String>,
+    pub kind: Option<String>,
+    pub valid_at: Option<String>,
+    pub recorded_from: Option<String>,
+    pub recorded_to: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedWorldModelTrace {
+    pub matched_query: String,
+    pub query_strategies: Vec<PersistedWorldModelQueryStrategy>,
+    pub channel_contribution: PersistedWorldModelChannelContribution,
+    pub applied_filters: PersistedWorldModelAppliedFilters,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistedWorldModelScore {
+    pub lexical_raw: f32,
+    pub lexical_base: f32,
+    pub keyword_bonus: f32,
+    pub importance_bonus: f32,
+    pub recency_bonus: f32,
+    pub emotion_bonus: f32,
+    pub final_score: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistedWorldModelSnapshotFragment {
+    pub record_id: String,
+    pub snippet: String,
+    pub citation: PersistedWorldModelCitation,
+    pub provenance: Provenance,
+    pub truth_context: PersistedWorldModelTruthContext,
+    pub dsl: Option<FlatFactDslRecordV1>,
+    pub trace: PersistedWorldModelTrace,
+    pub score: PersistedWorldModelScore,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedWorldModelSnapshot {
+    pub subject_ref: String,
+    pub world_key: String,
+    pub snapshot_id: String,
+    pub fragments: Vec<PersistedWorldModelSnapshotFragment>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1377,6 +1523,209 @@ impl<'db> MemoryRepository<'db> {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    pub fn get_self_model_snapshot(
+        &self,
+        subject_ref: &str,
+    ) -> Result<Option<PersistedSelfModelSnapshot>, RepositoryError> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT
+                    subject_ref,
+                    snapshot_id,
+                    entries_json,
+                    compacted_through_updated_at,
+                    compacted_through_entry_id,
+                    created_at,
+                    updated_at
+                FROM self_model_snapshots
+                WHERE subject_ref = ?1
+                "#,
+                [subject_ref],
+                map_self_model_snapshot_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn load_self_model_state(
+        &self,
+        subject_ref: &str,
+    ) -> Result<PersistedSelfModelState, RepositoryError> {
+        let snapshot = self.get_self_model_snapshot(subject_ref)?;
+        let tail_entries = if let Some(snapshot) = snapshot.as_ref() {
+            self.list_local_adaptation_entries_after(
+                subject_ref,
+                &snapshot.compacted_through_updated_at,
+                &snapshot.compacted_through_entry_id,
+            )?
+        } else {
+            self.list_local_adaptation_entries(subject_ref)?
+        };
+
+        Ok(PersistedSelfModelState {
+            snapshot,
+            tail_entries,
+        })
+    }
+
+    pub fn replace_self_model_snapshot(
+        &self,
+        snapshot: &PersistedSelfModelSnapshot,
+    ) -> Result<(), RepositoryError> {
+        let entries_json = serde_json::to_string(&snapshot.entries)?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO self_model_snapshots (
+                subject_ref,
+                snapshot_id,
+                entries_json,
+                compacted_through_updated_at,
+                compacted_through_entry_id,
+                created_at,
+                updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(subject_ref) DO UPDATE SET
+                snapshot_id = excluded.snapshot_id,
+                entries_json = excluded.entries_json,
+                compacted_through_updated_at = excluded.compacted_through_updated_at,
+                compacted_through_entry_id = excluded.compacted_through_entry_id,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at
+            "#,
+            params![
+                &snapshot.subject_ref,
+                &snapshot.snapshot_id,
+                entries_json,
+                &snapshot.compacted_through_updated_at,
+                &snapshot.compacted_through_entry_id,
+                &snapshot.created_at,
+                &snapshot.updated_at,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn load_world_model_snapshot(
+        &self,
+        subject_ref: &str,
+        world_key: &str,
+    ) -> Result<Option<PersistedWorldModelSnapshot>, RepositoryError> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT
+                    subject_ref,
+                    world_key,
+                    snapshot_id,
+                    fragments_json,
+                    created_at,
+                    updated_at
+                FROM world_model_snapshots
+                WHERE subject_ref = ?1
+                  AND world_key = ?2
+                "#,
+                params![subject_ref, world_key],
+                map_world_model_snapshot_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn replace_world_model_snapshot(
+        &self,
+        snapshot: &PersistedWorldModelSnapshot,
+    ) -> Result<(), RepositoryError> {
+        let fragments_json = serde_json::to_string(&snapshot.fragments)?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO world_model_snapshots (
+                subject_ref,
+                world_key,
+                snapshot_id,
+                fragments_json,
+                created_at,
+                updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(subject_ref, world_key) DO UPDATE SET
+                snapshot_id = excluded.snapshot_id,
+                fragments_json = excluded.fragments_json,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at
+            "#,
+            params![
+                &snapshot.subject_ref,
+                &snapshot.world_key,
+                &snapshot.snapshot_id,
+                fragments_json,
+                &snapshot.created_at,
+                &snapshot.updated_at,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn prune_local_adaptation_entries_through(
+        &self,
+        subject_ref: &str,
+        updated_at: &str,
+        entry_id: &str,
+    ) -> Result<usize, RepositoryError> {
+        self.conn
+            .execute(
+                r#"
+                DELETE FROM local_adaptation_entries
+                WHERE subject_ref = ?1
+                  AND (
+                    updated_at < ?2
+                    OR (updated_at = ?2 AND entry_id <= ?3)
+                  )
+                "#,
+                params![subject_ref, updated_at, entry_id],
+            )
+            .map_err(Into::into)
+    }
+
+    fn list_local_adaptation_entries_after(
+        &self,
+        subject_ref: &str,
+        updated_at: &str,
+        entry_id: &str,
+    ) -> Result<Vec<LocalAdaptationEntry>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                entry_id,
+                subject_ref,
+                target_kind,
+                key,
+                value_json,
+                source_queue_item_id,
+                created_at,
+                updated_at
+            FROM local_adaptation_entries
+            WHERE subject_ref = ?1
+              AND (
+                updated_at > ?2
+                OR (updated_at = ?2 AND entry_id > ?3)
+              )
+            ORDER BY updated_at DESC, entry_id DESC
+            "#,
+        )?;
+        let rows = statement.query_map(
+            params![subject_ref, updated_at, entry_id],
+            map_local_adaptation_row,
+        )?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
     pub fn insert_rumination_candidate(
         &self,
         candidate: &RuminationCandidate,
@@ -2154,6 +2503,43 @@ fn map_local_adaptation_row(
         source_queue_item_id: row.get(5)?,
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
+    })
+}
+
+fn map_self_model_snapshot_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<PersistedSelfModelSnapshot, rusqlite::Error> {
+    let entries_json = row.get::<_, String>(2)?;
+    let entries = serde_json::from_str(&entries_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(error))
+    })?;
+
+    Ok(PersistedSelfModelSnapshot {
+        subject_ref: row.get(0)?,
+        snapshot_id: row.get(1)?,
+        entries,
+        compacted_through_updated_at: row.get(3)?,
+        compacted_through_entry_id: row.get(4)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+    })
+}
+
+fn map_world_model_snapshot_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<PersistedWorldModelSnapshot, rusqlite::Error> {
+    let fragments_json = row.get::<_, String>(3)?;
+    let fragments = serde_json::from_str(&fragments_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(error))
+    })?;
+
+    Ok(PersistedWorldModelSnapshot {
+        subject_ref: row.get(0)?,
+        world_key: row.get(1)?,
+        snapshot_id: row.get(2)?,
+        fragments,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
     })
 }
 

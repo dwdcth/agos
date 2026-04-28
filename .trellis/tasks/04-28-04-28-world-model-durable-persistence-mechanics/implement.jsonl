@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for the Rust persistence implementation task."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Primary contract for explicit world-model projection and metadata preservation."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Trace, score, retrieval, and downstream compatibility contracts that persisted snapshots must preserve."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Database and migration context for adding the world-model snapshot table."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Reference pattern for snapshot/read-model persistence without mixing seams."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality expectations for implementation."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared thinking guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase crosses cognition, repository, migrations, and tests."}
+{"file": ".trellis/tasks/04-28-world-model-persistence-planning/prd.md", "reason": "Previous step completion context for the restored explicit world-model projection."}

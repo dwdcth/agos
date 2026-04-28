@@ -6,15 +6,17 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use crate::{
     cognition::{
         action::{ActionBranch, ActionCandidate},
+        self_model::{
+            ProjectedSelfModel, RuntimeSelfState, SelfModelReadModel, StableSelfKnowledge,
+        },
         working_memory::{
             ActiveGoal, EvidenceFragment, MetacognitiveFlag, PresentFrame, SelfStateFact,
-            SelfStateSnapshot, TruthContext, WorkingMemory, WorkingMemoryBuildError,
+            SelfStateSnapshot, WorkingMemory, WorkingMemoryBuildError,
         },
+        world_model::{CurrentWorldSlice, ProjectedWorldModel, WorldFragmentProjection},
     },
     memory::{
-        repository::{
-            LocalAdaptationEntry, LocalAdaptationTargetKind, MemoryRepository, RepositoryError,
-        },
+        repository::{LocalAdaptationEntry, MemoryRepository, RepositoryError},
         truth::TruthRecord,
     },
     search::{SearchError, SearchFilters, SearchRequest, SearchResult, SearchService},
@@ -61,6 +63,7 @@ pub struct WorkingMemoryRequest {
     pub readiness_flags: Vec<String>,
     pub action_seeds: Vec<ActionSeed>,
     pub local_adaptation_entries: Vec<LocalAdaptationEntry>,
+    pub persisted_self_model: Option<SelfModelReadModel>,
     pub integrated_results: Vec<SearchResult>,
 }
 
@@ -81,6 +84,7 @@ impl WorkingMemoryRequest {
             readiness_flags: Vec::new(),
             action_seeds: Vec::new(),
             local_adaptation_entries: Vec::new(),
+            persisted_self_model: None,
             integrated_results: Vec::new(),
         }
     }
@@ -143,6 +147,11 @@ impl WorkingMemoryRequest {
         self
     }
 
+    pub fn with_persisted_self_model(mut self, persisted_self_model: SelfModelReadModel) -> Self {
+        self.persisted_self_model = Some(persisted_self_model);
+        self
+    }
+
     pub fn with_integrated_results(mut self, integrated_results: Vec<SearchResult>) -> Self {
         self.integrated_results = integrated_results;
         self
@@ -166,25 +175,38 @@ impl WorkingMemoryRequest {
 }
 
 pub trait SelfStateProvider {
-    fn snapshot(&self, request: &WorkingMemoryRequest, truths: &[TruthRecord])
-    -> SelfStateSnapshot;
+    fn project(&self, request: &WorkingMemoryRequest, truths: &[TruthRecord])
+    -> ProjectedSelfModel;
+
+    fn snapshot(
+        &self,
+        request: &WorkingMemoryRequest,
+        truths: &[TruthRecord],
+    ) -> SelfStateSnapshot {
+        self.project(request, truths).project_snapshot()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MinimalSelfStateProvider;
 
 impl SelfStateProvider for MinimalSelfStateProvider {
-    fn snapshot(
+    fn project(
         &self,
         request: &WorkingMemoryRequest,
         truths: &[TruthRecord],
-    ) -> SelfStateSnapshot {
-        SelfStateSnapshot {
-            task_context: request.task_context.clone(),
-            capability_flags: request.capability_flags.clone(),
-            readiness_flags: request.readiness_flags.clone(),
-            facts: request.selected_truth_facts(truths),
-        }
+    ) -> ProjectedSelfModel {
+        ProjectedSelfModel::new(
+            StableSelfKnowledge {
+                capability_flags: request.capability_flags.clone(),
+                facts: request.selected_truth_facts(truths),
+            },
+            RuntimeSelfState {
+                task_context: request.task_context.clone(),
+                readiness_flags: request.readiness_flags.clone(),
+                facts: Vec::new(),
+            },
+        )
     }
 }
 
@@ -203,19 +225,17 @@ impl<P> SelfStateProvider for AdaptiveSelfStateProvider<P>
 where
     P: SelfStateProvider,
 {
-    fn snapshot(
+    fn project(
         &self,
         request: &WorkingMemoryRequest,
         truths: &[TruthRecord],
-    ) -> SelfStateSnapshot {
-        let mut snapshot = self.base.snapshot(request, truths);
-        snapshot.facts.extend(
-            request
-                .local_adaptation_entries
-                .iter()
-                .map(local_adaptation_fact),
-        );
-        snapshot
+    ) -> ProjectedSelfModel {
+        let mut model = self.base.project(request, truths);
+        let read_model = request.persisted_self_model.clone().unwrap_or_else(|| {
+            SelfModelReadModel::from_overlay_entries(&request.local_adaptation_entries)
+        });
+        model.runtime.facts.extend(read_model.active_facts());
+        model
     }
 }
 
@@ -257,16 +277,22 @@ where
         &self,
         request: &WorkingMemoryRequest,
     ) -> Result<WorkingMemory, WorkingMemoryAssemblyError> {
-        let overlay_request = if let Some(subject_ref) = request.subject_ref.as_deref() {
-            let mut local_adaptation_entries =
-                self.repository.list_local_adaptation_entries(subject_ref)?;
-            local_adaptation_entries.extend(request.local_adaptation_entries.iter().cloned());
-            request
-                .clone()
-                .with_local_adaptation_entries(local_adaptation_entries)
-        } else {
-            request.clone()
-        };
+        let persisted_self_model =
+            if let Some(persisted_self_model) = request.persisted_self_model.clone() {
+                persisted_self_model
+            } else if let Some(subject_ref) = request.subject_ref.as_deref() {
+                let persisted_state = self.repository.load_self_model_state(subject_ref)?;
+                SelfModelReadModel::from_persisted_state(
+                    persisted_state.snapshot.as_ref(),
+                    &persisted_state.tail_entries,
+                    &request.local_adaptation_entries,
+                )
+            } else {
+                SelfModelReadModel::from_overlay_entries(&request.local_adaptation_entries)
+            };
+        let overlay_request = request
+            .clone()
+            .with_persisted_self_model(persisted_self_model);
         let mut merged_results = if overlay_request.integrated_results.is_empty() {
             let search_request = SearchRequest::new(overlay_request.query.clone())
                 .with_limit(overlay_request.limit)
@@ -293,7 +319,7 @@ where
         merged_results.retain(|result| seen_record_ids.insert(result.record.id.clone()));
 
         let mut truths = Vec::with_capacity(merged_results.len());
-        let mut world_fragments = Vec::with_capacity(merged_results.len());
+        let mut world_fragment_projections = Vec::with_capacity(merged_results.len());
         let layered_records = merged_results
             .iter()
             .any(|result| result.dsl.is_none())
@@ -314,31 +340,29 @@ where
             integrated_result_matches_filters(result, &overlay_request.filters, &layered_records)
         });
         for result in merged_results {
+            let record_id = result.record.id.clone();
             let truth = self
                 .repository
-                .get_truth_record(&result.record.id)?
+                .get_truth_record(&record_id)?
                 .ok_or_else(|| WorkingMemoryAssemblyError::MissingTruthProjection {
-                    record_id: result.record.id.clone(),
+                    record_id: record_id.clone(),
                 })?;
-            let fragment = EvidenceFragment {
-                record_id: result.record.id.clone(),
-                snippet: result.snippet,
-                citation: result.citation,
-                provenance: result.record.provenance.clone(),
-                truth_context: TruthContext::from_truth_record(&truth),
-                dsl: result.dsl.clone().or_else(|| {
-                    layered_records
-                        .get(&result.record.id)
-                        .and_then(|record| record.dsl.as_ref().map(|dsl| dsl.payload.clone()))
-                }),
-                trace: result.trace,
-                score: result.score,
-            };
+            let projection = WorldFragmentProjection::from_search_result(
+                result,
+                &truth,
+                layered_records
+                    .get(&record_id)
+                    .and_then(|record| record.dsl.as_ref().map(|dsl| &dsl.payload)),
+            );
             truths.push(truth);
-            world_fragments.push(fragment);
+            world_fragment_projections.push(projection);
         }
+        let world_model =
+            ProjectedWorldModel::new(CurrentWorldSlice::new(world_fragment_projections));
+        let world_fragments = world_model.project_fragments();
 
-        let self_state = self.self_state_provider.snapshot(&overlay_request, &truths);
+        let self_model = self.self_state_provider.project(&overlay_request, &truths);
+        let self_state = self_model.project_snapshot();
         let present = PresentFrame {
             world_fragments: world_fragments.clone(),
             self_state,
@@ -360,20 +384,6 @@ where
             .present(present)
             .extend_branches(branches)
             .build()?)
-    }
-}
-
-fn local_adaptation_fact(entry: &LocalAdaptationEntry) -> SelfStateFact {
-    let key = match entry.target_kind {
-        LocalAdaptationTargetKind::SelfState => format!("self_state:{}", entry.key),
-        LocalAdaptationTargetKind::RiskBoundary => format!("risk_boundary:{}", entry.key),
-        LocalAdaptationTargetKind::PrivateT3 => format!("private_t3:{}", entry.key),
-    };
-
-    SelfStateFact {
-        key,
-        value: entry.payload.display_value(),
-        source_record_id: None,
     }
 }
 

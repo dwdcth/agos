@@ -15,15 +15,15 @@ use std::{
 use agent_memos::{
     agent::{
         orchestration::{
-            AgentSearchBranchValue, AgentSearchOrchestrator, AgentSearchReport, AgentSearchRequest,
-            AgentSearchRunner, AssemblyPort, GatingPort, RetrievalPort, RetrievalStepReport,
-            ScoringPort,
+            AgentSearchBranchValue, AgentSearchError, AgentSearchOrchestrator, AgentSearchReport,
+            AgentSearchRequest, AgentSearchRunner, AssemblyPort, GatingPort, RetrievalPort,
+            RetrievalStepReport, ScoringPort,
         },
         rig_adapter::RigAgentSearchAdapter,
     },
     cognition::{
         action::{ActionBranch, ActionCandidate, ActionKind},
-        assembly::WorkingMemoryRequest,
+        assembly::{ActionSeed, WorkingMemoryRequest},
         metacog::GateDecision,
         report::{DecisionReport, GateReport, ScoredBranchReport},
         value::{ProjectedScore, ScoredBranch, ValueConfig, ValueVector},
@@ -388,6 +388,7 @@ fn sample_agent_search_report() -> AgentSearchReport {
 #[derive(Clone)]
 struct ScriptedRetriever {
     calls: Rc<RefCell<Vec<String>>>,
+    requests: Rc<RefCell<Vec<SearchRequest>>>,
     responses: HashMap<String, SearchResponse>,
 }
 
@@ -396,6 +397,7 @@ impl RetrievalPort for ScriptedRetriever {
         self.calls
             .borrow_mut()
             .push(format!("search:{}", request.query));
+        self.requests.borrow_mut().push(request.clone());
         self.responses
             .get(&request.query)
             .cloned()
@@ -470,6 +472,64 @@ impl ScoringPort for ScriptedScorer {
     }
 }
 
+#[test]
+fn agent_search_does_not_hide_missing_manual_branch_values_with_unique_kind_fallback() {
+    let path = unique_temp_dir("manual-branch-value-missing").join("agent-memos.sqlite");
+    let db = Database::open(&path).expect("database should bootstrap");
+    let ingest = IngestService::new(db.conn());
+    ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/manual-branch-value-missing".to_string(),
+            source_label: Some("manual-branch-value-missing".to_string()),
+            source_kind: None,
+            content: "direct-action evidence exists but the manual branch mapping stays distinct"
+                .to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-27T11:00:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("ingest should succeed");
+
+    let request = AgentSearchRequest::new(
+        WorkingMemoryRequest::new("direct action evidence").with_action_seed(ActionSeed::new(
+            ActionCandidate::new(ActionKind::Instrumental, "ship directly"),
+        )),
+    )
+    .with_max_steps(1)
+    .with_working_memory_limit(1)
+    .with_branch_value(AgentSearchBranchValue::new(
+        ActionKind::Instrumental,
+        "take the leading action",
+        ValueVector {
+            goal_progress: 0.90,
+            information_gain: 0.35,
+            risk_avoidance: 0.50,
+            resource_efficiency: 0.85,
+            agent_robustness: 0.65,
+        },
+    ));
+
+    let error = AgentSearchOrchestrator::with_services(
+        db.conn(),
+        agent_memos::cognition::assembly::MinimalSelfStateProvider,
+        ValueConfig::default(),
+    )
+    .run(&request)
+    .expect_err("manual branches should still require an exact value mapping");
+
+    assert!(
+        matches!(error, AgentSearchError::Scoring { .. }),
+        "missing manual branch mappings should fail in value scoring: {error}"
+    );
+    assert!(
+        error.to_string().contains("value scoring failed"),
+        "agent-search should surface the scoring-stage failure: {error}"
+    );
+}
+
 #[derive(Clone)]
 struct ScriptedGate {
     calls: Rc<RefCell<Vec<String>>>,
@@ -509,8 +569,10 @@ impl GatingPort for ScriptedGate {
 #[test]
 fn orchestrator_reuses_internal_services_and_returns_structured_report() {
     let calls = Rc::new(RefCell::new(Vec::new()));
+    let requests = Rc::new(RefCell::new(Vec::new()));
     let retriever = ScriptedRetriever {
         calls: Rc::clone(&calls),
+        requests: Rc::clone(&requests),
         responses: HashMap::from([
             (
                 "rig boundary".to_string(),
@@ -617,8 +679,10 @@ fn orchestrator_reuses_internal_services_and_returns_structured_report() {
 #[test]
 fn orchestrator_integrates_follow_up_evidence_into_working_memory_and_report() {
     let calls = Rc::new(RefCell::new(Vec::new()));
+    let requests = Rc::new(RefCell::new(Vec::new()));
     let retriever = ScriptedRetriever {
         calls: Rc::clone(&calls),
+        requests: Rc::clone(&requests),
         responses: HashMap::from([
             (
                 "primary".to_string(),
@@ -692,8 +756,10 @@ fn orchestrator_integrates_follow_up_evidence_into_working_memory_and_report() {
 #[test]
 fn integrated_follow_up_evidence_influences_decision_surface() {
     let calls = Rc::new(RefCell::new(Vec::new()));
+    let requests = Rc::new(RefCell::new(Vec::new()));
     let retriever = ScriptedRetriever {
         calls: Rc::clone(&calls),
+        requests: Rc::clone(&requests),
         responses: HashMap::from([
             (
                 "primary".to_string(),

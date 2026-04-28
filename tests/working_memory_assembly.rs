@@ -10,6 +10,10 @@ use agent_memos::{
             ActionSeed, AdaptiveSelfStateProvider, MinimalSelfStateProvider, SelfStateProvider,
             WorkingMemoryAssembler, WorkingMemoryRequest,
         },
+        self_model::{
+            ProjectedSelfModel, RuntimeSelfState, SelfModelReadModel, StableSelfKnowledge,
+            compact_self_model_subject,
+        },
         working_memory::{
             ActiveGoal, MetacognitiveFlag, PresentFrame, SelfStateFact, SelfStateSnapshot,
             WorkingMemoryBuildError, WorkingMemoryBuilder,
@@ -30,7 +34,8 @@ use agent_memos::{
         },
         repository::{
             LocalAdaptationEntry, LocalAdaptationPayload, LocalAdaptationTargetKind,
-            MemoryRepository,
+            MemoryRepository, PersistedSelfModelSnapshot, PersistedSelfModelSnapshotEntry,
+            SelfModelGovernanceMetadata, SelfModelResolutionState,
         },
         truth::{T3Confidence, T3RevocationState, TruthRecord},
     },
@@ -142,24 +147,26 @@ fn synthetic_result(record_id: &str, source_uri: &str, query: &str, snippet: &st
 struct TestSelfStateProvider;
 
 impl SelfStateProvider for TestSelfStateProvider {
-    fn snapshot(
+    fn project(
         &self,
         request: &WorkingMemoryRequest,
         truths: &[TruthRecord],
-    ) -> SelfStateSnapshot {
-        let mut facts = request.selected_truth_facts(truths);
-        facts.push(SelfStateFact {
-            key: "provider".to_string(),
-            value: "test-self-state-provider".to_string(),
-            source_record_id: None,
-        });
-
-        SelfStateSnapshot {
-            task_context: request.task_context.clone(),
-            capability_flags: request.capability_flags.clone(),
-            readiness_flags: request.readiness_flags.clone(),
-            facts,
-        }
+    ) -> ProjectedSelfModel {
+        ProjectedSelfModel::new(
+            StableSelfKnowledge {
+                capability_flags: request.capability_flags.clone(),
+                facts: request.selected_truth_facts(truths),
+            },
+            RuntimeSelfState {
+                task_context: request.task_context.clone(),
+                readiness_flags: request.readiness_flags.clone(),
+                facts: vec![SelfStateFact {
+                    key: "provider".to_string(),
+                    value: "test-self-state-provider".to_string(),
+                    source_record_id: None,
+                }],
+            },
+        )
     }
 }
 
@@ -284,7 +291,7 @@ fn assembler_preserves_citations_truth_context_and_in_memory_runtime_only() {
         .assemble(&request)
         .expect("rebuilding should create a fresh working-memory frame");
 
-    assert_eq!(db.schema_version().expect("schema version"), 8);
+    assert_eq!(db.schema_version().expect("schema version"), 10);
     assert_eq!(
         MemoryRepository::new(db.conn())
             .count_records()
@@ -894,7 +901,7 @@ fn assembler_displays_non_string_request_local_adaptation_payloads_in_self_state
 }
 
 #[test]
-fn assembler_preserves_request_local_adaptation_ordering() {
+fn assembler_overwrites_request_local_adaptations_for_same_key() {
     let path = fresh_db_path("request-local-adaptation-order");
     let db = Database::open(&path).expect("database should open");
     let ingest = IngestService::new(db.conn());
@@ -958,7 +965,7 @@ fn assembler_preserves_request_local_adaptation_ordering() {
                     },
                 ]),
         )
-        .expect("assembly should preserve request local adaptation ordering");
+        .expect("assembly should resolve request local adaptation lifecycle");
 
     let values = working_memory
         .present
@@ -971,13 +978,13 @@ fn assembler_preserves_request_local_adaptation_ordering() {
 
     assert_eq!(
         values,
-        vec!["aggressive", "conservative"],
-        "request-local adaptation facts should preserve caller-provided ordering"
+        vec!["conservative"],
+        "later request-local adaptations should overwrite earlier values for the same logical key"
     );
 }
 
 #[test]
-fn assembler_orders_request_local_adaptation_after_subject_adaptation_for_same_key() {
+fn assembler_prefers_request_local_adaptation_over_subject_state_for_same_key() {
     let path = fresh_db_path("subject-request-local-adaptation-order");
     let db = Database::open(&path).expect("database should open");
     let ingest = IngestService::new(db.conn());
@@ -1042,7 +1049,7 @@ fn assembler_orders_request_local_adaptation_after_subject_adaptation_for_same_k
                     updated_at: "2026-04-16T10:14:31Z".to_string(),
                 }]),
         )
-        .expect("assembly should preserve subject/request adaptation ordering");
+        .expect("assembly should resolve subject/request adaptation precedence");
 
     let values = working_memory
         .present
@@ -1055,8 +1062,8 @@ fn assembler_orders_request_local_adaptation_after_subject_adaptation_for_same_k
 
     assert_eq!(
         values,
-        vec!["conservative", "aggressive"],
-        "request-local adaptation should remain after repository-backed subject adaptation for the same key"
+        vec!["aggressive"],
+        "request-local adaptation should override repository-backed subject adaptation for the same logical key"
     );
 }
 
@@ -1366,7 +1373,7 @@ fn assembler_merges_subject_and_request_local_adaptations() {
 }
 
 #[test]
-fn assembler_orders_subject_local_adaptations_by_updated_at_desc() {
+fn assembler_overwrites_subject_local_adaptations_by_updated_at() {
     let path = fresh_db_path("subject-local-adaptation-order");
     let db = Database::open(&path).expect("database should open");
     let ingest = IngestService::new(db.conn());
@@ -1429,7 +1436,7 @@ fn assembler_orders_subject_local_adaptations_by_updated_at_desc() {
             &WorkingMemoryRequest::new("subject-specific adaptation order")
                 .with_subject_ref("subject://agent/demo"),
         )
-        .expect("assembly should preserve local adaptation ordering");
+        .expect("assembly should resolve repository local adaptation lifecycle");
 
     let values = working_memory
         .present
@@ -1442,13 +1449,13 @@ fn assembler_orders_subject_local_adaptations_by_updated_at_desc() {
 
     assert_eq!(
         values,
-        vec!["conservative", "aggressive"],
-        "subject local adaptation facts should preserve repository updated_at-desc ordering"
+        vec!["conservative"],
+        "newer repository-backed local adaptations should overwrite older values for the same logical key"
     );
 }
 
 #[test]
-fn assembler_orders_subject_local_adaptations_by_entry_id_when_timestamps_match() {
+fn assembler_breaks_subject_local_adaptation_ties_by_entry_id() {
     let path = fresh_db_path("subject-local-adaptation-entry-id-order");
     let db = Database::open(&path).expect("database should open");
     let ingest = IngestService::new(db.conn());
@@ -1515,7 +1522,7 @@ fn assembler_orders_subject_local_adaptations_by_entry_id_when_timestamps_match(
             &WorkingMemoryRequest::new("subject-specific adaptation tie break")
                 .with_subject_ref("subject://agent/demo"),
         )
-        .expect("assembly should preserve local adaptation entry-id tie-break ordering");
+        .expect("assembly should resolve local adaptation entry-id tie break");
 
     let values = working_memory
         .present
@@ -1528,8 +1535,783 @@ fn assembler_orders_subject_local_adaptations_by_entry_id_when_timestamps_match(
 
     assert_eq!(
         values,
-        vec!["conservative", "aggressive"],
-        "subject local adaptation facts should preserve repository entry_id-desc ordering when updated_at ties"
+        vec!["conservative"],
+        "repository-backed local adaptations should deterministically prefer the higher entry_id when updated_at ties"
+    );
+}
+
+#[test]
+fn assembler_hides_inactive_local_adaptations_after_latest_tombstone() {
+    let path = fresh_db_path("subject-local-adaptation-inactive");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+    let repository = MemoryRepository::new(db.conn());
+
+    ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/subject-local-adaptation-inactive".to_string(),
+            source_label: Some("subject-local-adaptation-inactive".to_string()),
+            source_kind: None,
+            content: "inactive local adaptations should suppress older active values".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T10:14:22Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("subject adaptation inactive ingest should succeed");
+
+    repository
+        .insert_local_adaptation_entry(&LocalAdaptationEntry {
+            entry_id: "local-adaptation:self-state:preferred_mode:active".to_string(),
+            subject_ref: "subject://agent/demo".to_string(),
+            target_kind: LocalAdaptationTargetKind::SelfState,
+            key: "preferred_mode".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!("conservative"),
+                trigger_kind: "user_preference".to_string(),
+                evidence_refs: vec!["memo://project/subject-local-adaptation-inactive".to_string()],
+            },
+            source_queue_item_id: None,
+            created_at: "2026-04-16T10:14:30Z".to_string(),
+            updated_at: "2026-04-16T10:14:30Z".to_string(),
+        })
+        .expect("active local adaptation entry should insert");
+    repository
+        .insert_local_adaptation_entry(&LocalAdaptationEntry {
+            entry_id: "local-adaptation:self-state:preferred_mode:inactive".to_string(),
+            subject_ref: "subject://agent/demo".to_string(),
+            target_kind: LocalAdaptationTargetKind::SelfState,
+            key: "preferred_mode".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!({
+                    "active": false,
+                    "reason": "paused for this session"
+                }),
+                trigger_kind: "user_preference".to_string(),
+                evidence_refs: vec!["memo://project/subject-local-adaptation-inactive".to_string()],
+            },
+            source_queue_item_id: None,
+            created_at: "2026-04-16T10:14:31Z".to_string(),
+            updated_at: "2026-04-16T10:14:31Z".to_string(),
+        })
+        .expect("inactive local adaptation entry should insert");
+
+    let assembler = WorkingMemoryAssembler::new(
+        db.conn(),
+        AdaptiveSelfStateProvider::new(TestSelfStateProvider),
+    );
+    let working_memory = assembler
+        .assemble(
+            &WorkingMemoryRequest::new("subject-specific inactive adaptation")
+                .with_subject_ref("subject://agent/demo"),
+        )
+        .expect("assembly should suppress inactive local adaptation values");
+
+    assert!(
+        !working_memory
+            .present
+            .self_state
+            .facts
+            .iter()
+            .any(|fact| fact.key == "self_state:preferred_mode"),
+        "inactive winner should remove the logical key from surfaced self-state facts"
+    );
+}
+
+#[test]
+fn assembler_preserves_explicit_persisted_self_model_seam() {
+    let path = fresh_db_path("explicit-persisted-self-model");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+    let repository = MemoryRepository::new(db.conn());
+
+    ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/explicit-persisted-self-model".to_string(),
+            source_label: Some("explicit-persisted-self-model".to_string()),
+            source_kind: None,
+            content: "explicit self-model read model should remain the projection seam".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T10:14:23Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("explicit persisted self-model ingest should succeed");
+
+    repository
+        .insert_local_adaptation_entry(&LocalAdaptationEntry {
+            entry_id: "local-adaptation:self-state:preferred_mode".to_string(),
+            subject_ref: "subject://agent/demo".to_string(),
+            target_kind: LocalAdaptationTargetKind::SelfState,
+            key: "preferred_mode".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!("conservative"),
+                trigger_kind: "user_preference".to_string(),
+                evidence_refs: vec!["memo://project/explicit-persisted-self-model".to_string()],
+            },
+            source_queue_item_id: None,
+            created_at: "2026-04-16T10:14:30Z".to_string(),
+            updated_at: "2026-04-16T10:14:30Z".to_string(),
+        })
+        .expect("subject local adaptation entry should insert");
+
+    let explicit_read_model = SelfModelReadModel::from_overlay_entries(&[LocalAdaptationEntry {
+        entry_id: "request-local-adaptation:self-state:preferred_mode".to_string(),
+        subject_ref: "subject://agent/demo".to_string(),
+        target_kind: LocalAdaptationTargetKind::SelfState,
+        key: "preferred_mode".to_string(),
+        payload: LocalAdaptationPayload {
+            value: json!("aggressive"),
+            trigger_kind: "request_override".to_string(),
+            evidence_refs: vec!["memo://project/explicit-persisted-self-model".to_string()],
+        },
+        source_queue_item_id: None,
+        created_at: "2026-04-16T10:14:31Z".to_string(),
+        updated_at: "2026-04-16T10:14:31Z".to_string(),
+    }]);
+
+    let assembler = WorkingMemoryAssembler::new(
+        db.conn(),
+        AdaptiveSelfStateProvider::new(TestSelfStateProvider),
+    );
+    let working_memory = assembler
+        .assemble(
+            &WorkingMemoryRequest::new("explicit self-model read model")
+                .with_subject_ref("subject://agent/demo")
+                .with_persisted_self_model(explicit_read_model),
+        )
+        .expect("assembly should preserve the explicit self-model read-model seam");
+
+    let values = working_memory
+        .present
+        .self_state
+        .facts
+        .iter()
+        .filter(|fact| fact.key == "self_state:preferred_mode")
+        .map(|fact| fact.value.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        values,
+        vec!["aggressive"],
+        "assembly should respect an explicit persisted self-model instead of rebuilding from subject ledger rows"
+    );
+}
+
+#[test]
+fn self_model_read_model_fails_closed_unresolved_governed_conflicts() {
+    let read_model = SelfModelReadModel::from_entries(
+        &[
+            LocalAdaptationEntry {
+                entry_id: "local-adaptation:self-state:preferred_mode:v1".to_string(),
+                subject_ref: "subject://agent/demo".to_string(),
+                target_kind: LocalAdaptationTargetKind::SelfState,
+                key: "preferred_mode".to_string(),
+                payload: LocalAdaptationPayload {
+                    value: json!("conservative"),
+                    trigger_kind: "user_preference".to_string(),
+                    evidence_refs: vec!["memo://project/self-model-governance".to_string()],
+                },
+                source_queue_item_id: None,
+                created_at: "2026-04-16T10:14:30Z".to_string(),
+                updated_at: "2026-04-16T10:14:30Z".to_string(),
+            },
+            LocalAdaptationEntry {
+                entry_id: "local-adaptation:self-state:preferred_mode:v2".to_string(),
+                subject_ref: "subject://agent/demo".to_string(),
+                target_kind: LocalAdaptationTargetKind::SelfState,
+                key: "preferred_mode".to_string(),
+                payload: LocalAdaptationPayload {
+                    value: json!({
+                        "value": "aggressive",
+                        "governance": {
+                            "resolution": "unresolved",
+                            "review_reason": "material preference conflict"
+                        }
+                    }),
+                    trigger_kind: "self_model_review".to_string(),
+                    evidence_refs: vec!["memo://project/self-model-governance".to_string()],
+                },
+                source_queue_item_id: Some("rumination-queue-1".to_string()),
+                created_at: "2026-04-16T10:14:31Z".to_string(),
+                updated_at: "2026-04-16T10:14:31Z".to_string(),
+            },
+        ],
+        &[],
+    );
+
+    assert_eq!(read_model.entries().len(), 1);
+    assert_eq!(
+        read_model.entries()[0].governance_resolution(),
+        Some(SelfModelResolutionState::Unresolved)
+    );
+    assert_eq!(
+        read_model.entries()[0]
+            .governance
+            .as_ref()
+            .expect("governance metadata should be preserved")
+            .conflicting_entry_ids,
+        vec!["local-adaptation:self-state:preferred_mode:v1".to_string()]
+    );
+    assert!(
+        read_model.active_facts().is_empty(),
+        "unresolved governed conflicts must fail closed instead of surfacing a mechanical winner"
+    );
+}
+
+#[test]
+fn self_model_read_model_fails_closed_when_governed_conflict_is_overwritten_without_review() {
+    let read_model = SelfModelReadModel::from_entries(
+        &[
+            LocalAdaptationEntry {
+                entry_id: "local-adaptation:self-state:preferred_mode:v1".to_string(),
+                subject_ref: "subject://agent/demo".to_string(),
+                target_kind: LocalAdaptationTargetKind::SelfState,
+                key: "preferred_mode".to_string(),
+                payload: LocalAdaptationPayload {
+                    value: json!({
+                        "value": "conservative",
+                        "governance": {
+                            "resolution": "unresolved",
+                            "review_reason": "material preference conflict"
+                        }
+                    }),
+                    trigger_kind: "self_model_review".to_string(),
+                    evidence_refs: vec!["memo://project/self-model-governance".to_string()],
+                },
+                source_queue_item_id: Some("rumination-queue-plain".to_string()),
+                created_at: "2026-04-16T10:14:30Z".to_string(),
+                updated_at: "2026-04-16T10:14:30Z".to_string(),
+            },
+            LocalAdaptationEntry {
+                entry_id: "local-adaptation:self-state:preferred_mode:v2".to_string(),
+                subject_ref: "subject://agent/demo".to_string(),
+                target_kind: LocalAdaptationTargetKind::SelfState,
+                key: "preferred_mode".to_string(),
+                payload: LocalAdaptationPayload {
+                    value: json!("aggressive"),
+                    trigger_kind: "recent_override".to_string(),
+                    evidence_refs: vec!["memo://project/self-model-governance".to_string()],
+                },
+                source_queue_item_id: None,
+                created_at: "2026-04-16T10:14:31Z".to_string(),
+                updated_at: "2026-04-16T10:14:31Z".to_string(),
+            },
+        ],
+        &[],
+    );
+
+    assert_eq!(read_model.entries().len(), 1);
+    assert_eq!(
+        read_model.entries()[0].governance_resolution(),
+        Some(SelfModelResolutionState::Unresolved)
+    );
+    assert_eq!(
+        read_model.entries()[0]
+            .governance
+            .as_ref()
+            .expect("governed conflict should synthesize governance metadata on the winner")
+            .conflicting_entry_ids,
+        vec!["local-adaptation:self-state:preferred_mode:v1".to_string()]
+    );
+    assert!(
+        read_model.active_facts().is_empty(),
+        "plain overwrites must not bypass a same-key governed conflict that is still unresolved"
+    );
+}
+
+#[test]
+fn self_model_read_model_surfaces_accepted_governed_conflicts_deterministically() {
+    let read_model = SelfModelReadModel::from_entries(
+        &[
+            LocalAdaptationEntry {
+                entry_id: "local-adaptation:self-state:preferred_mode:v1".to_string(),
+                subject_ref: "subject://agent/demo".to_string(),
+                target_kind: LocalAdaptationTargetKind::SelfState,
+                key: "preferred_mode".to_string(),
+                payload: LocalAdaptationPayload {
+                    value: json!("conservative"),
+                    trigger_kind: "user_preference".to_string(),
+                    evidence_refs: vec!["memo://project/self-model-governance".to_string()],
+                },
+                source_queue_item_id: None,
+                created_at: "2026-04-16T10:14:30Z".to_string(),
+                updated_at: "2026-04-16T10:14:30Z".to_string(),
+            },
+            LocalAdaptationEntry {
+                entry_id: "local-adaptation:self-state:preferred_mode:v2".to_string(),
+                subject_ref: "subject://agent/demo".to_string(),
+                target_kind: LocalAdaptationTargetKind::SelfState,
+                key: "preferred_mode".to_string(),
+                payload: LocalAdaptationPayload {
+                    value: json!({
+                        "value": "aggressive",
+                        "governance": {
+                            "resolution": "accepted",
+                            "review_reason": "approved override"
+                        }
+                    }),
+                    trigger_kind: "self_model_review".to_string(),
+                    evidence_refs: vec!["memo://project/self-model-governance".to_string()],
+                },
+                source_queue_item_id: Some("rumination-queue-2".to_string()),
+                created_at: "2026-04-16T10:14:31Z".to_string(),
+                updated_at: "2026-04-16T10:14:31Z".to_string(),
+            },
+        ],
+        &[],
+    );
+
+    assert_eq!(
+        read_model.entries()[0].governance_resolution(),
+        Some(SelfModelResolutionState::Accepted)
+    );
+    assert_eq!(
+        read_model.active_facts(),
+        vec![SelfStateFact {
+            key: "self_state:preferred_mode".to_string(),
+            value: "aggressive".to_string(),
+            source_record_id: None,
+        }]
+    );
+}
+
+#[test]
+fn self_model_read_model_fails_closed_invalid_governance_metadata() {
+    let read_model = SelfModelReadModel::from_entries(
+        &[LocalAdaptationEntry {
+            entry_id: "local-adaptation:self-state:preferred_mode:v1".to_string(),
+            subject_ref: "subject://agent/demo".to_string(),
+            target_kind: LocalAdaptationTargetKind::SelfState,
+            key: "preferred_mode".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!({
+                    "value": "aggressive",
+                    "governance": {
+                        "resolution": "acceptd",
+                        "review_reason": "typo should not bypass governance"
+                    }
+                }),
+                trigger_kind: "self_model_review".to_string(),
+                evidence_refs: vec!["memo://project/self-model-governance".to_string()],
+            },
+            source_queue_item_id: Some("rumination-queue-invalid".to_string()),
+            created_at: "2026-04-16T10:14:31Z".to_string(),
+            updated_at: "2026-04-16T10:14:31Z".to_string(),
+        }],
+        &[],
+    );
+
+    assert_eq!(
+        read_model.entries()[0].governance_resolution(),
+        Some(SelfModelResolutionState::Unresolved)
+    );
+    assert_eq!(
+        read_model.entries()[0]
+            .governance
+            .as_ref()
+            .expect("invalid governance metadata should fail closed")
+            .review_reason
+            .as_deref(),
+        Some("invalid governance metadata")
+    );
+    assert!(
+        read_model.active_facts().is_empty(),
+        "invalid governance metadata must not silently downgrade into an ungoverned mechanical winner"
+    );
+}
+
+#[test]
+fn self_model_read_model_hides_rejected_snapshot_governance_metadata() {
+    let snapshot = PersistedSelfModelSnapshot {
+        subject_ref: "subject://agent/demo".to_string(),
+        snapshot_id: "self-model-snapshot-governance-001".to_string(),
+        entries: vec![PersistedSelfModelSnapshotEntry {
+            target_kind: LocalAdaptationTargetKind::SelfState,
+            key: "preferred_mode".to_string(),
+            value: "aggressive".to_string(),
+            active: true,
+            governance: Some(SelfModelGovernanceMetadata {
+                resolution: SelfModelResolutionState::Rejected,
+                conflicting_entry_ids: vec![
+                    "local-adaptation:self-state:preferred_mode:v1".to_string(),
+                ],
+                review_reason: Some("review rejected the override".to_string()),
+            }),
+            source_queue_item_id: Some("rumination-queue-3".to_string()),
+            updated_at: "2026-04-16T10:15:00Z".to_string(),
+            entry_id: "self-model-snapshot-entry:preferred_mode:v2".to_string(),
+        }],
+        compacted_through_updated_at: "2026-04-16T10:15:00Z".to_string(),
+        compacted_through_entry_id: "self-model-snapshot-entry:preferred_mode:v2".to_string(),
+        created_at: "2026-04-16T10:15:05Z".to_string(),
+        updated_at: "2026-04-16T10:15:05Z".to_string(),
+    };
+    let read_model = SelfModelReadModel::from_persisted_state(Some(&snapshot), &[], &[]);
+
+    assert_eq!(
+        read_model.entries()[0].governance_resolution(),
+        Some(SelfModelResolutionState::Rejected)
+    );
+    assert!(
+        read_model.active_facts().is_empty(),
+        "rejected governance metadata should suppress the compacted winner deterministically"
+    );
+}
+
+#[test]
+fn assembler_rebuilds_persisted_self_model_from_snapshot_and_ledger_tail() {
+    let path = fresh_db_path("self-model-snapshot-tail-rebuild");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+    let subject_ref = "subject://agent/demo";
+
+    for entry in [
+        LocalAdaptationEntry {
+            entry_id: "local-adaptation:self-state:preferred_mode:v1".to_string(),
+            subject_ref: subject_ref.to_string(),
+            target_kind: LocalAdaptationTargetKind::SelfState,
+            key: "preferred_mode".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!("conservative"),
+                trigger_kind: "user_preference".to_string(),
+                evidence_refs: vec!["memo://project/self-model-snapshot-tail".to_string()],
+            },
+            source_queue_item_id: None,
+            created_at: "2026-04-16T10:14:30Z".to_string(),
+            updated_at: "2026-04-16T10:14:30Z".to_string(),
+        },
+        LocalAdaptationEntry {
+            entry_id: "local-adaptation:self-state:preferred_mode:v2".to_string(),
+            subject_ref: subject_ref.to_string(),
+            target_kind: LocalAdaptationTargetKind::SelfState,
+            key: "preferred_mode".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!("aggressive"),
+                trigger_kind: "user_preference".to_string(),
+                evidence_refs: vec!["memo://project/self-model-snapshot-tail".to_string()],
+            },
+            source_queue_item_id: None,
+            created_at: "2026-04-16T10:14:31Z".to_string(),
+            updated_at: "2026-04-16T10:14:31Z".to_string(),
+        },
+        LocalAdaptationEntry {
+            entry_id: "local-adaptation:risk-boundary:deploy:v1".to_string(),
+            subject_ref: subject_ref.to_string(),
+            target_kind: LocalAdaptationTargetKind::RiskBoundary,
+            key: "deploy".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!("requires_human_review"),
+                trigger_kind: "risk_rule".to_string(),
+                evidence_refs: vec!["memo://project/self-model-snapshot-tail".to_string()],
+            },
+            source_queue_item_id: None,
+            created_at: "2026-04-16T10:14:32Z".to_string(),
+            updated_at: "2026-04-16T10:14:32Z".to_string(),
+        },
+    ] {
+        repository
+            .insert_local_adaptation_entry(&entry)
+            .expect("local adaptation entry should insert");
+    }
+
+    let snapshot = compact_self_model_subject(
+        &repository,
+        subject_ref,
+        "self-model-snapshot-001",
+        "2026-04-16T10:15:00Z",
+    )
+    .expect("compaction should succeed")
+    .expect("compaction should produce a snapshot");
+    assert_eq!(snapshot.entries.len(), 2);
+    assert_eq!(
+        snapshot.compacted_through_updated_at,
+        "2026-04-16T10:14:32Z"
+    );
+    assert!(
+        repository
+            .list_local_adaptation_entries(subject_ref)
+            .expect("ledger rows should load after compaction")
+            .is_empty(),
+        "compaction should prune ledger rows already represented by the snapshot"
+    );
+
+    repository
+        .insert_local_adaptation_entry(&LocalAdaptationEntry {
+            entry_id: "local-adaptation:self-state:preferred_mode:v3".to_string(),
+            subject_ref: subject_ref.to_string(),
+            target_kind: LocalAdaptationTargetKind::SelfState,
+            key: "preferred_mode".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!("exploratory"),
+                trigger_kind: "recent_override".to_string(),
+                evidence_refs: vec!["memo://project/self-model-snapshot-tail".to_string()],
+            },
+            source_queue_item_id: None,
+            created_at: "2026-04-16T10:15:10Z".to_string(),
+            updated_at: "2026-04-16T10:15:10Z".to_string(),
+        })
+        .expect("tail ledger row should insert after compaction");
+
+    let assembler = WorkingMemoryAssembler::new(
+        db.conn(),
+        AdaptiveSelfStateProvider::new(TestSelfStateProvider),
+    );
+    let working_memory = assembler
+        .assemble(
+            &WorkingMemoryRequest::new("self model snapshot tail rebuild")
+                .with_subject_ref(subject_ref),
+        )
+        .expect("assembly should rebuild persisted self-model from snapshot and ledger tail");
+
+    let resolved = working_memory
+        .present
+        .self_state
+        .facts
+        .iter()
+        .filter(|fact| {
+            fact.key == "self_state:preferred_mode" || fact.key == "risk_boundary:deploy"
+        })
+        .map(|fact| (fact.key.clone(), fact.value.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        resolved,
+        vec![
+            (
+                "self_state:preferred_mode".to_string(),
+                "exploratory".to_string(),
+            ),
+            (
+                "risk_boundary:deploy".to_string(),
+                "requires_human_review".to_string(),
+            ),
+        ],
+        "assembler should merge compacted snapshot state with newer ledger tail rows through the existing self-model seam"
+    );
+}
+
+#[test]
+fn assembler_keeps_inactive_snapshot_winners_suppressive_after_compaction() {
+    let path = fresh_db_path("self-model-snapshot-inactive");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+    let subject_ref = "subject://agent/demo";
+
+    for entry in [
+        LocalAdaptationEntry {
+            entry_id: "local-adaptation:self-state:preferred_mode:v1".to_string(),
+            subject_ref: subject_ref.to_string(),
+            target_kind: LocalAdaptationTargetKind::SelfState,
+            key: "preferred_mode".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!("conservative"),
+                trigger_kind: "user_preference".to_string(),
+                evidence_refs: vec!["memo://project/self-model-snapshot-inactive".to_string()],
+            },
+            source_queue_item_id: None,
+            created_at: "2026-04-16T10:14:30Z".to_string(),
+            updated_at: "2026-04-16T10:14:30Z".to_string(),
+        },
+        LocalAdaptationEntry {
+            entry_id: "local-adaptation:self-state:preferred_mode:tombstone".to_string(),
+            subject_ref: subject_ref.to_string(),
+            target_kind: LocalAdaptationTargetKind::SelfState,
+            key: "preferred_mode".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!({"active": false, "status": "inactive"}),
+                trigger_kind: "user_preference".to_string(),
+                evidence_refs: vec!["memo://project/self-model-snapshot-inactive".to_string()],
+            },
+            source_queue_item_id: None,
+            created_at: "2026-04-16T10:14:31Z".to_string(),
+            updated_at: "2026-04-16T10:14:31Z".to_string(),
+        },
+    ] {
+        repository
+            .insert_local_adaptation_entry(&entry)
+            .expect("local adaptation entry should insert");
+    }
+
+    compact_self_model_subject(
+        &repository,
+        subject_ref,
+        "self-model-snapshot-002",
+        "2026-04-16T10:15:00Z",
+    )
+    .expect("compaction should succeed")
+    .expect("compaction should produce a snapshot");
+
+    repository
+        .insert_local_adaptation_entry(&LocalAdaptationEntry {
+            entry_id: "local-adaptation:risk-boundary:deploy:v1".to_string(),
+            subject_ref: subject_ref.to_string(),
+            target_kind: LocalAdaptationTargetKind::RiskBoundary,
+            key: "deploy".to_string(),
+            payload: LocalAdaptationPayload {
+                value: json!("requires_human_review"),
+                trigger_kind: "risk_rule".to_string(),
+                evidence_refs: vec!["memo://project/self-model-snapshot-inactive".to_string()],
+            },
+            source_queue_item_id: None,
+            created_at: "2026-04-16T10:15:10Z".to_string(),
+            updated_at: "2026-04-16T10:15:10Z".to_string(),
+        })
+        .expect("tail ledger row should insert after compaction");
+
+    let assembler = WorkingMemoryAssembler::new(
+        db.conn(),
+        AdaptiveSelfStateProvider::new(TestSelfStateProvider),
+    );
+    let working_memory = assembler
+        .assemble(
+            &WorkingMemoryRequest::new("self model snapshot inactive winner")
+                .with_subject_ref(subject_ref),
+        )
+        .expect("assembly should preserve inactive snapshot winners");
+
+    assert!(
+        !working_memory
+            .present
+            .self_state
+            .facts
+            .iter()
+            .any(|fact| fact.key == "self_state:preferred_mode"),
+        "inactive snapshot winners should remain suppressive after compaction"
+    );
+    assert!(
+        working_memory
+            .present
+            .self_state
+            .facts
+            .iter()
+            .any(|fact| fact.key == "risk_boundary:deploy" && fact.value == "requires_human_review"),
+        "newer ledger tail rows should still surface alongside compacted inactive winners"
+    );
+}
+
+#[test]
+fn assembler_orders_resolved_local_adaptations_by_target_kind_then_key() {
+    let path = fresh_db_path("local-adaptation-target-kind-order");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/local-adaptation-target-kind-order".to_string(),
+            source_label: Some("local-adaptation-target-kind-order".to_string()),
+            source_kind: None,
+            content: "resolved local adaptation order should be deterministic".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T10:14:23Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("target-kind order ingest should succeed");
+
+    let assembler = WorkingMemoryAssembler::new(
+        db.conn(),
+        AdaptiveSelfStateProvider::new(TestSelfStateProvider),
+    );
+    let working_memory = assembler
+        .assemble(
+            &WorkingMemoryRequest::new("deterministic local adaptation order")
+                .with_local_adaptation_entries(vec![
+                    LocalAdaptationEntry {
+                        entry_id: "request-local-adaptation:private-t3:zeta".to_string(),
+                        subject_ref: "subject://agent/demo".to_string(),
+                        target_kind: LocalAdaptationTargetKind::PrivateT3,
+                        key: "zeta".to_string(),
+                        payload: LocalAdaptationPayload {
+                            value: json!("tentative"),
+                            trigger_kind: "request_override".to_string(),
+                            evidence_refs: vec![
+                                "memo://project/local-adaptation-target-kind-order".to_string(),
+                            ],
+                        },
+                        source_queue_item_id: None,
+                        created_at: "2026-04-16T10:14:33Z".to_string(),
+                        updated_at: "2026-04-16T10:14:33Z".to_string(),
+                    },
+                    LocalAdaptationEntry {
+                        entry_id: "request-local-adaptation:self-state:beta".to_string(),
+                        subject_ref: "subject://agent/demo".to_string(),
+                        target_kind: LocalAdaptationTargetKind::SelfState,
+                        key: "beta".to_string(),
+                        payload: LocalAdaptationPayload {
+                            value: json!("two"),
+                            trigger_kind: "request_override".to_string(),
+                            evidence_refs: vec![
+                                "memo://project/local-adaptation-target-kind-order".to_string(),
+                            ],
+                        },
+                        source_queue_item_id: None,
+                        created_at: "2026-04-16T10:14:31Z".to_string(),
+                        updated_at: "2026-04-16T10:14:31Z".to_string(),
+                    },
+                    LocalAdaptationEntry {
+                        entry_id: "request-local-adaptation:risk-boundary:alpha".to_string(),
+                        subject_ref: "subject://agent/demo".to_string(),
+                        target_kind: LocalAdaptationTargetKind::RiskBoundary,
+                        key: "alpha".to_string(),
+                        payload: LocalAdaptationPayload {
+                            value: json!("review"),
+                            trigger_kind: "request_override".to_string(),
+                            evidence_refs: vec![
+                                "memo://project/local-adaptation-target-kind-order".to_string(),
+                            ],
+                        },
+                        source_queue_item_id: None,
+                        created_at: "2026-04-16T10:14:32Z".to_string(),
+                        updated_at: "2026-04-16T10:14:32Z".to_string(),
+                    },
+                    LocalAdaptationEntry {
+                        entry_id: "request-local-adaptation:self-state:alpha".to_string(),
+                        subject_ref: "subject://agent/demo".to_string(),
+                        target_kind: LocalAdaptationTargetKind::SelfState,
+                        key: "alpha".to_string(),
+                        payload: LocalAdaptationPayload {
+                            value: json!("one"),
+                            trigger_kind: "request_override".to_string(),
+                            evidence_refs: vec![
+                                "memo://project/local-adaptation-target-kind-order".to_string(),
+                            ],
+                        },
+                        source_queue_item_id: None,
+                        created_at: "2026-04-16T10:14:30Z".to_string(),
+                        updated_at: "2026-04-16T10:14:30Z".to_string(),
+                    },
+                ]),
+        )
+        .expect("assembly should produce deterministic local adaptation order");
+
+    let keys = working_memory
+        .present
+        .self_state
+        .facts
+        .iter()
+        .filter(|fact| {
+            fact.key.starts_with("self_state:")
+                || fact.key.starts_with("risk_boundary:")
+                || fact.key.starts_with("private_t3:")
+        })
+        .map(|fact| fact.key.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        keys,
+        vec![
+            "self_state:alpha",
+            "self_state:beta",
+            "risk_boundary:alpha",
+            "private_t3:zeta",
+        ],
+        "resolved local adaptations should merge in self_state, risk_boundary, private_t3 order with deterministic key ordering inside each lane"
     );
 }
 
@@ -1903,6 +2685,143 @@ fn minimal_self_state_provider_preserves_request_control_fields_and_truth_facts(
             value: "t2".to_string(),
             source_record_id: Some(record.record_ids[0].clone()),
         }]
+    );
+}
+
+#[test]
+fn minimal_self_state_provider_projects_explicit_stable_and_runtime_self_model() {
+    let path = fresh_db_path("minimal-self-model-projection");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+    let repo = MemoryRepository::new(db.conn());
+
+    let record = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/minimal-self-model-projection".to_string(),
+            source_label: Some("minimal-self-model-projection".to_string()),
+            source_kind: None,
+            content: "self model should separate stable knowledge from runtime state".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T10:15:30Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("ingest should succeed");
+
+    let truth = repo
+        .get_truth_record(&record.record_ids[0])
+        .expect("truth should load")
+        .expect("truth should exist");
+    let request = WorkingMemoryRequest::new("minimal self model")
+        .with_task_context("separate runtime state")
+        .with_capability_flag("lexical_search_ready")
+        .with_readiness_flag("truth_governance_ready");
+
+    let model = MinimalSelfStateProvider.project(&request, &[truth]);
+
+    assert_eq!(
+        model.stable.capability_flags,
+        vec!["lexical_search_ready".to_string()]
+    );
+    assert_eq!(
+        model.runtime.task_context.as_deref(),
+        Some("separate runtime state")
+    );
+    assert_eq!(
+        model.runtime.readiness_flags,
+        vec!["truth_governance_ready".to_string()]
+    );
+    assert_eq!(model.runtime.facts, Vec::<SelfStateFact>::new());
+    assert_eq!(
+        model.stable.facts,
+        vec![SelfStateFact {
+            key: format!("truth_record:{}", record.record_ids[0]),
+            value: "t2".to_string(),
+            source_record_id: Some(record.record_ids[0].clone()),
+        }]
+    );
+    assert_eq!(
+        model.project_snapshot(),
+        SelfStateSnapshot {
+            task_context: Some("separate runtime state".to_string()),
+            capability_flags: vec!["lexical_search_ready".to_string()],
+            readiness_flags: vec!["truth_governance_ready".to_string()],
+            facts: vec![SelfStateFact {
+                key: format!("truth_record:{}", record.record_ids[0]),
+                value: "t2".to_string(),
+                source_record_id: Some(record.record_ids[0].clone()),
+            }],
+        }
+    );
+}
+
+#[test]
+fn adaptive_self_state_provider_routes_local_overlays_through_runtime_self_model_facts() {
+    let request =
+        WorkingMemoryRequest::new("runtime overlays").with_local_adaptation_entries(vec![
+            LocalAdaptationEntry {
+                entry_id: "request-local-adaptation:self-state:preferred_mode".to_string(),
+                subject_ref: "subject://agent/demo".to_string(),
+                target_kind: LocalAdaptationTargetKind::SelfState,
+                key: "preferred_mode".to_string(),
+                payload: LocalAdaptationPayload {
+                    value: json!("conservative"),
+                    trigger_kind: "request_override".to_string(),
+                    evidence_refs: vec!["memo://project/request-local-adaptation".to_string()],
+                },
+                source_queue_item_id: None,
+                created_at: "2026-04-16T10:14:31Z".to_string(),
+                updated_at: "2026-04-16T10:14:31Z".to_string(),
+            },
+            LocalAdaptationEntry {
+                entry_id: "request-local-adaptation:risk-boundary:deploy".to_string(),
+                subject_ref: "subject://agent/demo".to_string(),
+                target_kind: LocalAdaptationTargetKind::RiskBoundary,
+                key: "deploy".to_string(),
+                payload: LocalAdaptationPayload {
+                    value: json!("requires_human_review"),
+                    trigger_kind: "request_override".to_string(),
+                    evidence_refs: vec!["memo://project/request-local-adaptation".to_string()],
+                },
+                source_queue_item_id: None,
+                created_at: "2026-04-16T10:14:32Z".to_string(),
+                updated_at: "2026-04-16T10:14:32Z".to_string(),
+            },
+        ]);
+
+    let model = AdaptiveSelfStateProvider::new(MinimalSelfStateProvider).project(&request, &[]);
+
+    assert_eq!(
+        model.runtime.facts,
+        vec![
+            SelfStateFact {
+                key: "self_state:preferred_mode".to_string(),
+                value: "conservative".to_string(),
+                source_record_id: None,
+            },
+            SelfStateFact {
+                key: "risk_boundary:deploy".to_string(),
+                value: "requires_human_review".to_string(),
+                source_record_id: None,
+            },
+        ]
+    );
+    assert_eq!(
+        model.project_snapshot().facts,
+        vec![
+            SelfStateFact {
+                key: "self_state:preferred_mode".to_string(),
+                value: "conservative".to_string(),
+                source_record_id: None,
+            },
+            SelfStateFact {
+                key: "risk_boundary:deploy".to_string(),
+                value: "requires_human_review".to_string(),
+                source_record_id: None,
+            },
+        ]
     );
 }
 
@@ -3418,7 +4337,9 @@ fn assembler_rejects_filtered_integrated_supporting_record_ids_for_core_and_temp
                     .with_supporting_record_ids(vec![stale_id.clone()]),
                 ),
         )
-        .expect_err("assembly should reject explicit support ids filtered out by core/temporal filters");
+        .expect_err(
+            "assembly should reject explicit support ids filtered out by core/temporal filters",
+        );
 
     assert!(matches!(
         err,

@@ -3,5 +3,7 @@ pub mod assembly;
 pub mod metacog;
 pub mod report;
 pub mod rumination;
+pub mod self_model;
 pub mod value;
 pub mod working_memory;
+pub mod world_model;
