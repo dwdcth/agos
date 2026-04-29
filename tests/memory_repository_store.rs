@@ -24,6 +24,7 @@ use agent_memos::{
             PersistedWorldModelTruthContext, RepositoryError, RuminationCandidate,
             RuminationCandidateKind, RuminationCandidateStatus, SKILL_TEMPLATE_PAYLOAD_VERSION,
             SelfModelGovernanceMetadata, SelfModelResolutionState,
+            SkillTemplateCandidateLifecycleError,
         },
         store::{FactDslStore, PersistedFactDslRecordV1},
         taxonomy::{AspectV1, DomainV1, KindV1, TaxonomyPathV1, TopicV1},
@@ -358,6 +359,50 @@ fn sqlite_repository_rejects_legacy_placeholder_skill_template_candidates() {
 }
 
 #[test]
+fn sqlite_repository_skill_template_lifecycle_bridge_does_not_mutate_invalid_payload_rows() {
+    let path = fresh_db_path("legacy-skill-template-lifecycle-bridge");
+    let db = Database::open(&path).expect("database should open");
+    let repo = MemoryRepository::new(db.conn());
+
+    repo.insert_rumination_candidate(&RuminationCandidate {
+        candidate_id: "lpq:legacy:lifecycle".to_string(),
+        source_queue_item_id: Some("lpq:legacy".to_string()),
+        candidate_kind: RuminationCandidateKind::SkillTemplate,
+        subject_ref: "task://legacy".to_string(),
+        payload: json!({
+            "template_summary": "pause and request clarification",
+            "trigger_kind": "evidence_accumulation",
+            "source_report": {"decision": {"selected_branch": null}},
+            "evidence_count": 1,
+        }),
+        evidence_refs: vec!["mem-legacy".to_string()],
+        governance_ref_id: Some("review:legacy".to_string()),
+        status: RuminationCandidateStatus::Pending,
+        created_at: "2026-04-29T10:00:00Z".to_string(),
+        updated_at: "2026-04-29T10:00:00Z".to_string(),
+    })
+    .expect("legacy placeholder candidate should insert for lifecycle checks");
+
+    let error = repo
+        .consume_skill_template_candidate("lpq:legacy:lifecycle", "2026-04-29T10:05:00Z")
+        .expect_err("invalid payloads should fail before any status mutation");
+    assert!(matches!(
+        error,
+        SkillTemplateCandidateLifecycleError::Repository(
+            RepositoryError::LegacySkillTemplatePayload { ref candidate_id }
+        ) if candidate_id == "lpq:legacy:lifecycle"
+    ));
+
+    let stored = repo
+        .get_rumination_candidate("lpq:legacy:lifecycle")
+        .expect("lookup should succeed")
+        .expect("candidate should still exist after a failed transition");
+    assert_eq!(stored.status, RuminationCandidateStatus::Pending);
+    assert_eq!(stored.updated_at, "2026-04-29T10:00:00Z");
+    assert_eq!(stored.governance_ref_id.as_deref(), Some("review:legacy"));
+}
+
+#[test]
 fn sqlite_repository_filters_runtime_skill_template_candidates_by_status_and_subject() {
     let path = fresh_db_path("runtime-skill-template-candidates");
     let db = Database::open(&path).expect("database should open");
@@ -420,6 +465,149 @@ fn sqlite_repository_filters_runtime_skill_template_candidates_by_status_and_sub
         runtime_candidates[0].candidate.subject_ref,
         "task://subject-a"
     );
+}
+
+#[test]
+fn sqlite_repository_consumes_skill_template_candidates_and_preserves_metadata() {
+    let path = fresh_db_path("skill-template-candidate-consume");
+    let db = Database::open(&path).expect("database should open");
+    let repo = MemoryRepository::new(db.conn());
+
+    let mut pending = sample_skill_template_candidate(
+        "lpq:subject-a:lifecycle",
+        "task://subject-a",
+        "2026-04-29T08:00:00Z",
+    );
+    pending.governance_ref_id = Some("review:lpq:subject-a:lifecycle".to_string());
+    let original_payload = pending.payload.clone();
+    let original_evidence_refs = pending.evidence_refs.clone();
+    let original_source_queue_item_id = pending.source_queue_item_id.clone();
+    let original_governance_ref_id = pending.governance_ref_id.clone();
+
+    repo.insert_rumination_candidate(&pending)
+        .expect("pending skill template candidate should insert");
+
+    let consumed = repo
+        .consume_skill_template_candidate(&pending.candidate_id, "2026-04-29T08:05:00Z")
+        .expect("consume helper should transition the candidate");
+
+    assert_eq!(
+        consumed.candidate.status,
+        RuminationCandidateStatus::Consumed
+    );
+    assert_eq!(consumed.candidate.created_at, pending.created_at);
+    assert_eq!(consumed.candidate.updated_at, "2026-04-29T08:05:00Z");
+    assert_eq!(consumed.candidate.payload, original_payload);
+    assert_eq!(consumed.candidate.evidence_refs, original_evidence_refs);
+    assert_eq!(
+        consumed.candidate.source_queue_item_id,
+        original_source_queue_item_id
+    );
+    assert_eq!(consumed.candidate.subject_ref, pending.subject_ref);
+    assert_eq!(
+        consumed.candidate.governance_ref_id,
+        original_governance_ref_id
+    );
+
+    let stored = repo
+        .get_rumination_candidate(&pending.candidate_id)
+        .expect("lookup should succeed")
+        .expect("candidate should still exist after transition");
+    assert_eq!(stored.status, RuminationCandidateStatus::Consumed);
+    assert_eq!(stored.updated_at, "2026-04-29T08:05:00Z");
+    assert_eq!(stored.payload, pending.payload);
+    assert_eq!(stored.evidence_refs, pending.evidence_refs);
+    assert_eq!(stored.source_queue_item_id, pending.source_queue_item_id);
+    assert_eq!(stored.governance_ref_id, pending.governance_ref_id);
+}
+
+#[test]
+fn sqlite_repository_rejects_and_archives_skill_template_candidates() {
+    let path = fresh_db_path("skill-template-candidate-reject-archive");
+    let db = Database::open(&path).expect("database should open");
+    let repo = MemoryRepository::new(db.conn());
+
+    let pending = sample_skill_template_candidate(
+        "lpq:subject-a:reject",
+        "task://subject-a",
+        "2026-04-29T08:10:00Z",
+    );
+    let mut consumed = sample_skill_template_candidate(
+        "lpq:subject-a:archive",
+        "task://subject-a",
+        "2026-04-29T08:11:00Z",
+    );
+    consumed.status = RuminationCandidateStatus::Consumed;
+
+    repo.insert_rumination_candidate(&pending)
+        .expect("pending skill template candidate should insert");
+    repo.insert_rumination_candidate(&consumed)
+        .expect("consumed skill template candidate should insert");
+
+    let rejected = repo
+        .reject_skill_template_candidate(&pending.candidate_id, "2026-04-29T08:12:00Z")
+        .expect("reject helper should transition the candidate");
+    let archived = repo
+        .archive_skill_template_candidate(&consumed.candidate_id, "2026-04-29T08:13:00Z")
+        .expect("archive helper should transition the candidate");
+
+    assert_eq!(
+        rejected.candidate.status,
+        RuminationCandidateStatus::Rejected
+    );
+    assert_eq!(rejected.candidate.updated_at, "2026-04-29T08:12:00Z");
+    assert_eq!(rejected.candidate.payload, pending.payload);
+    assert_eq!(
+        archived.candidate.status,
+        RuminationCandidateStatus::Archived
+    );
+    assert_eq!(archived.candidate.updated_at, "2026-04-29T08:13:00Z");
+    assert_eq!(archived.candidate.payload, consumed.payload);
+}
+
+#[test]
+fn sqlite_repository_skill_template_lifecycle_bridge_rejects_wrong_kind_and_missing_candidate() {
+    let path = fresh_db_path("skill-template-candidate-lifecycle-errors");
+    let db = Database::open(&path).expect("database should open");
+    let repo = MemoryRepository::new(db.conn());
+
+    repo.insert_rumination_candidate(&RuminationCandidate {
+        candidate_id: "lpq:subject-a:promotion".to_string(),
+        source_queue_item_id: Some("lpq:subject-a".to_string()),
+        candidate_kind: RuminationCandidateKind::PromotionCandidate,
+        subject_ref: "task://subject-a".to_string(),
+        payload: json!({
+            "promotion_path": "pending_governance_bridge",
+            "source_record_id": "mem-1",
+            "basis_record_ids": ["mem-1"],
+        }),
+        evidence_refs: vec!["mem-1".to_string()],
+        governance_ref_id: Some("review:lpq:subject-a".to_string()),
+        status: RuminationCandidateStatus::Pending,
+        created_at: "2026-04-29T08:20:00Z".to_string(),
+        updated_at: "2026-04-29T08:20:00Z".to_string(),
+    })
+    .expect("promotion candidate should insert");
+
+    let wrong_kind = repo
+        .consume_skill_template_candidate("lpq:subject-a:promotion", "2026-04-29T08:21:00Z")
+        .expect_err("wrong candidate kinds should be rejected explicitly");
+    assert!(matches!(
+        wrong_kind,
+        SkillTemplateCandidateLifecycleError::WrongCandidateKind {
+            ref candidate_id,
+            ref actual,
+        } if candidate_id == "lpq:subject-a:promotion" && actual == "promotion_candidate"
+    ));
+
+    let missing = repo
+        .archive_skill_template_candidate("lpq:missing:skill_template", "2026-04-29T08:22:00Z")
+        .expect_err("missing candidates should fail explicitly");
+    assert!(matches!(
+        missing,
+        SkillTemplateCandidateLifecycleError::CandidateNotFound { ref candidate_id }
+            if candidate_id == "lpq:missing:skill_template"
+    ));
 }
 
 #[test]

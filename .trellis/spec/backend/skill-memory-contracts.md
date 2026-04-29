@@ -314,3 +314,126 @@
   - Assert runtime merge preserves explicit templates and adds unique persisted templates
 - `tests/working_memory_assembly.rs`
   - Assert assembly loads consumed subject-scoped templates, ignores inactive statuses, and still produces ordinary `ActionBranch` values
+
+### 6. Good / Base / Bad Cases
+
+- Good:
+  - Load only consumed subject-scoped `skill_template` candidates into runtime assembly.
+  - Reconstruct persisted templates before projection and merge them additively with explicit templates.
+- Base:
+  - Callers that provide only explicit `skill_templates` keep working without repository participation.
+- Bad:
+  - Activate `Pending` candidates in runtime just because they exist in the substrate.
+  - Build persisted branches through a second runtime-only path.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Treat every persisted `skill_template` candidate as active.
+- Let repository-loaded templates overwrite explicit request templates.
+
+#### Correct
+
+- Load only `Consumed` candidates for the current subject.
+- Merge persisted templates after explicit request templates and keep the single projection path.
+
+---
+
+## Scenario: Typed Skill-Template Candidate Lifecycle Bridge
+
+### 1. Scope / Trigger
+
+- Trigger: Phase 17 adds an internal-only lifecycle bridge so persisted `skill_template` candidates can move through `Pending -> Consumed/Rejected/Archived` without generic ad hoc row mutation.
+- Why this needs code-spec depth: the change crosses repository mutation, typed candidate reconstruction, and runtime activation semantics while reusing the existing `rumination_candidates` substrate.
+
+### 2. Signatures
+
+- `src/memory/repository.rs`
+  - `MemoryRepository::consume_skill_template_candidate(candidate_id, transitioned_at) -> Result<PersistedSkillMemoryTemplateCandidate, SkillTemplateCandidateLifecycleError>`
+  - `MemoryRepository::reject_skill_template_candidate(candidate_id, transitioned_at) -> Result<PersistedSkillMemoryTemplateCandidate, SkillTemplateCandidateLifecycleError>`
+  - `MemoryRepository::archive_skill_template_candidate(candidate_id, transitioned_at) -> Result<PersistedSkillMemoryTemplateCandidate, SkillTemplateCandidateLifecycleError>`
+  - `SkillTemplateCandidateLifecycleError::{CandidateNotFound, WrongCandidateKind, Repository}`
+- `src/cognition/assembly.rs`
+  - runtime activation remains indirect through `MemoryRepository::list_consumed_skill_template_candidates_for_subject(...)`
+
+### 3. Contracts
+
+#### Substrate reuse contract
+
+- Lifecycle helpers must reuse the existing `rumination_candidates` row for persisted skill candidates.
+- Do not add a new table, mirror record, or external review surface for these transitions.
+
+#### Type boundary contract
+
+- The lifecycle bridge accepts only rows with `candidate_kind = skill_template`.
+- Missing candidates must fail with `CandidateNotFound`.
+- Non-`skill_template` rows must fail with `WrongCandidateKind` instead of being silently updated through the typed seam.
+
+#### Metadata preservation contract
+
+- A lifecycle transition may change only:
+  - `status`
+  - `updated_at`
+- The transition must preserve:
+  - `payload`
+  - `evidence_refs`
+  - `source_queue_item_id`
+  - `subject_ref`
+  - `governance_ref_id`
+  - `created_at`
+- Returned values from the lifecycle helpers must stay typed as `PersistedSkillMemoryTemplateCandidate`.
+
+#### Runtime activation contract
+
+- Runtime assembly continues to observe only `Consumed` skill-template candidates.
+- A candidate that remains `Pending`, `Rejected`, or `Archived` must not activate at runtime.
+- After a successful consume transition, the existing runtime read model should observe the same candidate without any second activation path.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| `Pending` skill-template candidate is consumed | Candidate status becomes `Consumed`, `updated_at` changes, and typed payload metadata stays intact |
+| `Pending` skill-template candidate is rejected | Candidate status becomes `Rejected` and metadata stays intact |
+| `Consumed` skill-template candidate is archived | Candidate status becomes `Archived` and metadata stays intact |
+| Candidate id is missing | Lifecycle helper fails with `CandidateNotFound` |
+| Candidate id belongs to another candidate kind | Lifecycle helper fails with `WrongCandidateKind` |
+| Assembly runs before consume | Pending candidate remains inactive |
+| Assembly runs after consume | The same candidate is visible through the consumed runtime read model |
+
+### 5. Good / Base / Bad Cases
+
+- Good:
+  - Transition skill-template candidates through explicit typed helpers.
+  - Reuse the existing repository round-trip so payload and lineage fields are preserved.
+  - Verify runtime activation by consuming a pending candidate and re-running assembly.
+- Base:
+  - Generic repository update methods remain available for other candidate kinds and internal flows.
+- Bad:
+  - Call `update_rumination_candidate(...)` directly from skill-memory callers for status-only lifecycle changes.
+  - Mutate payload or evidence refs as part of a lifecycle transition.
+  - Add a second runtime-only flag or activation table for consumed skill templates.
+
+### 6. Tests Required
+
+- `tests/memory_repository_store.rs`
+  - Assert `consume_skill_template_candidate(...)` preserves payload, evidence refs, source lineage, and timestamps
+  - Assert `reject_skill_template_candidate(...)` and `archive_skill_template_candidate(...)` set the expected status
+  - Assert wrong-kind and missing-candidate failures are explicit
+- `tests/working_memory_assembly.rs`
+  - Assert a pending persisted skill-template candidate stays inactive before consume
+  - Assert the same candidate activates after the consume transition through the existing runtime read model
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Treat lifecycle changes as untyped generic row edits at the skill-memory callsite.
+- Archive or reject arbitrary candidate kinds through the skill-template lifecycle seam.
+- Assume runtime activation changed just because a test rewrote a generic row manually.
+
+#### Correct
+
+- Use explicit skill-template lifecycle helpers that validate candidate kind and preserve metadata.
+- Let runtime activation continue to depend only on `Consumed` rows returned by the existing repository read model.

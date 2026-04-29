@@ -456,6 +456,21 @@ pub enum RepositoryError {
     MissingT3State { record_id: String },
 }
 
+#[derive(Debug, Error)]
+pub enum SkillTemplateCandidateLifecycleError {
+    #[error(transparent)]
+    Repository(#[from] RepositoryError),
+    #[error("skill template candidate {candidate_id} was not found")]
+    CandidateNotFound { candidate_id: String },
+    #[error(
+        "candidate {candidate_id} has kind {actual} and cannot transition via the skill-template lifecycle bridge"
+    )]
+    WrongCandidateKind {
+        candidate_id: String,
+        actual: String,
+    },
+}
+
 pub struct MemoryRepository<'db> {
     conn: &'db Connection,
 }
@@ -1857,6 +1872,42 @@ impl<'db> MemoryRepository<'db> {
         Ok(())
     }
 
+    pub fn consume_skill_template_candidate(
+        &self,
+        candidate_id: &str,
+        transitioned_at: &str,
+    ) -> Result<PersistedSkillMemoryTemplateCandidate, SkillTemplateCandidateLifecycleError> {
+        self.transition_skill_template_candidate(
+            candidate_id,
+            RuminationCandidateStatus::Consumed,
+            transitioned_at,
+        )
+    }
+
+    pub fn reject_skill_template_candidate(
+        &self,
+        candidate_id: &str,
+        transitioned_at: &str,
+    ) -> Result<PersistedSkillMemoryTemplateCandidate, SkillTemplateCandidateLifecycleError> {
+        self.transition_skill_template_candidate(
+            candidate_id,
+            RuminationCandidateStatus::Rejected,
+            transitioned_at,
+        )
+    }
+
+    pub fn archive_skill_template_candidate(
+        &self,
+        candidate_id: &str,
+        transitioned_at: &str,
+    ) -> Result<PersistedSkillMemoryTemplateCandidate, SkillTemplateCandidateLifecycleError> {
+        self.transition_skill_template_candidate(
+            candidate_id,
+            RuminationCandidateStatus::Archived,
+            transitioned_at,
+        )
+    }
+
     pub fn list_rumination_candidates(&self) -> Result<Vec<RuminationCandidate>, RepositoryError> {
         let mut statement = self.conn.prepare(
             r#"
@@ -2003,6 +2054,34 @@ impl<'db> MemoryRepository<'db> {
             )
             .optional()
             .map_err(Into::into)
+    }
+
+    fn transition_skill_template_candidate(
+        &self,
+        candidate_id: &str,
+        next_status: RuminationCandidateStatus,
+        transitioned_at: &str,
+    ) -> Result<PersistedSkillMemoryTemplateCandidate, SkillTemplateCandidateLifecycleError> {
+        let mut candidate = self
+            .get_rumination_candidate(candidate_id)?
+            .ok_or_else(|| SkillTemplateCandidateLifecycleError::CandidateNotFound {
+                candidate_id: candidate_id.to_string(),
+            })?;
+
+        if candidate.candidate_kind != RuminationCandidateKind::SkillTemplate {
+            return Err(SkillTemplateCandidateLifecycleError::WrongCandidateKind {
+                candidate_id: candidate.candidate_id.clone(),
+                actual: candidate.candidate_kind.as_str().to_string(),
+            });
+        }
+
+        let mut persisted = parse_skill_template_candidate(candidate.clone())?;
+        candidate.status = next_status;
+        candidate.updated_at = transitioned_at.to_string();
+        self.update_rumination_candidate(&candidate)?;
+        persisted.candidate.status = next_status;
+        persisted.candidate.updated_at = transitioned_at.to_string();
+        Ok(persisted)
     }
 
     fn claim_next_rumination_item_for_tier_impl(

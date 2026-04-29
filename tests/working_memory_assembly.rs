@@ -1942,6 +1942,79 @@ fn assembler_loads_consumed_subject_skill_templates_additively() {
 }
 
 #[test]
+fn assembler_activates_persisted_skill_templates_only_after_consume_transition() {
+    let path = fresh_db_path("persisted-skill-template-lifecycle-activation");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+    let subject_ref = "subject://agent/lifecycle";
+
+    let mut template = SkillMemoryTemplate::new(
+        "persisted-lifecycle-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "activate only after the consumed lifecycle transition",
+        )
+        .with_intent("keep runtime activation gated by explicit review"),
+    );
+    template.preconditions = Preconditions {
+        required_goal_terms: vec!["clarify".to_string()],
+        required_task_context_terms: vec!["runtime".to_string()],
+        required_capability_flags: vec!["skill_projection_ready".to_string()],
+        required_readiness_flags: vec!["citation_trace_ready".to_string()],
+        ..Preconditions::default()
+    };
+    template.expected_outcome = ExpectedOutcome {
+        effects: vec!["pending candidates stay inactive until consumed".to_string()],
+    };
+
+    repository
+        .insert_rumination_candidate(&persisted_skill_template_candidate(
+            "lpq:lifecycle:pending",
+            subject_ref,
+            RuminationCandidateStatus::Pending,
+            "2026-04-29T09:30:00Z",
+            &template,
+        ))
+        .expect("pending skill template candidate should insert");
+
+    let request = WorkingMemoryRequest::new("runtime lifecycle bridge")
+        .with_subject_ref(subject_ref)
+        .with_task_context("runtime assembly")
+        .with_active_goal("clarify the next step safely")
+        .with_capability_flag("skill_projection_ready")
+        .with_readiness_flag("citation_trace_ready");
+    let assembler = WorkingMemoryAssembler::new(db.conn(), MinimalSelfStateProvider);
+
+    let pending_working_memory = assembler
+        .assemble(&request)
+        .expect("assembly should succeed while the candidate is still pending");
+    assert!(
+        pending_working_memory.branches.is_empty(),
+        "pending candidates must remain inactive"
+    );
+
+    repository
+        .consume_skill_template_candidate("lpq:lifecycle:pending", "2026-04-29T09:31:00Z")
+        .expect("consume transition should succeed");
+
+    let consumed_working_memory = assembler
+        .assemble(&request)
+        .expect("assembly should load the consumed candidate");
+    assert_eq!(consumed_working_memory.branches.len(), 1);
+    assert_eq!(
+        consumed_working_memory.branches[0].candidate.summary,
+        "activate only after the consumed lifecycle transition"
+    );
+    assert_eq!(
+        consumed_working_memory.branches[0]
+            .candidate
+            .intent
+            .as_deref(),
+        Some("keep runtime activation gated by explicit review")
+    );
+}
+
+#[test]
 fn self_model_read_model_fails_closed_unresolved_governed_conflicts() {
     let read_model = SelfModelReadModel::from_entries(
         &[

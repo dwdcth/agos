@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for the lifecycle bridge task."}
+{"file": ".trellis/spec/backend/skill-memory-contracts.md", "reason": "Primary executable contract for skill-memory persistence and runtime activation."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality expectations for implementation."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared thinking guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase crosses repository lifecycle, runtime activation, and tests."}
+{"file": ".trellis/tasks/04-29-04-29-skill-memory-runtime-read-model-from-consumed-candidates/prd.md", "reason": "Previous phase completion context for consumed-candidate runtime activation."}
