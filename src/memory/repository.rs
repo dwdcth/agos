@@ -1941,6 +1941,43 @@ impl<'db> MemoryRepository<'db> {
             .and_then(parse_skill_template_candidates)
     }
 
+    pub fn list_consumed_skill_template_candidates_for_subject(
+        &self,
+        subject_ref: &str,
+    ) -> Result<Vec<PersistedSkillMemoryTemplateCandidate>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                candidate_id,
+                source_queue_item_id,
+                candidate_kind,
+                subject_ref,
+                payload_json,
+                evidence_refs_json,
+                status,
+                created_at,
+                updated_at
+            FROM rumination_candidates
+            WHERE candidate_kind = ?1
+              AND subject_ref = ?2
+              AND status = ?3
+            ORDER BY created_at ASC, candidate_id ASC
+            "#,
+        )?;
+        let rows = statement.query_map(
+            params![
+                RuminationCandidateKind::SkillTemplate.as_str(),
+                subject_ref,
+                RuminationCandidateStatus::Consumed.as_str(),
+            ],
+            map_rumination_candidate_row,
+        )?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(Into::into)
+            .and_then(parse_skill_template_candidates)
+    }
+
     pub fn get_rumination_candidate(
         &self,
         candidate_id: &str,

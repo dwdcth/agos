@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for the runtime activation implementation task."}
+{"file": ".trellis/spec/backend/skill-memory-contracts.md", "reason": "Primary contract for skill-memory projection and durable candidate persistence."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Reference pattern for read-model activation from durable cognition state."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Preserve adjacent cognition seam behavior while adding runtime loading."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality expectations for implementation."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared thinking guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase crosses repository filtering, cognition reconstruction, assembly, and tests."}
+{"file": ".trellis/tasks/04-28-04-28-skill-memory-durable-persistence-via-rumination-candidates/prd.md", "reason": "Previous phase completion context for durable skill-template candidates."}

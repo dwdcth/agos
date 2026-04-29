@@ -5,7 +5,7 @@ use std::{
 
 use agent_memos::{
     cognition::{
-        action::{ActionBranch, ActionCandidate, ActionKind},
+        action::{ActionBranch, ActionCandidate, ActionKind, ActionSource},
         assembly::{
             ActionSeed, AdaptiveSelfStateProvider, MinimalSelfStateProvider, SelfStateProvider,
             WorkingMemoryAssembler, WorkingMemoryRequest,
@@ -13,6 +13,9 @@ use agent_memos::{
         self_model::{
             ProjectedSelfModel, RuntimeSelfState, SelfModelReadModel, StableSelfKnowledge,
             compact_self_model_subject,
+        },
+        skill_memory::{
+            ActionTemplate, Boundaries, ExpectedOutcome, Preconditions, SkillMemoryTemplate,
         },
         working_memory::{
             ActiveGoal, MetacognitiveFlag, PresentFrame, SelfStateFact, SelfStateSnapshot,
@@ -35,6 +38,7 @@ use agent_memos::{
         repository::{
             LocalAdaptationEntry, LocalAdaptationPayload, LocalAdaptationTargetKind,
             MemoryRepository, PersistedSelfModelSnapshot, PersistedSelfModelSnapshotEntry,
+            RuminationCandidate, RuminationCandidateKind, RuminationCandidateStatus,
             SelfModelGovernanceMetadata, SelfModelResolutionState,
         },
         truth::{T3Confidence, T3RevocationState, TruthRecord},
@@ -183,6 +187,36 @@ fn ready_embedding_config(mode: RetrievalMode) -> Config {
             ..Default::default()
         },
         ..Default::default()
+    }
+}
+
+fn persisted_skill_template_candidate(
+    candidate_id: &str,
+    subject_ref: &str,
+    status: RuminationCandidateStatus,
+    created_at: &str,
+    template: &SkillMemoryTemplate,
+) -> RuminationCandidate {
+    RuminationCandidate {
+        candidate_id: candidate_id.to_string(),
+        source_queue_item_id: Some(format!("lpq:{candidate_id}")),
+        candidate_kind: RuminationCandidateKind::SkillTemplate,
+        subject_ref: subject_ref.to_string(),
+        payload: serde_json::to_value(template.to_candidate_payload(
+            "evidence_accumulation",
+            json!({
+                "decision": {
+                    "selected_branch": template.action.summary.clone(),
+                }
+            }),
+            template.boundaries.supporting_record_ids.len(),
+        ))
+        .expect("skill template payload should serialize"),
+        evidence_refs: template.boundaries.supporting_record_ids.clone(),
+        governance_ref_id: None,
+        status,
+        created_at: created_at.to_string(),
+        updated_at: created_at.to_string(),
     }
 }
 
@@ -1699,6 +1733,211 @@ fn assembler_preserves_explicit_persisted_self_model_seam() {
         values,
         vec!["aggressive"],
         "assembly should respect an explicit persisted self-model instead of rebuilding from subject ledger rows"
+    );
+}
+
+#[test]
+fn assembler_loads_consumed_subject_skill_templates_additively() {
+    let path = fresh_db_path("persisted-skill-template-runtime-read-model");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+    let repository = MemoryRepository::new(db.conn());
+    let subject_ref = "subject://agent/demo";
+
+    let explicit_support = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/runtime-skill-template-explicit".to_string(),
+            source_label: Some("runtime-skill-template-explicit".to_string()),
+            source_kind: None,
+            content: "runtime skill template explicit support stays explainable".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-29T09:00:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("explicit support ingest should succeed")
+        .record_ids[0]
+        .clone();
+    let persisted_support = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/runtime-skill-template-persisted".to_string(),
+            source_label: Some("runtime-skill-template-persisted".to_string()),
+            source_kind: None,
+            content: "runtime skill template persisted support stays explainable".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-29T09:01:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("persisted support ingest should succeed")
+        .record_ids[0]
+        .clone();
+
+    let mut explicit_template = SkillMemoryTemplate::new(
+        "explicit-template",
+        ActionTemplate::new(ActionKind::Regulative, "use the caller supplied template")
+            .with_intent("prefer the explicit request seam"),
+    );
+    explicit_template.preconditions = Preconditions {
+        required_goal_terms: vec!["clarify".to_string()],
+        required_capability_flags: vec!["skill_projection_ready".to_string()],
+        required_readiness_flags: vec!["citation_trace_ready".to_string()],
+        ..Preconditions::default()
+    };
+    explicit_template.expected_outcome = ExpectedOutcome {
+        effects: vec!["explicit action stays active".to_string()],
+    };
+    explicit_template.boundaries = Boundaries {
+        risk_markers: vec!["explicit_skill".to_string()],
+        supporting_record_ids: vec![explicit_support.clone()],
+        blocked_active_risks: Vec::new(),
+    };
+
+    let build_persisted_template = |template_id: &str, summary: &str, support_id: &str| {
+        let mut template = SkillMemoryTemplate::new(
+            template_id,
+            ActionTemplate::new(ActionKind::Instrumental, summary)
+                .with_intent("reuse a consumed persisted template"),
+        );
+        template.preconditions = Preconditions {
+            required_goal_terms: vec!["clarify".to_string()],
+            required_task_context_terms: vec!["runtime".to_string()],
+            required_capability_flags: vec!["skill_projection_ready".to_string()],
+            required_readiness_flags: vec!["citation_trace_ready".to_string()],
+            ..Preconditions::default()
+        };
+        template.expected_outcome = ExpectedOutcome {
+            effects: vec!["persisted action becomes branch-ready".to_string()],
+        };
+        template.boundaries = Boundaries {
+            risk_markers: vec!["persisted_skill".to_string()],
+            supporting_record_ids: vec![support_id.to_string()],
+            blocked_active_risks: Vec::new(),
+        };
+        template
+    };
+
+    let consumed_template = build_persisted_template(
+        "persisted-consumed-template",
+        "load the consumed persisted template",
+        &persisted_support,
+    );
+
+    for candidate in [
+        persisted_skill_template_candidate(
+            "lpq:subject-a:consumed",
+            subject_ref,
+            RuminationCandidateStatus::Consumed,
+            "2026-04-29T09:10:00Z",
+            &consumed_template,
+        ),
+        persisted_skill_template_candidate(
+            "lpq:subject-a:pending",
+            subject_ref,
+            RuminationCandidateStatus::Pending,
+            "2026-04-29T09:11:00Z",
+            &build_persisted_template(
+                "persisted-pending-template",
+                "do not load the pending template",
+                &persisted_support,
+            ),
+        ),
+        persisted_skill_template_candidate(
+            "lpq:subject-a:rejected",
+            subject_ref,
+            RuminationCandidateStatus::Rejected,
+            "2026-04-29T09:12:00Z",
+            &build_persisted_template(
+                "persisted-rejected-template",
+                "do not load the rejected template",
+                &persisted_support,
+            ),
+        ),
+        persisted_skill_template_candidate(
+            "lpq:subject-a:archived",
+            subject_ref,
+            RuminationCandidateStatus::Archived,
+            "2026-04-29T09:13:00Z",
+            &build_persisted_template(
+                "persisted-archived-template",
+                "do not load the archived template",
+                &persisted_support,
+            ),
+        ),
+        persisted_skill_template_candidate(
+            "lpq:subject-b:consumed",
+            "subject://agent/other",
+            RuminationCandidateStatus::Consumed,
+            "2026-04-29T09:14:00Z",
+            &build_persisted_template(
+                "persisted-other-subject-template",
+                "do not load the other subject template",
+                &persisted_support,
+            ),
+        ),
+    ] {
+        repository
+            .insert_rumination_candidate(&candidate)
+            .expect("skill template candidate should insert");
+    }
+
+    let assembler = WorkingMemoryAssembler::new(db.conn(), MinimalSelfStateProvider);
+    let working_memory = assembler
+        .assemble(
+            &WorkingMemoryRequest::new("runtime skill template")
+                .with_subject_ref(subject_ref)
+                .with_task_context("runtime assembly")
+                .with_active_goal("clarify the next step safely")
+                .with_capability_flag("skill_projection_ready")
+                .with_readiness_flag("citation_trace_ready")
+                .with_skill_template(explicit_template),
+        )
+        .expect("assembly should load consumed persisted skill templates");
+
+    assert_eq!(working_memory.branches.len(), 2);
+    assert_eq!(
+        working_memory
+            .branches
+            .iter()
+            .map(|branch| branch.candidate.summary.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "use the caller supplied template",
+            "load the consumed persisted template",
+        ]
+    );
+    assert_eq!(
+        working_memory.branches[0]
+            .supporting_evidence
+            .iter()
+            .map(|fragment| fragment.record_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![explicit_support.as_str()]
+    );
+    assert_eq!(
+        working_memory.branches[1]
+            .supporting_evidence
+            .iter()
+            .map(|fragment| fragment.record_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![persisted_support.as_str()]
+    );
+    assert_eq!(
+        working_memory.branches[1].source,
+        ActionSource::SkillTemplate {
+            template_id: "persisted-consumed-template".to_string(),
+        }
+    );
+    assert!(
+        working_memory
+            .branches
+            .iter()
+            .all(|branch| !branch.candidate.summary.contains("do not load")),
+        "pending, rejected, archived, and non-subject candidates must stay inactive"
     );
 }
 

@@ -1,13 +1,15 @@
+use std::collections::BTreeSet;
+
 use crate::cognition::{
     action::{ActionCandidate, ActionKind, ActionSource},
     assembly::{ActionSeed, WorkingMemoryRequest},
     working_memory::EvidenceFragment,
 };
 use crate::memory::repository::{
-    PersistedSkillMemoryTemplateAction, PersistedSkillMemoryTemplateBoundaries,
+    MemoryRepository, PersistedSkillMemoryTemplateAction, PersistedSkillMemoryTemplateBoundaries,
     PersistedSkillMemoryTemplateCandidate, PersistedSkillMemoryTemplateExpectedOutcome,
     PersistedSkillMemoryTemplatePayload, PersistedSkillMemoryTemplatePreconditions,
-    SKILL_TEMPLATE_PAYLOAD_VERSION,
+    RepositoryError, SKILL_TEMPLATE_PAYLOAD_VERSION,
 };
 use serde_json::Value;
 use thiserror::Error;
@@ -256,6 +258,35 @@ impl SkillMemoryTemplate {
     }
 }
 
+pub fn load_runtime_skill_templates_for_subject(
+    repository: &MemoryRepository<'_>,
+    subject_ref: &str,
+) -> Result<Vec<SkillMemoryTemplate>, RuntimeSkillTemplateLoadError> {
+    repository
+        .list_consumed_skill_template_candidates_for_subject(subject_ref)?
+        .iter()
+        .map(SkillMemoryTemplate::from_rumination_candidate)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+pub fn merge_runtime_skill_templates(
+    explicit_templates: &[SkillMemoryTemplate],
+    persisted_templates: Vec<SkillMemoryTemplate>,
+) -> Vec<SkillMemoryTemplate> {
+    let explicit_template_ids = explicit_templates
+        .iter()
+        .map(|template| template.template_id.clone())
+        .collect::<BTreeSet<_>>();
+    let mut merged = explicit_templates.to_vec();
+    merged.extend(
+        persisted_templates
+            .into_iter()
+            .filter(|template| !explicit_template_ids.contains(&template.template_id)),
+    );
+    merged
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct SkillProjectionContext<'a> {
     pub request: &'a WorkingMemoryRequest,
@@ -295,4 +326,12 @@ pub enum SkillMemoryTemplateDecodeError {
     UnsupportedPayloadVersion { candidate_id: String, value: u32 },
     #[error("skill template candidate {candidate_id} stored invalid action kind {value}")]
     InvalidActionKind { candidate_id: String, value: String },
+}
+
+#[derive(Debug, Error)]
+pub enum RuntimeSkillTemplateLoadError {
+    #[error(transparent)]
+    Repository(#[from] RepositoryError),
+    #[error(transparent)]
+    Decode(#[from] SkillMemoryTemplateDecodeError),
 }

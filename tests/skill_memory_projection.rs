@@ -11,7 +11,7 @@ use agent_memos::{
         },
         skill_memory::{
             ActionTemplate, Boundaries, ExpectedOutcome, Preconditions, SkillMemoryTemplate,
-            SkillMemoryTemplateDecodeError,
+            SkillMemoryTemplateDecodeError, merge_runtime_skill_templates,
         },
     },
     core::db::Database,
@@ -310,6 +310,40 @@ fn persisted_skill_template_candidates_reconstruct_skill_memory_templates() {
     assert_eq!(
         persisted.payload.template_summary,
         "pause and request clarification"
+    );
+}
+
+#[test]
+fn runtime_skill_template_merge_preserves_explicit_templates_and_adds_unique_persisted_ones() {
+    let explicit = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(ActionKind::Regulative, "use the explicit template"),
+    );
+    let unique_persisted = SkillMemoryTemplate::new(
+        "persisted-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "add the consumed persisted template",
+        ),
+    );
+    let duplicate_persisted = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Regulative,
+            "do not override the explicit template",
+        ),
+    );
+
+    let merged = merge_runtime_skill_templates(
+        std::slice::from_ref(&explicit),
+        vec![duplicate_persisted, unique_persisted],
+    );
+
+    assert_eq!(merged.len(), 2);
+    assert_eq!(merged[0], explicit);
+    assert_eq!(
+        merged[1].action.summary,
+        "add the consumed persisted template"
     );
 }
 

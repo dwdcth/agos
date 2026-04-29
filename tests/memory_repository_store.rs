@@ -358,6 +358,71 @@ fn sqlite_repository_rejects_legacy_placeholder_skill_template_candidates() {
 }
 
 #[test]
+fn sqlite_repository_filters_runtime_skill_template_candidates_by_status_and_subject() {
+    let path = fresh_db_path("runtime-skill-template-candidates");
+    let db = Database::open(&path).expect("database should open");
+    let repo = MemoryRepository::new(db.conn());
+
+    let mut consumed = sample_skill_template_candidate(
+        "lpq:subject-a:consumed",
+        "task://subject-a",
+        "2026-04-28T12:00:00Z",
+    );
+    consumed.status = RuminationCandidateStatus::Consumed;
+
+    let mut pending = sample_skill_template_candidate(
+        "lpq:subject-a:pending",
+        "task://subject-a",
+        "2026-04-28T12:01:00Z",
+    );
+    pending.status = RuminationCandidateStatus::Pending;
+
+    let mut rejected = sample_skill_template_candidate(
+        "lpq:subject-a:rejected",
+        "task://subject-a",
+        "2026-04-28T12:02:00Z",
+    );
+    rejected.status = RuminationCandidateStatus::Rejected;
+
+    let mut archived = sample_skill_template_candidate(
+        "lpq:subject-a:archived",
+        "task://subject-a",
+        "2026-04-28T12:03:00Z",
+    );
+    archived.status = RuminationCandidateStatus::Archived;
+
+    let mut other_subject = sample_skill_template_candidate(
+        "lpq:subject-b:consumed",
+        "task://subject-b",
+        "2026-04-28T12:04:00Z",
+    );
+    other_subject.status = RuminationCandidateStatus::Consumed;
+
+    for candidate in [&consumed, &pending, &rejected, &archived, &other_subject] {
+        repo.insert_rumination_candidate(candidate)
+            .expect("rumination candidate should insert");
+    }
+
+    let runtime_candidates = repo
+        .list_consumed_skill_template_candidates_for_subject("task://subject-a")
+        .expect("runtime skill template candidates should load");
+
+    assert_eq!(runtime_candidates.len(), 1);
+    assert_eq!(
+        runtime_candidates[0].candidate.candidate_id,
+        "lpq:subject-a:consumed"
+    );
+    assert_eq!(
+        runtime_candidates[0].candidate.status,
+        RuminationCandidateStatus::Consumed
+    );
+    assert_eq!(
+        runtime_candidates[0].candidate.subject_ref,
+        "task://subject-a"
+    );
+}
+
+#[test]
 fn sqlite_repository_loads_self_model_snapshot_with_tail_and_prunes_through_cursor() {
     let path = fresh_db_path("self-model-snapshot-tail");
     let db = Database::open(&path).expect("database should open");

@@ -192,7 +192,7 @@
 - Skill-memory reconstruction must happen through explicit conversion from a typed persisted skill candidate into `SkillMemoryTemplate`.
 - Unsupported `payload_version` values must fail deterministically through a typed decode error.
 - Invalid persisted action kinds must fail deterministically through a typed decode error instead of silently guessing.
-- Reconstructed templates remain internal cognition values; this phase does not auto-inject them into runtime working-memory assembly by default.
+- Reconstructed templates remain internal cognition values in this durable-persistence phase; runtime activation is defined separately by the consumed-candidate read-model contract below.
 
 #### Repository helper contract
 
@@ -250,3 +250,67 @@
 - Define a typed persisted skill-template payload
 - Reconstruct `SkillMemoryTemplate` through one explicit cognition seam
 - Preserve the generic rumination candidate table and lifecycle semantics
+
+---
+
+## Scenario: Runtime Read Model From Consumed Skill Candidates
+
+### 1. Scope / Trigger
+
+- Trigger: Phase 16 bridges persisted skill-template candidates into runtime working-memory assembly without adding a second activation system.
+- Why this needs code-spec depth: the change crosses repository status filtering, cognition reconstruction, and working-memory assembly while preserving the existing `SkillMemoryTemplate -> ActionSeed -> ActionBranch` projection seam.
+
+### 2. Signatures
+
+- `src/memory/repository.rs`
+  - `MemoryRepository::list_consumed_skill_template_candidates_for_subject(subject_ref) -> Result<Vec<PersistedSkillMemoryTemplateCandidate>, RepositoryError>`
+- `src/cognition/skill_memory.rs`
+  - `load_runtime_skill_templates_for_subject(repository, subject_ref) -> Result<Vec<SkillMemoryTemplate>, RuntimeSkillTemplateLoadError>`
+  - `merge_runtime_skill_templates(explicit_templates, persisted_templates) -> Vec<SkillMemoryTemplate>`
+- `src/cognition/assembly.rs`
+  - `WorkingMemoryAssembler::assemble(...) -> Result<WorkingMemory, WorkingMemoryAssemblyError>`
+  - runtime loading happens only when `WorkingMemoryRequest.subject_ref` is present
+
+### 3. Contracts
+
+#### Activation contract
+
+- Only persisted skill-template candidates with all of these properties may become runtime templates:
+  - `candidate_kind = skill_template`
+  - `status = consumed`
+  - `subject_ref = WorkingMemoryRequest.subject_ref`
+- `Pending`, `Rejected`, and `Archived` skill-template candidates must remain inactive.
+- Runtime loading is subject-scoped only; there is no global activation path.
+
+#### Single-path projection contract
+
+- Persisted runtime templates must reconstruct into ordinary `SkillMemoryTemplate` values first.
+- Repository-loaded templates must flow through `WorkingMemoryRequest.skill_templates`.
+- Branch materialization stays single-path:
+  - `SkillMemoryTemplate -> ActionSeed -> ActionBranch`
+- Do not add a second direct branch-construction path for persisted templates.
+
+#### Merge contract
+
+- Explicit caller-provided `skill_templates` remain authoritative for the same `template_id`.
+- Repository-loaded consumed templates merge additively after explicit request templates.
+- Repository-loaded templates may append new runtime options, but they must not overwrite explicit caller-provided templates.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| Subject has one consumed `skill_template` candidate | Assembly loads it into runtime `skill_templates` and projects it through the ordinary skill path |
+| Subject has pending / rejected / archived `skill_template` candidates | They remain inactive and produce no branches |
+| Another subject has consumed `skill_template` candidates | They are ignored |
+| Request already carries explicit `skill_templates` | Explicit templates remain present and persisted consumed templates merge additively |
+| Persisted consumed candidate payload is invalid | Runtime loading fails deterministically through the typed decode boundary |
+
+### 5. Tests Required
+
+- `tests/memory_repository_store.rs`
+  - Assert runtime helper filters by `status = consumed` and `subject_ref`
+- `tests/skill_memory_projection.rs`
+  - Assert runtime merge preserves explicit templates and adds unique persisted templates
+- `tests/working_memory_assembly.rs`
+  - Assert assembly loads consumed subject-scoped templates, ignores inactive statuses, and still produces ordinary `ActionBranch` values

@@ -9,7 +9,11 @@ use crate::{
         self_model::{
             ProjectedSelfModel, RuntimeSelfState, SelfModelReadModel, StableSelfKnowledge,
         },
-        skill_memory::{ProjectedSkillCandidate, SkillMemoryTemplate, SkillProjectionContext},
+        skill_memory::{
+            ProjectedSkillCandidate, RuntimeSkillTemplateLoadError, SkillMemoryTemplate,
+            SkillProjectionContext, load_runtime_skill_templates_for_subject,
+            merge_runtime_skill_templates,
+        },
         working_memory::{
             ActiveGoal, EvidenceFragment, MetacognitiveFlag, PresentFrame, SelfStateFact,
             SelfStateSnapshot, WorkingMemory, WorkingMemoryBuildError,
@@ -261,6 +265,8 @@ pub enum WorkingMemoryAssemblyError {
     #[error(transparent)]
     Repository(#[from] RepositoryError),
     #[error(transparent)]
+    RuntimeSkillTemplates(#[from] RuntimeSkillTemplateLoadError),
+    #[error(transparent)]
     Build(#[from] WorkingMemoryBuildError),
     #[error("missing truth projection for retrieved record {record_id}")]
     MissingTruthProjection { record_id: String },
@@ -292,6 +298,14 @@ where
         &self,
         request: &WorkingMemoryRequest,
     ) -> Result<WorkingMemory, WorkingMemoryAssemblyError> {
+        let persisted_skill_templates = request
+            .subject_ref
+            .as_deref()
+            .map(|subject_ref| {
+                load_runtime_skill_templates_for_subject(&self.repository, subject_ref)
+            })
+            .transpose()?
+            .unwrap_or_default();
         let persisted_self_model =
             if let Some(persisted_self_model) = request.persisted_self_model.clone() {
                 persisted_self_model
@@ -305,9 +319,11 @@ where
             } else {
                 SelfModelReadModel::from_overlay_entries(&request.local_adaptation_entries)
             };
-        let overlay_request = request
+        let mut overlay_request = request
             .clone()
             .with_persisted_self_model(persisted_self_model);
+        overlay_request.skill_templates =
+            merge_runtime_skill_templates(&request.skill_templates, persisted_skill_templates);
         let mut merged_results = if overlay_request.integrated_results.is_empty() {
             let search_request = SearchRequest::new(overlay_request.query.clone())
                 .with_limit(overlay_request.limit)
