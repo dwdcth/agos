@@ -14,12 +14,16 @@ use agent_memos::{
         repository::{
             LocalAdaptationEntry, LocalAdaptationPayload, LocalAdaptationTargetKind,
             MemoryRepository, PersistedSelfModelSnapshot, PersistedSelfModelSnapshotEntry,
-            PersistedWorldModelAppliedFilters, PersistedWorldModelChannelContribution,
-            PersistedWorldModelCitation, PersistedWorldModelCitationAnchor,
-            PersistedWorldModelQueryStrategy, PersistedWorldModelScore,
-            PersistedWorldModelSnapshot, PersistedWorldModelSnapshotFragment,
-            PersistedWorldModelTrace, PersistedWorldModelTruthContext, SelfModelGovernanceMetadata,
-            SelfModelResolutionState,
+            PersistedSkillMemoryTemplateAction, PersistedSkillMemoryTemplateBoundaries,
+            PersistedSkillMemoryTemplateExpectedOutcome, PersistedSkillMemoryTemplatePayload,
+            PersistedSkillMemoryTemplatePreconditions, PersistedWorldModelAppliedFilters,
+            PersistedWorldModelChannelContribution, PersistedWorldModelCitation,
+            PersistedWorldModelCitationAnchor, PersistedWorldModelQueryStrategy,
+            PersistedWorldModelScore, PersistedWorldModelSnapshot,
+            PersistedWorldModelSnapshotFragment, PersistedWorldModelTrace,
+            PersistedWorldModelTruthContext, RepositoryError, RuminationCandidate,
+            RuminationCandidateKind, RuminationCandidateStatus, SKILL_TEMPLATE_PAYLOAD_VERSION,
+            SelfModelGovernanceMetadata, SelfModelResolutionState,
         },
         store::{FactDslStore, PersistedFactDslRecordV1},
         taxonomy::{AspectV1, DomainV1, KindV1, TaxonomyPathV1, TopicV1},
@@ -82,6 +86,60 @@ fn sample_dsl_record() -> FactDslRecord {
         },
         truth_layer: TruthLayer::T2,
         source_ref: "roadmap#phase9".to_string(),
+    }
+}
+
+fn sample_skill_template_candidate(
+    candidate_id: &str,
+    subject_ref: &str,
+    created_at: &str,
+) -> RuminationCandidate {
+    let payload = PersistedSkillMemoryTemplatePayload {
+        payload_version: SKILL_TEMPLATE_PAYLOAD_VERSION,
+        template_id: format!("template:{candidate_id}"),
+        template_summary: "pause and request clarification".to_string(),
+        preconditions: PersistedSkillMemoryTemplatePreconditions {
+            required_goal_terms: vec!["clarify the next step safely".to_string()],
+            required_task_context_terms: vec!["long-cycle learning".to_string()],
+            required_capability_flags: vec!["skill_projection_ready".to_string()],
+            required_readiness_flags: vec!["citation_trace_ready".to_string()],
+            required_metacog_flag_codes: vec!["candidate_only".to_string()],
+        },
+        action: PersistedSkillMemoryTemplateAction {
+            kind: "regulative".to_string(),
+            summary: "pause and request clarification".to_string(),
+            intent: Some("keep the next step auditable".to_string()),
+            parameters: vec!["mode=safe".to_string()],
+        },
+        expected_outcome: PersistedSkillMemoryTemplateExpectedOutcome {
+            effects: vec!["ambiguity is reduced".to_string()],
+        },
+        boundaries: PersistedSkillMemoryTemplateBoundaries {
+            risk_markers: vec!["clarification_required".to_string()],
+            supporting_record_ids: vec!["mem-1".to_string()],
+            blocked_active_risks: vec!["deployment_frozen".to_string()],
+        },
+        trigger_kind: "evidence_accumulation".to_string(),
+        source_report: json!({
+            "decision": {
+                "active_risks": ["deployment_frozen"],
+                "metacog_flags": [{"code": "candidate_only"}],
+            }
+        }),
+        evidence_count: 1,
+    };
+
+    RuminationCandidate {
+        candidate_id: candidate_id.to_string(),
+        source_queue_item_id: Some(format!("lpq:{candidate_id}")),
+        candidate_kind: RuminationCandidateKind::SkillTemplate,
+        subject_ref: subject_ref.to_string(),
+        payload: serde_json::to_value(payload).expect("skill template payload should serialize"),
+        evidence_refs: vec!["mem-1".to_string()],
+        governance_ref_id: None,
+        status: RuminationCandidateStatus::Pending,
+        created_at: created_at.to_string(),
+        updated_at: created_at.to_string(),
     }
 }
 
@@ -191,6 +249,112 @@ fn sqlite_repository_fact_dsl_store_upserts_existing_rows() {
         repo.list_fact_dsls().expect("listing should succeed").len(),
         1
     );
+}
+
+#[test]
+fn sqlite_repository_lists_only_skill_template_candidates_and_filters_by_subject() {
+    let path = fresh_db_path("skill-template-candidates");
+    let db = Database::open(&path).expect("database should open");
+    let repo = MemoryRepository::new(db.conn());
+
+    let first = sample_skill_template_candidate(
+        "lpq:subject-a:skill_template",
+        "task://subject-a",
+        "2026-04-28T12:00:00Z",
+    );
+    let second = sample_skill_template_candidate(
+        "lpq:subject-b:skill_template",
+        "task://subject-b",
+        "2026-04-28T12:05:00Z",
+    );
+    let promotion = RuminationCandidate {
+        candidate_id: "lpq:subject-a:promotion_candidate".to_string(),
+        source_queue_item_id: Some("lpq:subject-a".to_string()),
+        candidate_kind: RuminationCandidateKind::PromotionCandidate,
+        subject_ref: "task://subject-a".to_string(),
+        payload: json!({
+            "promotion_path": "pending_governance_bridge",
+            "source_record_id": "mem-1",
+            "basis_record_ids": ["mem-1"],
+        }),
+        evidence_refs: vec!["mem-1".to_string()],
+        governance_ref_id: Some("review:lpq:subject-a".to_string()),
+        status: RuminationCandidateStatus::Pending,
+        created_at: "2026-04-28T12:10:00Z".to_string(),
+        updated_at: "2026-04-28T12:10:00Z".to_string(),
+    };
+
+    for candidate in [&first, &second, &promotion] {
+        repo.insert_rumination_candidate(candidate)
+            .expect("rumination candidate should insert");
+    }
+
+    let all_skill_candidates = repo
+        .list_skill_template_candidates()
+        .expect("skill template candidates should load");
+    assert_eq!(all_skill_candidates.len(), 2);
+    assert_eq!(
+        all_skill_candidates
+            .iter()
+            .map(|candidate| candidate.candidate.subject_ref.as_str())
+            .collect::<Vec<_>>(),
+        vec!["task://subject-a", "task://subject-b"]
+    );
+    assert!(
+        all_skill_candidates
+            .iter()
+            .all(|candidate| candidate.candidate.candidate_kind
+                == RuminationCandidateKind::SkillTemplate)
+    );
+    assert_eq!(
+        all_skill_candidates[0].payload.action.summary,
+        "pause and request clarification"
+    );
+
+    let filtered = repo
+        .list_skill_template_candidates_for_subject("task://subject-a")
+        .expect("subject-scoped skill template candidates should load");
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].candidate.candidate_id, first.candidate_id);
+    assert_eq!(
+        filtered[0].payload.template_id,
+        "template:lpq:subject-a:skill_template"
+    );
+}
+
+#[test]
+fn sqlite_repository_rejects_legacy_placeholder_skill_template_candidates() {
+    let path = fresh_db_path("legacy-skill-template-candidates");
+    let db = Database::open(&path).expect("database should open");
+    let repo = MemoryRepository::new(db.conn());
+
+    repo.insert_rumination_candidate(&RuminationCandidate {
+        candidate_id: "lpq:legacy:skill_template".to_string(),
+        source_queue_item_id: Some("lpq:legacy".to_string()),
+        candidate_kind: RuminationCandidateKind::SkillTemplate,
+        subject_ref: "task://legacy".to_string(),
+        payload: json!({
+            "template_summary": "pause and request clarification",
+            "trigger_kind": "evidence_accumulation",
+            "source_report": {"decision": {"selected_branch": null}},
+            "evidence_count": 1,
+        }),
+        evidence_refs: vec!["mem-legacy".to_string()],
+        governance_ref_id: None,
+        status: RuminationCandidateStatus::Pending,
+        created_at: "2026-04-28T12:00:00Z".to_string(),
+        updated_at: "2026-04-28T12:00:00Z".to_string(),
+    })
+    .expect("legacy placeholder candidate should insert for compatibility checks");
+
+    let error = repo
+        .list_skill_template_candidates()
+        .expect_err("legacy placeholder rows should fail with a typed boundary error");
+    assert!(matches!(
+        error,
+        RepositoryError::LegacySkillTemplatePayload { ref candidate_id }
+            if candidate_id == "lpq:legacy:skill_template"
+    ));
 }
 
 #[test]

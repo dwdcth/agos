@@ -10,6 +10,7 @@ use agent_memos::{
         metacog::GateDecision,
         report::{DecisionReport, GateReport, ScoredBranchReport},
         rumination::{RuminationService, RuminationTriggerEvent, RuminationTriggerKind},
+        skill_memory::SkillMemoryTemplate,
         value::{ProjectedScore, ValueConfig, ValueVector},
         working_memory::{
             EvidenceFragment, MetacognitiveFlag, PresentFrame, SelfStateSnapshot, TruthContext,
@@ -283,6 +284,46 @@ fn lpq_generates_unified_candidates_from_accumulated_evidence() {
             candidate.payload
         );
     }
+
+    let skill_candidates = repository
+        .list_skill_template_candidates_for_subject(subject_ref)
+        .expect("skill template candidates should load through the typed helper");
+    assert_eq!(skill_candidates.len(), 1);
+    let skill_candidate = &skill_candidates[0];
+    assert_eq!(skill_candidate.payload.payload_version, 1);
+    assert_eq!(
+        skill_candidate.payload.action.kind, "instrumental",
+        "LPQ skill payload should preserve the selected branch action kind"
+    );
+    assert_eq!(
+        skill_candidate.payload.action.summary,
+        "stabilize the next step"
+    );
+    assert_eq!(
+        skill_candidate.payload.template_summary,
+        "stabilize the next step"
+    );
+    assert_eq!(
+        skill_candidate.payload.boundaries.supporting_record_ids,
+        vec!["t3-signal".to_string()]
+    );
+    assert_eq!(skill_candidate.payload.evidence_count, 1);
+    assert!(
+        skill_candidate
+            .payload
+            .source_report
+            .get("decision")
+            .is_some(),
+        "typed skill payload should preserve the original source report lineage"
+    );
+
+    let reconstructed = SkillMemoryTemplate::from_rumination_candidate(skill_candidate)
+        .expect("typed skill candidate payload should reconstruct a skill memory template");
+    assert_eq!(reconstructed.action.summary, "stabilize the next step");
+    assert_eq!(
+        reconstructed.boundaries.supporting_record_ids,
+        vec!["t3-signal".to_string()]
+    );
 }
 
 #[test]

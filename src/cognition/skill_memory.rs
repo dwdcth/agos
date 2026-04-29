@@ -3,6 +3,14 @@ use crate::cognition::{
     assembly::{ActionSeed, WorkingMemoryRequest},
     working_memory::EvidenceFragment,
 };
+use crate::memory::repository::{
+    PersistedSkillMemoryTemplateAction, PersistedSkillMemoryTemplateBoundaries,
+    PersistedSkillMemoryTemplateCandidate, PersistedSkillMemoryTemplateExpectedOutcome,
+    PersistedSkillMemoryTemplatePayload, PersistedSkillMemoryTemplatePreconditions,
+    SKILL_TEMPLATE_PAYLOAD_VERSION,
+};
+use serde_json::Value;
+use thiserror::Error;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Preconditions {
@@ -150,6 +158,102 @@ impl SkillMemoryTemplate {
             },
         })
     }
+
+    pub fn to_candidate_payload(
+        &self,
+        trigger_kind: impl Into<String>,
+        source_report: Value,
+        evidence_count: usize,
+    ) -> PersistedSkillMemoryTemplatePayload {
+        PersistedSkillMemoryTemplatePayload {
+            payload_version: SKILL_TEMPLATE_PAYLOAD_VERSION,
+            template_id: self.template_id.clone(),
+            template_summary: self.action.summary.clone(),
+            preconditions: PersistedSkillMemoryTemplatePreconditions {
+                required_goal_terms: self.preconditions.required_goal_terms.clone(),
+                required_task_context_terms: self.preconditions.required_task_context_terms.clone(),
+                required_capability_flags: self.preconditions.required_capability_flags.clone(),
+                required_readiness_flags: self.preconditions.required_readiness_flags.clone(),
+                required_metacog_flag_codes: self.preconditions.required_metacog_flag_codes.clone(),
+            },
+            action: PersistedSkillMemoryTemplateAction {
+                kind: self.action.kind.as_str().to_string(),
+                summary: self.action.summary.clone(),
+                intent: self.action.intent.clone(),
+                parameters: self.action.parameters.clone(),
+            },
+            expected_outcome: PersistedSkillMemoryTemplateExpectedOutcome {
+                effects: self.expected_outcome.effects.clone(),
+            },
+            boundaries: PersistedSkillMemoryTemplateBoundaries {
+                risk_markers: self.boundaries.risk_markers.clone(),
+                supporting_record_ids: self.boundaries.supporting_record_ids.clone(),
+                blocked_active_risks: self.boundaries.blocked_active_risks.clone(),
+            },
+            trigger_kind: trigger_kind.into(),
+            source_report,
+            evidence_count,
+        }
+    }
+
+    pub fn from_rumination_candidate(
+        candidate: &PersistedSkillMemoryTemplateCandidate,
+    ) -> Result<Self, SkillMemoryTemplateDecodeError> {
+        if candidate.payload.payload_version != SKILL_TEMPLATE_PAYLOAD_VERSION {
+            return Err(SkillMemoryTemplateDecodeError::UnsupportedPayloadVersion {
+                candidate_id: candidate.candidate.candidate_id.clone(),
+                value: candidate.payload.payload_version,
+            });
+        }
+
+        let action_kind = ActionKind::parse(&candidate.payload.action.kind).ok_or_else(|| {
+            SkillMemoryTemplateDecodeError::InvalidActionKind {
+                candidate_id: candidate.candidate.candidate_id.clone(),
+                value: candidate.payload.action.kind.clone(),
+            }
+        })?;
+
+        Ok(Self {
+            template_id: candidate.payload.template_id.clone(),
+            preconditions: Preconditions {
+                required_goal_terms: candidate.payload.preconditions.required_goal_terms.clone(),
+                required_task_context_terms: candidate
+                    .payload
+                    .preconditions
+                    .required_task_context_terms
+                    .clone(),
+                required_capability_flags: candidate
+                    .payload
+                    .preconditions
+                    .required_capability_flags
+                    .clone(),
+                required_readiness_flags: candidate
+                    .payload
+                    .preconditions
+                    .required_readiness_flags
+                    .clone(),
+                required_metacog_flag_codes: candidate
+                    .payload
+                    .preconditions
+                    .required_metacog_flag_codes
+                    .clone(),
+            },
+            action: ActionTemplate {
+                kind: action_kind,
+                summary: candidate.payload.action.summary.clone(),
+                intent: candidate.payload.action.intent.clone(),
+                parameters: candidate.payload.action.parameters.clone(),
+            },
+            expected_outcome: ExpectedOutcome {
+                effects: candidate.payload.expected_outcome.effects.clone(),
+            },
+            boundaries: Boundaries {
+                risk_markers: candidate.payload.boundaries.risk_markers.clone(),
+                supporting_record_ids: candidate.payload.boundaries.supporting_record_ids.clone(),
+                blocked_active_risks: candidate.payload.boundaries.blocked_active_risks.clone(),
+            },
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -183,4 +287,12 @@ fn contains_all(values: &[String], required_values: &[String]) -> bool {
     required_values
         .iter()
         .all(|required| values.iter().any(|value| value == required))
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum SkillMemoryTemplateDecodeError {
+    #[error("skill template candidate {candidate_id} stored unsupported payload_version {value}")]
+    UnsupportedPayloadVersion { candidate_id: String, value: u32 },
+    #[error("skill template candidate {candidate_id} stored invalid action kind {value}")]
+    InvalidActionKind { candidate_id: String, value: String },
 }

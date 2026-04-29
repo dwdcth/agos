@@ -11,12 +11,20 @@ use agent_memos::{
         },
         skill_memory::{
             ActionTemplate, Boundaries, ExpectedOutcome, Preconditions, SkillMemoryTemplate,
+            SkillMemoryTemplateDecodeError,
         },
     },
     core::db::Database,
     ingest::{IngestRequest, IngestService},
-    memory::record::{RecordType, Scope, TruthLayer},
+    memory::{
+        record::{RecordType, Scope, TruthLayer},
+        repository::{
+            PersistedSkillMemoryTemplateCandidate, RuminationCandidate, RuminationCandidateKind,
+            RuminationCandidateStatus, SKILL_TEMPLATE_PAYLOAD_VERSION,
+        },
+    },
 };
+use serde_json::json;
 
 fn fresh_db_path(name: &str) -> PathBuf {
     let unique = SystemTime::now()
@@ -236,5 +244,106 @@ fn blocked_active_risks_suppress_skill_projection_but_keep_manual_seeds() {
     assert_eq!(
         working_memory.branches[0].candidate.summary,
         "collect more evidence"
+    );
+}
+
+#[test]
+fn persisted_skill_template_candidates_reconstruct_skill_memory_templates() {
+    let mut original = SkillMemoryTemplate::new(
+        "persisted-skill-template",
+        ActionTemplate::new(ActionKind::Regulative, "pause and request clarification")
+            .with_intent("keep the next step auditable"),
+    );
+    original.preconditions = Preconditions {
+        required_goal_terms: vec!["clarify the next step safely".to_string()],
+        required_task_context_terms: vec!["long-cycle learning".to_string()],
+        required_capability_flags: vec!["skill_projection_ready".to_string()],
+        required_readiness_flags: vec!["citation_trace_ready".to_string()],
+        required_metacog_flag_codes: vec!["candidate_only".to_string()],
+    };
+    original.expected_outcome = ExpectedOutcome {
+        effects: vec![
+            "ambiguity is reduced".to_string(),
+            "citations remain attached".to_string(),
+        ],
+    };
+    original.boundaries = Boundaries {
+        risk_markers: vec!["clarification_required".to_string()],
+        supporting_record_ids: vec!["record-1".to_string(), "record-2".to_string()],
+        blocked_active_risks: vec!["deployment_frozen".to_string()],
+    };
+    original.action.parameters = vec!["mode=safe".to_string()];
+
+    let persisted = PersistedSkillMemoryTemplateCandidate {
+        candidate: RuminationCandidate {
+            candidate_id: "lpq:demo:skill_template".to_string(),
+            source_queue_item_id: Some("lpq:demo".to_string()),
+            candidate_kind: RuminationCandidateKind::SkillTemplate,
+            subject_ref: "task://skill-memory/demo".to_string(),
+            payload: json!({}),
+            evidence_refs: vec!["record-1".to_string(), "record-2".to_string()],
+            governance_ref_id: None,
+            status: RuminationCandidateStatus::Pending,
+            created_at: "2026-04-28T12:00:00Z".to_string(),
+            updated_at: "2026-04-28T12:00:00Z".to_string(),
+        },
+        payload: original.to_candidate_payload(
+            "evidence_accumulation",
+            json!({
+                "decision": {
+                    "active_risks": ["deployment_frozen"],
+                    "metacog_flags": [{"code": "candidate_only"}],
+                }
+            }),
+            2,
+        ),
+    };
+
+    let reconstructed = SkillMemoryTemplate::from_rumination_candidate(&persisted)
+        .expect("persisted skill template candidate should reconstruct");
+
+    assert_eq!(reconstructed, original);
+    assert_eq!(
+        persisted.payload.payload_version,
+        SKILL_TEMPLATE_PAYLOAD_VERSION
+    );
+    assert_eq!(
+        persisted.payload.template_summary,
+        "pause and request clarification"
+    );
+}
+
+#[test]
+fn persisted_skill_template_candidates_reject_unsupported_payload_versions() {
+    let persisted = PersistedSkillMemoryTemplateCandidate {
+        candidate: RuminationCandidate {
+            candidate_id: "lpq:demo:skill_template".to_string(),
+            source_queue_item_id: Some("lpq:demo".to_string()),
+            candidate_kind: RuminationCandidateKind::SkillTemplate,
+            subject_ref: "task://skill-memory/demo".to_string(),
+            payload: json!({}),
+            evidence_refs: vec!["record-1".to_string()],
+            governance_ref_id: None,
+            status: RuminationCandidateStatus::Pending,
+            created_at: "2026-04-28T12:00:00Z".to_string(),
+            updated_at: "2026-04-28T12:00:00Z".to_string(),
+        },
+        payload: SkillMemoryTemplate::new(
+            "persisted-skill-template",
+            ActionTemplate::new(ActionKind::Regulative, "pause and request clarification"),
+        )
+        .to_candidate_payload("evidence_accumulation", json!({}), 1),
+    };
+    let mut unsupported = persisted;
+    unsupported.payload.payload_version = SKILL_TEMPLATE_PAYLOAD_VERSION + 1;
+
+    let error = SkillMemoryTemplate::from_rumination_candidate(&unsupported)
+        .expect_err("unsupported versions should fail deterministically");
+    assert_eq!(
+        error,
+        SkillMemoryTemplateDecodeError::UnsupportedPayloadVersion {
+            candidate_id: "lpq:demo:skill_template".to_string(),
+            value: SKILL_TEMPLATE_PAYLOAD_VERSION + 1,
+        }
     );
 }

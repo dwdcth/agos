@@ -139,3 +139,114 @@
 - `src/cognition/assembly.rs`
 - `src/cognition/working_memory.rs`
 - `tests/skill_memory_projection.rs`
+
+---
+
+## Scenario: Durable Skill-Memory Candidates Via Rumination Substrate
+
+### 1. Scope / Trigger
+
+- Trigger: Phase 15 adds the first durable persistence mechanics for skill memory without introducing a dedicated snapshot table.
+- Why this needs code-spec depth: the change crosses long-cycle rumination payload shape, repository typed loading, and cognition-layer reconstruction while explicitly preserving the generic `rumination_candidates` governance substrate.
+
+### 2. Signatures
+
+- `src/cognition/rumination.rs`
+  - long-cycle `RuminationCandidateKind::SkillTemplate` emission now writes a structured payload instead of a placeholder summary
+- `src/memory/repository.rs`
+  - `PersistedSkillMemoryTemplatePayload`
+  - `PersistedSkillMemoryTemplateCandidate`
+  - `MemoryRepository::list_skill_template_candidates() -> Result<Vec<PersistedSkillMemoryTemplateCandidate>, RepositoryError>`
+  - `MemoryRepository::list_skill_template_candidates_for_subject(subject_ref) -> Result<Vec<PersistedSkillMemoryTemplateCandidate>, RepositoryError>`
+- `src/cognition/skill_memory.rs`
+  - `SkillMemoryTemplate::to_candidate_payload(...) -> PersistedSkillMemoryTemplatePayload`
+  - `SkillMemoryTemplate::from_rumination_candidate(...) -> Result<SkillMemoryTemplate, SkillMemoryTemplateDecodeError>`
+
+### 3. Contracts
+
+#### Durable substrate contract
+
+- Durable skill-memory persistence reuses `rumination_candidates` with `candidate_kind = skill_template`.
+- Do not add a parallel skill-memory table or snapshot for this phase.
+- Generic rumination governance behavior remains authoritative for candidate lifecycle, status, timestamps, evidence refs, and queue-item lineage.
+
+#### Payload reconstruction contract
+
+- The persisted payload must be rich enough to reconstruct a `SkillMemoryTemplate` without re-running retrieval.
+- The structured payload must carry:
+  - `payload_version`
+  - `template_id`
+  - `template_summary`
+  - `preconditions`
+  - `action`
+  - `expected_outcome`
+  - `boundaries`
+  - `trigger_kind`
+  - `source_report`
+  - `evidence_count`
+- `source_report` remains the preserved explainability snapshot for long-cycle extraction lineage.
+- `evidence_refs` remain stored on the generic `RuminationCandidate` row and must not be folded into a separate table.
+
+#### Cognition reconstruction contract
+
+- Skill-memory reconstruction must happen through explicit conversion from a typed persisted skill candidate into `SkillMemoryTemplate`.
+- Unsupported `payload_version` values must fail deterministically through a typed decode error.
+- Invalid persisted action kinds must fail deterministically through a typed decode error instead of silently guessing.
+- Reconstructed templates remain internal cognition values; this phase does not auto-inject them into runtime working-memory assembly by default.
+
+#### Repository helper contract
+
+- Repository helpers must load only `skill_template` candidates and expose typed payloads instead of raw `serde_json::Value`.
+- Legacy placeholder-only `skill_template` rows from the pre-structured phase must fail with an explicit repository boundary error instead of an opaque JSON parse failure.
+- Subject-scoped filtering belongs in the repository helper seam, not in ad hoc test or service code.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| LPQ emits a skill candidate | Payload stores structured template fields plus `source_report` lineage |
+| Repository lists generic rumination candidates | Existing candidate ordering and governance behavior remain compatible |
+| Repository lists skill-template candidates | Only `candidate_kind = skill_template` rows are returned |
+| Subject filter is applied | Only matching subject rows are returned |
+| A stored skill payload uses the old placeholder-only shape | Repository helper fails with an explicit legacy-payload boundary error |
+| Persisted `payload_version` is unsupported | Repository helper or cognition reconstruction fails deterministically |
+| Persisted action kind is invalid | `SkillMemoryTemplate::from_rumination_candidate(...)` fails with a typed decode error |
+| Promotion / ontology governance runs on other candidate kinds | Existing bridging behavior remains unchanged |
+
+### 5. Good / Base / Bad Cases
+
+- Good:
+  - Reuse the existing `rumination_candidates` table.
+  - Persist a structured skill-template payload that can round-trip into `SkillMemoryTemplate`.
+  - Keep source reports and evidence lineage intact.
+- Base:
+  - Existing promotion and value-adjustment candidates continue using the same generic substrate.
+- Bad:
+  - Add a new `skill_memory_templates` table for the first durable phase.
+  - Store only a human summary string and expect later code to infer the full template.
+  - Expose persisted skill candidates through CLI/HTTP/MCP in this phase.
+
+### 6. Tests Required
+
+- `tests/rumination_governance_integration.rs`
+  - Assert LPQ skill candidates write the structured payload shape and preserve source-report lineage
+- `tests/memory_repository_store.rs`
+  - Assert repository typed helpers load only skill-template candidates and filter by subject
+- `tests/skill_memory_projection.rs`
+  - Assert persisted skill candidates reconstruct into `SkillMemoryTemplate`
+- Regression:
+  - Keep existing long-cycle governance compatibility coverage green
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Treat skill-template payloads as an opaque summary blob
+- Parse raw skill-template JSON ad hoc at each callsite
+- Introduce a new storage lane before the candidate substrate is proven
+
+#### Correct
+
+- Define a typed persisted skill-template payload
+- Reconstruct `SkillMemoryTemplate` through one explicit cognition seam
+- Preserve the generic rumination candidate table and lifecycle semantics

@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for verification."}
+{"file": ".trellis/spec/backend/skill-memory-contracts.md", "reason": "Verify skill-memory projection and persistence follow-up contracts."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Verify cross-layer compatibility and evidence-oriented behavior."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Compare against prior durable cognition seam patterns."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Preserve internal-only persistence sequencing discipline."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality checklist for code review."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared verification guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check data flow across rumination, repository, cognition reconstruction, and tests."}

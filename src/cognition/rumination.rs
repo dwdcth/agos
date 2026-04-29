@@ -7,7 +7,13 @@ use thiserror::Error;
 
 use crate::{
     agent::orchestration::AgentSearchReport,
-    cognition::{metacog::GateDecision, report::DecisionReport},
+    cognition::{
+        metacog::GateDecision,
+        report::DecisionReport,
+        skill_memory::{
+            ActionTemplate, Boundaries, ExpectedOutcome, Preconditions, SkillMemoryTemplate,
+        },
+    },
     memory::{
         governance::{
             AttachPromotionEvidenceRequest, CreateOntologyCandidateRequest,
@@ -1091,12 +1097,7 @@ fn derive_long_cycle_candidates(
             trigger: item.trigger_kind,
         },
     )?;
-    let skill_payload = json!({
-        "template_summary": format!("candidate derived from {}", item.subject_ref),
-        "trigger_kind": item.trigger_kind.as_str(),
-        "source_report": source_report.clone(),
-        "evidence_count": item.evidence_refs.len(),
-    });
+    let skill_payload = serde_json::to_value(build_skill_template_payload(item, &source_report)?)?;
     let promotion_payload = json!({
         "promotion_path": "pending_governance_bridge",
         "source_record_id": primary_evidence,
@@ -1130,6 +1131,145 @@ fn derive_long_cycle_candidates(
             processed_at,
         ),
     ])
+}
+
+fn build_skill_template_payload(
+    item: &RuminationQueueItem,
+    source_report: &Value,
+) -> Result<crate::memory::repository::PersistedSkillMemoryTemplatePayload, RuminationServiceError>
+{
+    let skill_template = extract_skill_template(item, source_report)?;
+    Ok(skill_template.to_candidate_payload(
+        item.trigger_kind.as_str(),
+        source_report.clone(),
+        item.evidence_refs.len(),
+    ))
+}
+
+fn extract_skill_template(
+    item: &RuminationQueueItem,
+    source_report: &Value,
+) -> Result<SkillMemoryTemplate, RuminationServiceError> {
+    let selected_branch = source_report
+        .pointer("/decision/selected_branch/branch")
+        .or_else(|| source_report.pointer("/selected_branch/branch"))
+        .ok_or_else(|| RuminationServiceError::MissingLongCycleCandidateField {
+            candidate_id: item.item_id.clone(),
+            field: "selected_branch",
+        })?;
+    let candidate = selected_branch.get("candidate").ok_or_else(|| {
+        RuminationServiceError::MissingLongCycleCandidateField {
+            candidate_id: item.item_id.clone(),
+            field: "selected_branch.candidate",
+        }
+    })?;
+    let action_kind = candidate
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RuminationServiceError::MissingLongCycleCandidateField {
+            candidate_id: item.item_id.clone(),
+            field: "selected_branch.candidate.kind",
+        })?;
+    let action_summary = candidate
+        .get("summary")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RuminationServiceError::MissingLongCycleCandidateField {
+            candidate_id: item.item_id.clone(),
+            field: "selected_branch.candidate.summary",
+        })?;
+    let action_kind =
+        crate::cognition::action::ActionKind::parse(action_kind).ok_or_else(|| {
+            RuminationServiceError::MissingLongCycleCandidateField {
+                candidate_id: item.item_id.clone(),
+                field: "selected_branch.candidate.kind",
+            }
+        })?;
+
+    let active_goal = source_report
+        .pointer("/working_memory/present/active_goal")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+    let task_context = source_report
+        .pointer("/working_memory/present/self_state/task_context")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+    let supporting_record_ids = unique_strings(
+        selected_branch
+            .get("supporting_evidence")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|fragment| fragment.get("record_id").and_then(Value::as_str))
+            .map(ToString::to_string)
+            .chain(item.evidence_refs.iter().cloned()),
+    );
+
+    let mut skill_template = SkillMemoryTemplate::new(
+        format!("skill-template:{}", item.item_id),
+        ActionTemplate::new(action_kind, action_summary.to_string()),
+    );
+    skill_template.action.intent = candidate
+        .get("intent")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+    skill_template.action.parameters = value_string_array(candidate.get("parameters"));
+    skill_template.preconditions = Preconditions {
+        required_goal_terms: active_goal.into_iter().collect(),
+        required_task_context_terms: task_context.into_iter().collect(),
+        required_capability_flags: value_string_array(
+            source_report.pointer("/working_memory/present/self_state/capability_flags"),
+        ),
+        required_readiness_flags: value_string_array(
+            source_report.pointer("/working_memory/present/self_state/readiness_flags"),
+        ),
+        required_metacog_flag_codes: metacog_flag_codes(
+            source_report
+                .pointer("/decision/metacog_flags")
+                .or_else(|| source_report.get("metacog_flags"))
+                .or_else(|| item.payload.get("metacog_flags")),
+        ),
+    };
+    skill_template.expected_outcome = ExpectedOutcome {
+        effects: value_string_array(candidate.get("expected_effects")),
+    };
+    skill_template.boundaries = Boundaries {
+        risk_markers: value_string_array(selected_branch.get("risk_markers")),
+        supporting_record_ids,
+        blocked_active_risks: value_string_array(
+            source_report
+                .pointer("/decision/active_risks")
+                .or_else(|| source_report.get("active_risks"))
+                .or_else(|| item.payload.get("active_risks")),
+        ),
+    };
+
+    Ok(skill_template)
+}
+
+fn value_string_array(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn metacog_flag_codes(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|flags| {
+            flags
+                .iter()
+                .filter_map(|flag| flag.get("code").and_then(Value::as_str))
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn append_entries_from_object(

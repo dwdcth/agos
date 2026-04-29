@@ -385,12 +385,69 @@ pub struct RuminationCandidate {
     pub updated_at: String,
 }
 
+pub const SKILL_TEMPLATE_PAYLOAD_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PersistedSkillMemoryTemplatePreconditions {
+    pub required_goal_terms: Vec<String>,
+    pub required_task_context_terms: Vec<String>,
+    pub required_capability_flags: Vec<String>,
+    pub required_readiness_flags: Vec<String>,
+    pub required_metacog_flag_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedSkillMemoryTemplateAction {
+    pub kind: String,
+    pub summary: String,
+    pub intent: Option<String>,
+    pub parameters: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PersistedSkillMemoryTemplateExpectedOutcome {
+    pub effects: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PersistedSkillMemoryTemplateBoundaries {
+    pub risk_markers: Vec<String>,
+    pub supporting_record_ids: Vec<String>,
+    pub blocked_active_risks: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistedSkillMemoryTemplatePayload {
+    pub payload_version: u32,
+    pub template_id: String,
+    pub template_summary: String,
+    pub preconditions: PersistedSkillMemoryTemplatePreconditions,
+    pub action: PersistedSkillMemoryTemplateAction,
+    pub expected_outcome: PersistedSkillMemoryTemplateExpectedOutcome,
+    pub boundaries: PersistedSkillMemoryTemplateBoundaries,
+    pub trigger_kind: String,
+    pub source_report: Value,
+    pub evidence_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedSkillMemoryTemplateCandidate {
+    pub candidate: RuminationCandidate,
+    pub payload: PersistedSkillMemoryTemplatePayload,
+}
+
 #[derive(Debug, Error)]
 pub enum RepositoryError {
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    #[error(
+        "skill template candidate {candidate_id} uses legacy placeholder payload and cannot reconstruct a template"
+    )]
+    LegacySkillTemplatePayload { candidate_id: String },
+    #[error("skill template candidate {candidate_id} stored unsupported payload_version {value}")]
+    UnsupportedSkillTemplatePayloadVersion { candidate_id: String, value: u32 },
     #[error("invalid {field} stored in database: {value}")]
     InvalidEnum { field: &'static str, value: String },
     #[error("incomplete chunk metadata stored for record {record_id}")]
@@ -1822,6 +1879,68 @@ impl<'db> MemoryRepository<'db> {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    pub fn list_skill_template_candidates(
+        &self,
+    ) -> Result<Vec<PersistedSkillMemoryTemplateCandidate>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                candidate_id,
+                source_queue_item_id,
+                candidate_kind,
+                subject_ref,
+                payload_json,
+                evidence_refs_json,
+                status,
+                created_at,
+                updated_at
+            FROM rumination_candidates
+            WHERE candidate_kind = ?1
+            ORDER BY created_at ASC, candidate_id ASC
+            "#,
+        )?;
+        let rows = statement.query_map(
+            [RuminationCandidateKind::SkillTemplate.as_str()],
+            map_rumination_candidate_row,
+        )?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(Into::into)
+            .and_then(parse_skill_template_candidates)
+    }
+
+    pub fn list_skill_template_candidates_for_subject(
+        &self,
+        subject_ref: &str,
+    ) -> Result<Vec<PersistedSkillMemoryTemplateCandidate>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                candidate_id,
+                source_queue_item_id,
+                candidate_kind,
+                subject_ref,
+                payload_json,
+                evidence_refs_json,
+                status,
+                created_at,
+                updated_at
+            FROM rumination_candidates
+            WHERE candidate_kind = ?1
+              AND subject_ref = ?2
+            ORDER BY created_at ASC, candidate_id ASC
+            "#,
+        )?;
+        let rows = statement.query_map(
+            params![RuminationCandidateKind::SkillTemplate.as_str(), subject_ref],
+            map_rumination_candidate_row,
+        )?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(Into::into)
+            .and_then(parse_skill_template_candidates)
+    }
+
     pub fn get_rumination_candidate(
         &self,
         candidate_id: &str,
@@ -2693,4 +2812,60 @@ fn serialize_rumination_candidate_payload(
     }
 
     serde_json::to_string(&payload).map_err(Into::into)
+}
+
+fn parse_skill_template_candidates(
+    candidates: Vec<RuminationCandidate>,
+) -> Result<Vec<PersistedSkillMemoryTemplateCandidate>, RepositoryError> {
+    candidates
+        .into_iter()
+        .map(parse_skill_template_candidate)
+        .collect()
+}
+
+fn parse_skill_template_candidate(
+    candidate: RuminationCandidate,
+) -> Result<PersistedSkillMemoryTemplateCandidate, RepositoryError> {
+    let payload = parse_skill_template_payload(&candidate)?;
+    Ok(PersistedSkillMemoryTemplateCandidate { candidate, payload })
+}
+
+fn parse_skill_template_payload(
+    candidate: &RuminationCandidate,
+) -> Result<PersistedSkillMemoryTemplatePayload, RepositoryError> {
+    let payload: PersistedSkillMemoryTemplatePayload =
+        match serde_json::from_value(candidate.payload.clone()) {
+            Ok(payload) => payload,
+            Err(_) if is_legacy_skill_template_payload(&candidate.payload) => {
+                return Err(RepositoryError::LegacySkillTemplatePayload {
+                    candidate_id: candidate.candidate_id.clone(),
+                });
+            }
+            Err(error) => return Err(error.into()),
+        };
+
+    if payload.payload_version != SKILL_TEMPLATE_PAYLOAD_VERSION {
+        return Err(RepositoryError::UnsupportedSkillTemplatePayloadVersion {
+            candidate_id: candidate.candidate_id.clone(),
+            value: payload.payload_version,
+        });
+    }
+
+    Ok(payload)
+}
+
+fn is_legacy_skill_template_payload(payload: &Value) -> bool {
+    let Some(object) = payload.as_object() else {
+        return false;
+    };
+
+    object.contains_key("template_summary")
+        && object.contains_key("trigger_kind")
+        && object.contains_key("source_report")
+        && object.contains_key("evidence_count")
+        && !object.contains_key("template_id")
+        && !object.contains_key("preconditions")
+        && !object.contains_key("action")
+        && !object.contains_key("expected_outcome")
+        && !object.contains_key("boundaries")
 }

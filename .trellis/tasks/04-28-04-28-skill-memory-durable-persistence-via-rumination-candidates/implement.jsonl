@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for the persistence implementation task."}
+{"file": ".trellis/spec/backend/skill-memory-contracts.md", "reason": "Primary executable contract for explicit skill-memory projection and its persistence follow-up."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Preserve downstream compatibility and evidence/trace-oriented contracts."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Reference pattern for durable cognition seams without outward contract drift."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Reference pattern for internal-only persistence follow-up sequencing."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality expectations for implementation."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared thinking guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase crosses rumination, repository, cognition reconstruction, and tests."}
+{"file": ".trellis/tasks/04-28-04-28-skill-memory-persistence-internal-foundation/prd.md", "reason": "Previous step completion context for the restored explicit skill-memory seam."}
