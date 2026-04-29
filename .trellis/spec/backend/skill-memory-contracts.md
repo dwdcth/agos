@@ -353,7 +353,7 @@
   - `MemoryRepository::consume_skill_template_candidate(candidate_id, transitioned_at) -> Result<PersistedSkillMemoryTemplateCandidate, SkillTemplateCandidateLifecycleError>`
   - `MemoryRepository::reject_skill_template_candidate(candidate_id, transitioned_at) -> Result<PersistedSkillMemoryTemplateCandidate, SkillTemplateCandidateLifecycleError>`
   - `MemoryRepository::archive_skill_template_candidate(candidate_id, transitioned_at) -> Result<PersistedSkillMemoryTemplateCandidate, SkillTemplateCandidateLifecycleError>`
-  - `SkillTemplateCandidateLifecycleError::{CandidateNotFound, WrongCandidateKind, Repository}`
+  - `SkillTemplateCandidateLifecycleError::{CandidateNotFound, WrongCandidateKind, InvalidTransition, Repository}`
 - `src/cognition/assembly.rs`
   - runtime activation remains indirect through `MemoryRepository::list_consumed_skill_template_candidates_for_subject(...)`
 
@@ -369,6 +369,17 @@
 - The lifecycle bridge accepts only rows with `candidate_kind = skill_template`.
 - Missing candidates must fail with `CandidateNotFound`.
 - Non-`skill_template` rows must fail with `WrongCandidateKind` instead of being silently updated through the typed seam.
+- Stored `skill_template` payloads must still round-trip through the typed decode boundary before any row mutation occurs.
+
+#### Transition lattice contract
+
+- The skill-template lifecycle bridge is intentionally narrow and allows only:
+  - `Pending -> Consumed`
+  - `Pending -> Rejected`
+  - `Consumed -> Archived`
+- Every other attempted status move must fail with `InvalidTransition`.
+- Invalid transitions must leave the stored row unchanged, including `status` and `updated_at`.
+- `Pending -> Archived` is forbidden in this phase unless a future task expands the contract explicitly.
 
 #### Metadata preservation contract
 
@@ -397,8 +408,12 @@
 | `Pending` skill-template candidate is consumed | Candidate status becomes `Consumed`, `updated_at` changes, and typed payload metadata stays intact |
 | `Pending` skill-template candidate is rejected | Candidate status becomes `Rejected` and metadata stays intact |
 | `Consumed` skill-template candidate is archived | Candidate status becomes `Archived` and metadata stays intact |
+| `Pending` skill-template candidate is archived | Lifecycle helper fails with `InvalidTransition`; stored row remains unchanged |
+| `Consumed` skill-template candidate is rejected | Lifecycle helper fails with `InvalidTransition`; stored row remains unchanged |
+| `Rejected` or `Archived` skill-template candidate is consumed | Lifecycle helper fails with `InvalidTransition`; stored row remains unchanged |
 | Candidate id is missing | Lifecycle helper fails with `CandidateNotFound` |
 | Candidate id belongs to another candidate kind | Lifecycle helper fails with `WrongCandidateKind` |
+| Candidate payload is invalid or legacy | Lifecycle helper fails through the repository typed decode boundary before any status mutation |
 | Assembly runs before consume | Pending candidate remains inactive |
 | Assembly runs after consume | The same candidate is visible through the consumed runtime read model |
 
@@ -406,6 +421,7 @@
 
 - Good:
   - Transition skill-template candidates through explicit typed helpers.
+  - Keep lifecycle changes inside the allowed transition lattice and fail closed on every other edge.
   - Reuse the existing repository round-trip so payload and lineage fields are preserved.
   - Verify runtime activation by consuming a pending candidate and re-running assembly.
 - Base:
@@ -420,7 +436,9 @@
 - `tests/memory_repository_store.rs`
   - Assert `consume_skill_template_candidate(...)` preserves payload, evidence refs, source lineage, and timestamps
   - Assert `reject_skill_template_candidate(...)` and `archive_skill_template_candidate(...)` set the expected status
+  - Assert invalid transition attempts fail explicitly without mutating `status` or `updated_at`
   - Assert wrong-kind and missing-candidate failures are explicit
+  - Assert invalid or legacy payload rows still fail before mutation
 - `tests/working_memory_assembly.rs`
   - Assert a pending persisted skill-template candidate stays inactive before consume
   - Assert the same candidate activates after the consume transition through the existing runtime read model
@@ -431,9 +449,11 @@
 
 - Treat lifecycle changes as untyped generic row edits at the skill-memory callsite.
 - Archive or reject arbitrary candidate kinds through the skill-template lifecycle seam.
+- Let any helper move a candidate to any status just because the status enum exists.
 - Assume runtime activation changed just because a test rewrote a generic row manually.
 
 #### Correct
 
 - Use explicit skill-template lifecycle helpers that validate candidate kind and preserve metadata.
+- Enforce the narrow transition lattice and reject invalid edges before mutating stored rows.
 - Let runtime activation continue to depend only on `Consumed` rows returned by the existing repository read model.

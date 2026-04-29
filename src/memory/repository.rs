@@ -469,6 +469,14 @@ pub enum SkillTemplateCandidateLifecycleError {
         candidate_id: String,
         actual: String,
     },
+    #[error(
+        "skill template candidate {candidate_id} cannot transition from {current} to {next} via the skill-template lifecycle bridge"
+    )]
+    InvalidTransition {
+        candidate_id: String,
+        current: String,
+        next: String,
+    },
 }
 
 pub struct MemoryRepository<'db> {
@@ -2076,6 +2084,13 @@ impl<'db> MemoryRepository<'db> {
         }
 
         let mut persisted = parse_skill_template_candidate(candidate.clone())?;
+        if !skill_template_candidate_transition_allowed(candidate.status, next_status) {
+            return Err(SkillTemplateCandidateLifecycleError::InvalidTransition {
+                candidate_id: candidate.candidate_id.clone(),
+                current: candidate.status.as_str().to_string(),
+                next: next_status.as_str().to_string(),
+            });
+        }
         candidate.status = next_status;
         candidate.updated_at = transitioned_at.to_string();
         self.update_rumination_candidate(&candidate)?;
@@ -2827,6 +2842,22 @@ fn map_rumination_candidate_row(
         created_at: row.get(7)?,
         updated_at: row.get(8)?,
     })
+}
+
+fn skill_template_candidate_transition_allowed(
+    current: RuminationCandidateStatus,
+    next: RuminationCandidateStatus,
+) -> bool {
+    matches!(
+        (current, next),
+        (
+            RuminationCandidateStatus::Pending,
+            RuminationCandidateStatus::Consumed | RuminationCandidateStatus::Rejected,
+        ) | (
+            RuminationCandidateStatus::Consumed,
+            RuminationCandidateStatus::Archived,
+        )
+    )
 }
 
 fn queue_table(queue_tier: &str) -> Result<&'static str, RepositoryError> {

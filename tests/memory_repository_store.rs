@@ -566,6 +566,129 @@ fn sqlite_repository_rejects_and_archives_skill_template_candidates() {
 }
 
 #[test]
+fn sqlite_repository_skill_template_lifecycle_bridge_rejects_invalid_transitions_without_mutation()
+{
+    let path = fresh_db_path("skill-template-candidate-invalid-transitions");
+    let db = Database::open(&path).expect("database should open");
+    let repo = MemoryRepository::new(db.conn());
+
+    let pending = sample_skill_template_candidate(
+        "lpq:subject-a:archive-from-pending",
+        "task://subject-a",
+        "2026-04-29T08:14:00Z",
+    );
+    let mut consumed = sample_skill_template_candidate(
+        "lpq:subject-a:reject-from-consumed",
+        "task://subject-a",
+        "2026-04-29T08:15:00Z",
+    );
+    consumed.status = RuminationCandidateStatus::Consumed;
+    let mut rejected = sample_skill_template_candidate(
+        "lpq:subject-a:consume-from-rejected",
+        "task://subject-a",
+        "2026-04-29T08:16:00Z",
+    );
+    rejected.status = RuminationCandidateStatus::Rejected;
+    let mut archived = sample_skill_template_candidate(
+        "lpq:subject-a:consume-from-archived",
+        "task://subject-a",
+        "2026-04-29T08:17:00Z",
+    );
+    archived.status = RuminationCandidateStatus::Archived;
+
+    for candidate in [&pending, &consumed, &rejected, &archived] {
+        repo.insert_rumination_candidate(candidate)
+            .expect("candidate should insert");
+    }
+
+    let archive_pending = repo
+        .archive_skill_template_candidate(&pending.candidate_id, "2026-04-29T08:18:00Z")
+        .expect_err("pending candidates must not archive directly");
+    assert!(matches!(
+        archive_pending,
+        SkillTemplateCandidateLifecycleError::InvalidTransition {
+            ref candidate_id,
+            ref current,
+            ref next,
+        } if candidate_id == "lpq:subject-a:archive-from-pending"
+            && current == "pending"
+            && next == "archived"
+    ));
+
+    let reject_consumed = repo
+        .reject_skill_template_candidate(&consumed.candidate_id, "2026-04-29T08:19:00Z")
+        .expect_err("consumed candidates must not reject after activation");
+    assert!(matches!(
+        reject_consumed,
+        SkillTemplateCandidateLifecycleError::InvalidTransition {
+            ref candidate_id,
+            ref current,
+            ref next,
+        } if candidate_id == "lpq:subject-a:reject-from-consumed"
+            && current == "consumed"
+            && next == "rejected"
+    ));
+
+    let consume_rejected = repo
+        .consume_skill_template_candidate(&rejected.candidate_id, "2026-04-29T08:20:00Z")
+        .expect_err("rejected candidates must not reactivate");
+    assert!(matches!(
+        consume_rejected,
+        SkillTemplateCandidateLifecycleError::InvalidTransition {
+            ref candidate_id,
+            ref current,
+            ref next,
+        } if candidate_id == "lpq:subject-a:consume-from-rejected"
+            && current == "rejected"
+            && next == "consumed"
+    ));
+
+    let consume_archived = repo
+        .consume_skill_template_candidate(&archived.candidate_id, "2026-04-29T08:21:00Z")
+        .expect_err("archived candidates must stay terminal");
+    assert!(matches!(
+        consume_archived,
+        SkillTemplateCandidateLifecycleError::InvalidTransition {
+            ref candidate_id,
+            ref current,
+            ref next,
+        } if candidate_id == "lpq:subject-a:consume-from-archived"
+            && current == "archived"
+            && next == "consumed"
+    ));
+
+    for (candidate_id, expected_status, expected_updated_at) in [
+        (
+            "lpq:subject-a:archive-from-pending",
+            RuminationCandidateStatus::Pending,
+            "2026-04-29T08:14:00Z",
+        ),
+        (
+            "lpq:subject-a:reject-from-consumed",
+            RuminationCandidateStatus::Consumed,
+            "2026-04-29T08:15:00Z",
+        ),
+        (
+            "lpq:subject-a:consume-from-rejected",
+            RuminationCandidateStatus::Rejected,
+            "2026-04-29T08:16:00Z",
+        ),
+        (
+            "lpq:subject-a:consume-from-archived",
+            RuminationCandidateStatus::Archived,
+            "2026-04-29T08:17:00Z",
+        ),
+    ] {
+        let stored = repo
+            .get_rumination_candidate(candidate_id)
+            .expect("lookup should succeed")
+            .expect("candidate should remain stored");
+        assert_eq!(stored.status, expected_status);
+        assert_eq!(stored.updated_at, expected_updated_at);
+    }
+}
+
+#[test]
 fn sqlite_repository_skill_template_lifecycle_bridge_rejects_wrong_kind_and_missing_candidate() {
     let path = fresh_db_path("skill-template-candidate-lifecycle-errors");
     let db = Database::open(&path).expect("database should open");
