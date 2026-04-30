@@ -203,3 +203,36 @@ RuminationPort/SimulationPort traits. cycle() chains execute→rumination trigge
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Value thresholds + dynamic weights
+
+**Date**: 2026-04-30
+**Task**: Value thresholds + dynamic weights
+**Branch**: `main`
+
+### Summary
+
+Added ValueThresholds with configurable per-dimension floors, DynamicWeightDelta with context-derived deltas, integrated threshold gates and dynamic deltas into ValueScorer.project_with_delta()
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5cbd221` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
