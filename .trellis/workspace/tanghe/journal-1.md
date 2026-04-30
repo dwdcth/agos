@@ -104,3 +104,36 @@ Added ValueAdjustment with apply_adjustment() (learning rate, clamping [0.05,0.6
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: World model LLM-based prediction
+
+**Date**: 2026-04-30
+**Task**: World model LLM-based prediction
+**Branch**: `main`
+
+### Summary
+
+Added Simulate(s_t, a) using rig TypedPrompt: PredictedWorldSlice with affected fragments, new risks, uncertainty delta. WorldSimulator with async/sync interface following summary.rs pattern. Opt-in, ephemeral, non-mutating. 7 new tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `61e5af1` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

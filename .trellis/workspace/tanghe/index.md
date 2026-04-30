@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
+- **Total Sessions**: 4
 - **Last Active**: 2026-04-30
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~106 | Active |
+| `journal-1.md` | ~139 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-04-30 | World model LLM-based prediction | `61e5af1` | `main` |
 | 3 | 2026-04-30 | Value layer learnable weights | `c1638af` | `main` |
 | 2 | 2026-04-30 | Attention system Layer 5 | `4f78181` | `main` |
 | 1 | 2026-04-30 | World-model runtime read model from snapshot | `0fab983` | `main` |
