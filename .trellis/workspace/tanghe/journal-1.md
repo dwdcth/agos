@@ -170,3 +170,36 @@ ContextBase 4-dimension baseline with smooth update. EmotionModulator with 4 pre
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Cognitive loop closure
+
+**Date**: 2026-04-30
+**Task**: Cognitive loop closure
+**Branch**: `main`
+
+### Summary
+
+RuminationPort/SimulationPort traits. cycle() chains execute→rumination trigger→SPQ drain. Gate decisions map to rumination trigger kinds. Opt-in simulation enriches branch risk markers. Value adjustments loaded from persisted candidates. 10 new tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3a05457` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
