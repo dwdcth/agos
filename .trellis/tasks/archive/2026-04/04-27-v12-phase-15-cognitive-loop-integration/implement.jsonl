@@ -1,0 +1,9 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Load cross-package thinking triggers before end-to-end cognition integration work."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase is pure cross-layer integration across retrieval, cognition, agent-search, and gating."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid introducing a second path while integrating the explicit cognition seams."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Preserve the attention-aware retrieval seam during cognitive-loop integration."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Preserve the explicit self-model projection seam during integration."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Preserve the explicit world-model projection seam during integration."}
+{"file": ".trellis/tasks/04-27-v12-phase-15-cognitive-loop-integration/research/cognitive-loop-integration.md", "reason": "Task-local integration constraints for the end-to-end cognitive loop."}
+{"file": ".trellis/spec/backend/skill-memory-contracts.md", "reason": "Preserve the explicit skill-memory seam during integration."}

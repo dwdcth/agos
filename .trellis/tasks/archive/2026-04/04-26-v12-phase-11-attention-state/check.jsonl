@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Review for cross-package thinking-guide compliance."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify retrieval/cognition/orchestration flow remains coherent across layers."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify attention additions reuse existing seams instead of duplicating services."}
+{"file": ".trellis/tasks/04-26-v12-phase-11-attention-state/research/attention-state-design.md", "reason": "Review against the task-local attention-state design constraints."}

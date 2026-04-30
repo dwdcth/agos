@@ -1,0 +1,9 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify all cognition seams stay coherent end to end."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify integration work reuses the explicit seams rather than bypassing them."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Review for cross-package thinking-guide compliance."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Ensure integration preserves attention-state retrieval contracts."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Ensure integration preserves self-model projection contracts."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Ensure integration preserves world-model projection contracts."}
+{"file": ".trellis/spec/backend/skill-memory-contracts.md", "reason": "Ensure integration preserves skill-memory projection contracts."}
+{"file": ".trellis/tasks/04-27-v12-phase-15-cognitive-loop-integration/research/cognitive-loop-integration.md", "reason": "Review against task-local cognitive-loop integration constraints."}

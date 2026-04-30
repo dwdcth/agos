@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Load cross-package thinking triggers before refactoring candidate-action generation."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase crosses cognition assembly, action branches, agent-search, and rumination candidate seams."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicating candidate-action generation paths or inventing a parallel skill seam."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Preserve attention-aware retrieval and trace contracts while adding skill-driven candidate actions."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Preserve the self-model projection seam while connecting skill templates to action materialization."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Preserve the world-model projection seam while sourcing candidate actions from skill templates."}
+{"file": ".trellis/tasks/04-26-v12-phase-14-skill-memory-foundation/research/skill-memory-foundation.md", "reason": "Task-local design constraints for explicit skill-memory foundation without persistence redesign."}

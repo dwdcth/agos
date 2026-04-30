@@ -1,0 +1,7 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Load cross-package thinking triggers before self-model persistence work."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase crosses rumination writes, repository ledger reads, self-model projection, and working-memory assembly."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid bypassing the explicit self-model seam or inventing a second persistence path."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Preserve the explicit self-model projection contract while adding durable read-model behavior."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Do not break attention-aware retrieval or working-memory contracts while refactoring self-model reads."}
+{"file": ".trellis/tasks/04-27-self-model-persistence-read-model-lifecycle-core/research/self-model-persistence-read-model.md", "reason": "Task-local design constraints for ledger-first self-model persistence."}

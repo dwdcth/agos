@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Review for cross-package thinking-guide compliance."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify skill-memory, working-memory, agent-search, and rumination seams stay coherent."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Ensure skill-memory changes remain compatible with explicit self-model projection."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify the refactor reuses existing candidate-action seams."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Ensure skill-memory changes do not break attention-state retrieval contracts."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Ensure skill-memory candidate generation remains compatible with the explicit world-model seam."}
+{"file": ".trellis/tasks/04-26-v12-phase-14-skill-memory-foundation/research/skill-memory-foundation.md", "reason": "Review against task-local skill-memory design constraints."}

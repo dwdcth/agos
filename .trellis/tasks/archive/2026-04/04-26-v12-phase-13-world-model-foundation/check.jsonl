@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify retrieval, truth projection, world-model, and agent-report flow stay coherent."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Review for cross-package thinking-guide compliance."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify the refactor reuses existing fragment and truth seams."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Ensure world-model changes do not break attention-state retrieval contracts."}
+{"file": ".trellis/tasks/04-26-v12-phase-13-world-model-foundation/research/world-model-foundation.md", "reason": "Review against task-local world-model design constraints."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Ensure world-model refactor remains compatible with the explicit self-model seam."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Review against the explicit world-model projection contract and backward-compatibility seam."}

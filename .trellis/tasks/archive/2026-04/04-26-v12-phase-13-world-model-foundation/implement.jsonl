@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Load cross-package thinking triggers before refactoring world-state projection seams."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase crosses retrieval, truth projection, cognition assembly, and agent-report seams."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicating fragment materialization or truth projection outside the shared world-model seam."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Preserve attention-aware retrieval and trace contracts while refactoring world-state projection."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Preserve the new self-model projection seam while adding explicit world-model projection."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Load the explicit world-model projection contract for future implementation and follow-up fixes on this task."}
+{"file": ".trellis/tasks/04-26-v12-phase-13-world-model-foundation/research/world-model-foundation.md", "reason": "Task-local design constraints for explicit world-model foundation without simulation or schema expansion."}

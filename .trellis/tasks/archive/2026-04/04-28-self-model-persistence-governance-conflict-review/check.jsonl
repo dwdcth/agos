@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Review for cross-package thinking-guide compliance."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify governance/conflict review preserves self-model read/projection coherence."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify governance work reuses the established ledger, snapshot, and read-model seams."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Ensure governance/conflict review preserves self-model contracts."}
+{"file": ".trellis/tasks/04-28-self-model-persistence-governance-conflict-review/research/self-model-governance-conflict-review.md", "reason": "Review against task-local self-model governance constraints."}

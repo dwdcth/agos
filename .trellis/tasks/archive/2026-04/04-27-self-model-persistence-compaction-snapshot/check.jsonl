@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify compaction reuses the established self-model persistence seam."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify compaction/snapshot work preserves read/projection coherence."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Review for cross-package thinking-guide compliance."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Ensure compaction/snapshot changes preserve self-model contracts."}
+{"file": ".trellis/tasks/04-27-self-model-persistence-compaction-snapshot/research/self-model-compaction-snapshot.md", "reason": "Review against task-local compaction/snapshot constraints."}

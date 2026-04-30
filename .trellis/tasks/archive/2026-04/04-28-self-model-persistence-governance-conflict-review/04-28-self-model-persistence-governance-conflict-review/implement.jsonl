@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/guides/index.md", "reason": "Load cross-package thinking triggers before self-model governance work."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase crosses self-model persistence, repository state, and cognition projection."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid bypassing the existing read-model and snapshot seams while adding governance."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Preserve established self-model persistence, snapshot, and projection contracts during governance/conflict review work."}
+{"file": ".trellis/tasks/04-28-self-model-persistence-governance-conflict-review/research/self-model-governance-conflict-review.md", "reason": "Task-local design constraints for self-model governance/conflict review."}

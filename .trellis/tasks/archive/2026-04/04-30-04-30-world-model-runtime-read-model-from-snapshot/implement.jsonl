@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for the runtime world-model read-model task."}
+{"file": ".trellis/spec/backend/world-model-contracts.md", "reason": "Primary contract for world-model snapshot persistence and runtime projection."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Preserve retrieval and trace-oriented downstream contracts."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Reference pattern for runtime read models built from durable cognition state."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality expectations for implementation."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared thinking guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This phase crosses repository snapshot load, cognition reconstruction, assembly precedence, and tests."}
+{"file": ".trellis/tasks/04-28-04-28-world-model-durable-persistence-mechanics/prd.md", "reason": "Previous phase completion context for world-model durable snapshot persistence."}

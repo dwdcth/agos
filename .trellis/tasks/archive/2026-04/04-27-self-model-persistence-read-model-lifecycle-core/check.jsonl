@@ -1,0 +1,7 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Review for cross-package thinking-guide compliance."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify write/read/projection flow remains coherent across rumination, repository, and working memory."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify the phase reuses the existing ledger substrate and self-model seam."}
+{"file": ".trellis/spec/backend/self-model-contracts.md", "reason": "Ensure durable read-model changes preserve self-model projection contracts."}
+{"file": ".trellis/spec/backend/cognition-retrieval-contracts.md", "reason": "Ensure self-model persistence refactor does not disturb adjacent retrieval contracts."}
+{"file": ".trellis/tasks/04-27-self-model-persistence-read-model-lifecycle-core/research/self-model-persistence-read-model.md", "reason": "Review against task-local self-model persistence constraints."}
