@@ -4,7 +4,8 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     cognition::attention::{
-        ATTENTION_BONUS_CAP, AttentionContribution, AttentionTrace, lane_weight,
+        ATTENTION_BONUS_CAP, AttentionContribution, AttentionState, AttentionTrace,
+        compute_inhibition, lane_weight,
     },
     memory::record::RecordType,
     search::{LexicalCandidate, QueryStrategy, SearchRequest},
@@ -40,11 +41,6 @@ pub fn score_candidates(
 
     let (recency_positions, recency_slots) = recency_positions(&candidates);
     let query_terms = query_terms(&request.query);
-    let attention_delta = request
-        .attention_state
-        .as_ref()
-        .filter(|state| !state.is_empty())
-        .map(|state| &state.delta);
     candidates
         .into_iter()
         .map(|candidate| {
@@ -59,7 +55,7 @@ pub fn score_candidates(
                 recency_slots,
             );
             let (attention_bonus, attention_trace) =
-                compute_attention_bonus(attention_delta, &candidate);
+                compute_attention_bonus(request.attention_state.as_ref(), &candidate);
             let final_score =
                 (lexical_base + keyword_bonus + importance_bonus + recency_bonus + attention_bonus)
                     .min(
@@ -90,14 +86,14 @@ pub fn score_candidates(
 }
 
 fn compute_attention_bonus(
-    attention_delta: Option<&crate::cognition::attention::AttentionDelta>,
+    attention_state: Option<&AttentionState>,
     candidate: &LexicalCandidate,
 ) -> (f32, Option<AttentionTrace>) {
-    let Some(delta) = attention_delta else {
+    let Some(state) = attention_state else {
         return (0.0, None);
     };
 
-    if delta.contributions.is_empty() {
+    if state.delta.contributions.is_empty() {
         return (0.0, None);
     }
 
@@ -136,12 +132,41 @@ fn compute_attention_bonus(
         })
         .unwrap_or_default();
 
+    // Step 1: Compute modulated baseline for cue sensitivity adjustment.
+    let modulated_baseline = state.emotion.modulate(&state.baseline);
+    // Higher uncertainty_level broadens matching (sensitivity multiplier).
+    let sensitivity_multiplier = 1.0 + (modulated_baseline[2] - 0.5) * 0.2;
+
+    // Step 2: Compute inhibition penalty from self-model constraints.
+    let inhibition_penalty = if state.inhibition_constraints.is_empty() {
+        0.0
+    } else {
+        let dsl_claim = candidate.dsl.as_ref().map(|dsl| dsl.claim.as_str());
+        let raw_penalty =
+            compute_inhibition(&state.inhibition_constraints, &label, &content, dsl_claim);
+        raw_penalty * state.metacog_modifier.inhibition_strength
+    };
+
     let mut total_bonus: f32 = 0.0;
     let mut matched_contributions = Vec::new();
 
-    for contribution in &delta.contributions {
+    for contribution in &state.delta.contributions {
         let cue_lower = contribution.cue.to_lowercase();
-        let weight = lane_weight(contribution.lane);
+        let mut weight = lane_weight(contribution.lane);
+
+        // Apply metacog modifier to goal lane weight.
+        if matches!(
+            contribution.lane,
+            crate::cognition::attention::AttentionLane::Goal
+        ) {
+            weight *= state.metacog_modifier.goal_weight_multiplier;
+        }
+
+        // Apply diversity temperature.
+        weight *= state.metacog_modifier.diversity_temperature;
+
+        // Apply sensitivity adjustment from modulated baseline.
+        weight *= sensitivity_multiplier;
 
         // Split cue into individual terms for matching
         let cue_terms = cue_lower
@@ -192,6 +217,8 @@ fn compute_attention_bonus(
         }
     }
 
+    // Step 3: Subtract inhibition penalty.
+    total_bonus = (total_bonus - inhibition_penalty).max(0.0);
     total_bonus = total_bonus.min(ATTENTION_BONUS_CAP);
 
     if matched_contributions.is_empty() {

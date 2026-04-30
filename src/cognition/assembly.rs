@@ -213,9 +213,19 @@ impl WorkingMemoryRequest {
             return None;
         }
 
+        let inhibition_constraints = AttentionState::derive_inhibition_constraints(
+            &self.capability_flags,
+            &self.readiness_flags,
+        );
+        let metacog_modifier =
+            crate::cognition::attention::MetacogModifier::from_flags(&self.metacog_flags);
+
         Some(AttentionState {
-            baseline: AttentionBaseline,
+            baseline: AttentionBaseline::default(),
+            emotion: crate::cognition::attention::EmotionModulator::default(),
+            metacog_modifier,
             delta,
+            inhibition_constraints,
         })
     }
 
