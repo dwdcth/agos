@@ -183,8 +183,8 @@ fn lexical_search_score_breakdown_is_deterministic() {
         "record-type defaults should contribute a deterministic importance bonus"
     );
     assert_eq!(
-        results.results[0].score.emotion_bonus, 0.0,
-        "emotion defaults should stay explicit when no signal exists"
+        results.results[0].score.attention_bonus, 0.0,
+        "attention defaults should stay explicit when no signal exists"
     );
     assert!(
         results.results[0].score.final_score > results.results[1].score.final_score,

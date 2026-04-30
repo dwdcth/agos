@@ -6,6 +6,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use crate::{
     cognition::{
         action::{ActionBranch, ActionCandidate, ActionSource},
+        attention::{AttentionBaseline, AttentionState},
         self_model::{
             ProjectedSelfModel, RuntimeSelfState, SelfModelReadModel, StableSelfKnowledge,
         },
@@ -81,6 +82,7 @@ pub struct WorkingMemoryRequest {
     pub local_adaptation_entries: Vec<LocalAdaptationEntry>,
     pub persisted_self_model: Option<SelfModelReadModel>,
     pub integrated_results: Vec<SearchResult>,
+    pub attention_state: Option<AttentionState>,
 }
 
 impl WorkingMemoryRequest {
@@ -103,6 +105,7 @@ impl WorkingMemoryRequest {
             local_adaptation_entries: Vec::new(),
             persisted_self_model: None,
             integrated_results: Vec::new(),
+            attention_state: None,
         }
     }
 
@@ -177,6 +180,43 @@ impl WorkingMemoryRequest {
     pub fn with_integrated_results(mut self, integrated_results: Vec<SearchResult>) -> Self {
         self.integrated_results = integrated_results;
         self
+    }
+
+    pub fn with_attention_state(mut self, attention_state: AttentionState) -> Self {
+        self.attention_state = Some(attention_state);
+        self
+    }
+
+    /// Resolve the effective attention state for this request.
+    ///
+    /// - If an explicit `attention_state` was set, use it (even if empty,
+    ///   which disables derived fallback).
+    /// - If no explicit state was set, derive from request metadata fields
+    ///   (active_goal, active_risks, metacog_flags, readiness_flags, capability_flags).
+    /// - If nothing can be derived, return `None`.
+    pub fn resolved_attention_state(&self) -> Option<AttentionState> {
+        if let Some(ref state) = self.attention_state {
+            // Explicit state was set -- use it as-is (even if empty, meaning "no attention").
+            return Some(state.clone());
+        }
+
+        // No explicit state -- try to derive from metadata.
+        let delta = AttentionState::derive_delta(
+            self.active_goal.as_deref(),
+            &self.active_risks,
+            &self.metacog_flags,
+            &self.readiness_flags,
+            &self.capability_flags,
+        );
+
+        if delta.contributions.is_empty() {
+            return None;
+        }
+
+        Some(AttentionState {
+            baseline: AttentionBaseline,
+            delta,
+        })
     }
 
     pub fn bounded_limit(&self) -> usize {
@@ -381,19 +421,26 @@ where
         &self,
         request: &WorkingMemoryRequest,
     ) -> Result<(ProjectedWorldModel, Vec<TruthRecord>), WorkingMemoryAssemblyError> {
+        let resolved_attention = request.resolved_attention_state();
         let mut merged_results = if request.integrated_results.is_empty() {
-            let search_request = SearchRequest::new(request.query.clone())
+            let mut search_request = SearchRequest::new(request.query.clone())
                 .with_limit(request.limit)
                 .with_filters(request.filters.clone());
+            if let Some(ref attention) = resolved_attention {
+                search_request = search_request.with_attention_state(attention.clone());
+            }
             self.search.search(&search_request)?.results
         } else {
             request.integrated_results.clone()
         };
 
         if !request.integrated_results.is_empty() {
-            let search_request = SearchRequest::new(request.query.clone())
+            let mut search_request = SearchRequest::new(request.query.clone())
                 .with_limit(request.limit)
                 .with_filters(request.filters.clone());
+            if let Some(ref attention) = resolved_attention {
+                search_request = search_request.with_attention_state(attention.clone());
+            }
             for result in self.search.search(&search_request)?.results {
                 if !merged_results
                     .iter()

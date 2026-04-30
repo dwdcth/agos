@@ -129,6 +129,7 @@ fn sample_fragment(record_id: &str, source_uri: &str) -> EvidenceFragment {
             query_strategies: Vec::new(),
             channel_contribution: ChannelContribution::LexicalOnly,
             applied_filters: SearchFilters::default(),
+            attention: None,
         },
         score: ScoreBreakdown {
             lexical_raw: -2.0,
@@ -136,7 +137,7 @@ fn sample_fragment(record_id: &str, source_uri: &str) -> EvidenceFragment {
             keyword_bonus: 0.02,
             importance_bonus: 0.08,
             recency_bonus: 0.03,
-            emotion_bonus: 0.0,
+            attention_bonus: 0.0,
             final_score: 0.46,
         },
     }

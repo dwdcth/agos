@@ -139,7 +139,7 @@ fn synthetic_result(record_id: &str, source_uri: &str, query: &str, snippet: &st
             keyword_bonus: 0.05,
             importance_bonus: 0.0,
             recency_bonus: 0.0,
-            emotion_bonus: 0.0,
+            attention_bonus: 0.0,
             final_score: 0.45,
         },
         trace: ResultTrace {
@@ -147,6 +147,7 @@ fn synthetic_result(record_id: &str, source_uri: &str, query: &str, snippet: &st
             query_strategies: Vec::new(),
             channel_contribution: ChannelContribution::LexicalOnly,
             applied_filters: Default::default(),
+            attention: None,
         },
     }
 }

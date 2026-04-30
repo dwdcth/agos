@@ -82,6 +82,14 @@ impl AgentSearchRequest {
         self
     }
 
+    pub fn with_attention_state(
+        mut self,
+        attention_state: crate::cognition::attention::AttentionState,
+    ) -> Self {
+        self.working_memory = self.working_memory.with_attention_state(attention_state);
+        self
+    }
+
     pub fn with_working_memory_limit(mut self, limit: usize) -> Self {
         self.working_memory = self.working_memory.with_limit(limit);
         self
@@ -247,14 +255,18 @@ where
     G: GatingPort,
 {
     fn execute(&self, request: &AgentSearchRequest) -> Result<AgentSearchReport, AgentSearchError> {
+        let resolved_attention = request.working_memory.resolved_attention_state();
         let mut integrated_results = Vec::new();
         let retrieval_steps = request
             .bounded_queries()
             .into_iter()
             .map(|query| {
-                let search_request = SearchRequest::new(query.clone())
+                let mut search_request = SearchRequest::new(query.clone())
                     .with_limit(request.step_limit)
                     .with_filters(request.working_memory.filters.clone());
+                if let Some(ref attention) = resolved_attention {
+                    search_request = search_request.with_attention_state(attention.clone());
+                }
                 let response = self.retriever.search(&search_request).map_err(|source| {
                     AgentSearchError::Retrieval {
                         query: query.clone(),

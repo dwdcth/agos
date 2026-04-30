@@ -91,7 +91,7 @@ fn sample_result(record: MemoryRecord, query: &str, snippet: &str) -> SearchResu
             keyword_bonus: 0.05,
             importance_bonus: 0.10,
             recency_bonus: 0.02,
-            emotion_bonus: 0.0,
+            attention_bonus: 0.0,
             final_score: 0.47,
         },
         trace: ResultTrace {
@@ -99,6 +99,7 @@ fn sample_result(record: MemoryRecord, query: &str, snippet: &str) -> SearchResu
             query_strategies: Vec::new(),
             channel_contribution: ChannelContribution::LexicalOnly,
             applied_filters: SearchFilters::default(),
+            attention: None,
         },
     }
 }

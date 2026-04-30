@@ -1,8 +1,11 @@
 use serde::Serialize;
 
-use crate::search::{
-    AppliedFilters, SearchRequest, SearchResponse, SearchResult, citation::Citation,
-    citation::CitationError, score::ScoredCandidate,
+use crate::{
+    cognition::attention::AttentionTrace,
+    search::{
+        AppliedFilters, SearchRequest, SearchResponse, SearchResult, citation::Citation,
+        citation::CitationError, score::ScoredCandidate,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -13,12 +16,13 @@ pub enum ChannelContribution {
     Hybrid,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ResultTrace {
     pub matched_query: String,
     pub query_strategies: Vec<crate::search::QueryStrategy>,
     pub channel_contribution: ChannelContribution,
     pub applied_filters: AppliedFilters,
+    pub attention: Option<AttentionTrace>,
 }
 
 pub fn rerank_results(
@@ -40,6 +44,7 @@ pub fn rerank_results(
                     channel_contribution: channel_contribution(&candidate.query_strategies),
                     query_strategies: candidate.query_strategies,
                     applied_filters: applied_filters.clone(),
+                    attention: candidate.attention_trace,
                 },
             })
         })

@@ -3,6 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
+    cognition::attention::{
+        ATTENTION_BONUS_CAP, AttentionContribution, AttentionTrace, lane_weight,
+    },
     memory::record::RecordType,
     search::{LexicalCandidate, QueryStrategy, SearchRequest},
 };
@@ -14,7 +17,7 @@ pub struct ScoreBreakdown {
     pub keyword_bonus: f32,
     pub importance_bonus: f32,
     pub recency_bonus: f32,
-    pub emotion_bonus: f32,
+    pub attention_bonus: f32,
     pub final_score: f32,
 }
 
@@ -24,6 +27,7 @@ pub struct ScoredCandidate {
     pub snippet: String,
     pub query_strategies: Vec<QueryStrategy>,
     pub score: ScoreBreakdown,
+    pub attention_trace: Option<AttentionTrace>,
 }
 
 pub fn score_candidates(
@@ -36,6 +40,11 @@ pub fn score_candidates(
 
     let (recency_positions, recency_slots) = recency_positions(&candidates);
     let query_terms = query_terms(&request.query);
+    let attention_delta = request
+        .attention_state
+        .as_ref()
+        .filter(|state| !state.is_empty())
+        .map(|state| &state.delta);
     candidates
         .into_iter()
         .map(|candidate| {
@@ -49,9 +58,17 @@ pub fn score_candidates(
                     .unwrap_or(usize::MAX),
                 recency_slots,
             );
-            let emotion_bonus = 0.0;
+            let (attention_bonus, attention_trace) =
+                compute_attention_bonus(attention_delta, &candidate);
             let final_score =
-                lexical_base + keyword_bonus + importance_bonus + recency_bonus + emotion_bonus;
+                (lexical_base + keyword_bonus + importance_bonus + recency_bonus + attention_bonus)
+                    .min(
+                        lexical_base
+                            + keyword_bonus
+                            + importance_bonus
+                            + recency_bonus
+                            + ATTENTION_BONUS_CAP,
+                    );
 
             ScoredCandidate {
                 record: candidate.record,
@@ -63,12 +80,131 @@ pub fn score_candidates(
                     keyword_bonus,
                     importance_bonus,
                     recency_bonus,
-                    emotion_bonus,
+                    attention_bonus,
                     final_score,
                 },
+                attention_trace,
             }
         })
         .collect::<Vec<_>>()
+}
+
+fn compute_attention_bonus(
+    attention_delta: Option<&crate::cognition::attention::AttentionDelta>,
+    candidate: &LexicalCandidate,
+) -> (f32, Option<AttentionTrace>) {
+    let Some(delta) = attention_delta else {
+        return (0.0, None);
+    };
+
+    if delta.contributions.is_empty() {
+        return (0.0, None);
+    }
+
+    let label = candidate
+        .record
+        .source
+        .label
+        .as_deref()
+        .unwrap_or("")
+        .to_lowercase();
+    let content = candidate.record.content_text.to_lowercase();
+    let dsl_fields = candidate
+        .dsl
+        .as_ref()
+        .map(|dsl| {
+            let mut fields = vec![
+                dsl.domain.to_lowercase(),
+                dsl.topic.to_lowercase(),
+                dsl.aspect.to_lowercase(),
+                dsl.kind.to_lowercase(),
+                dsl.claim.to_lowercase(),
+                dsl.source_ref.to_lowercase(),
+            ];
+            for extra in [
+                dsl.why.as_deref(),
+                dsl.time.as_deref(),
+                dsl.cond.as_deref(),
+                dsl.impact.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                fields.push(extra.to_lowercase());
+            }
+            fields
+        })
+        .unwrap_or_default();
+
+    let mut total_bonus: f32 = 0.0;
+    let mut matched_contributions = Vec::new();
+
+    for contribution in &delta.contributions {
+        let cue_lower = contribution.cue.to_lowercase();
+        let weight = lane_weight(contribution.lane);
+
+        // Split cue into individual terms for matching
+        let cue_terms = cue_lower
+            .split(|ch: char| ch.is_ascii_punctuation() || ch.is_whitespace())
+            .filter(|term| !term.is_empty())
+            .collect::<Vec<_>>();
+
+        if cue_terms.is_empty() {
+            continue;
+        }
+
+        let mut matched_fields = Vec::new();
+        let mut any_matched = false;
+
+        for term in cue_terms {
+            if !label.is_empty() && label.contains(term) {
+                if !matched_fields.contains(&"label".to_string()) {
+                    matched_fields.push("label".to_string());
+                }
+                any_matched = true;
+            }
+            if content.contains(term) {
+                if !matched_fields.contains(&"content".to_string()) {
+                    matched_fields.push("content".to_string());
+                }
+                any_matched = true;
+            }
+            if dsl_fields.iter().any(|field| field.contains(term)) {
+                if !matched_fields.contains(&"dsl".to_string()) {
+                    matched_fields.push("dsl".to_string());
+                }
+                any_matched = true;
+            }
+        }
+
+        if any_matched {
+            let bonus = weight.min(ATTENTION_BONUS_CAP - total_bonus).max(0.0);
+            if bonus > 0.0 {
+                total_bonus += bonus;
+                matched_contributions.push(AttentionContribution {
+                    lane: contribution.lane,
+                    source: contribution.source.clone(),
+                    cue: contribution.cue.clone(),
+                    matched_fields,
+                    bonus,
+                });
+            }
+        }
+    }
+
+    total_bonus = total_bonus.min(ATTENTION_BONUS_CAP);
+
+    if matched_contributions.is_empty() {
+        (0.0, None)
+    } else {
+        (
+            total_bonus,
+            Some(AttentionTrace {
+                total_bonus,
+                contributions: matched_contributions,
+            }),
+        )
+    }
 }
 
 fn query_terms(query: &str) -> Vec<String> {

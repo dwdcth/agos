@@ -484,12 +484,12 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
             println!("   final_score: {:.3}", result.score.final_score);
             if command.trace {
                 println!(
-                    "   lexical_base: {:.3} keyword_bonus: {:.3} importance_bonus: {:.3} recency_bonus: {:.3} emotion_bonus: {:.3}",
+                    "   lexical_base: {:.3} keyword_bonus: {:.3} importance_bonus: {:.3} recency_bonus: {:.3} attention_bonus: {:.3}",
                     result.score.lexical_base,
                     result.score.keyword_bonus,
                     result.score.importance_bonus,
                     result.score.recency_bonus,
-                    result.score.emotion_bonus
+                    result.score.attention_bonus
                 );
                 println!(
                     "   trace: {}",

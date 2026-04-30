@@ -25,11 +25,14 @@ pub use lexical::{LexicalCandidate, LexicalSearchError, QueryStrategy};
 pub use rerank::{ChannelContribution, ResultTrace};
 pub use score::ScoreBreakdown;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+use crate::cognition::attention::AttentionState;
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct SearchRequest {
     pub query: String,
     pub limit: usize,
     pub filters: SearchFilters,
+    pub attention_state: Option<AttentionState>,
 }
 
 impl SearchRequest {
@@ -40,6 +43,7 @@ impl SearchRequest {
             query: query.into(),
             limit: Self::DEFAULT_LIMIT,
             filters: SearchFilters::default(),
+            attention_state: None,
         }
     }
 
@@ -50,6 +54,11 @@ impl SearchRequest {
 
     pub fn with_filters(mut self, filters: SearchFilters) -> Self {
         self.filters = filters;
+        self
+    }
+
+    pub fn with_attention_state(mut self, attention_state: AttentionState) -> Self {
+        self.attention_state = Some(attention_state);
         self
     }
 

@@ -253,6 +253,7 @@ fn restore_trace(trace: &PersistedWorldModelTrace) -> ResultTrace {
             .collect(),
         channel_contribution: restore_channel_contribution(trace.channel_contribution),
         applied_filters: restore_applied_filters(&trace.applied_filters),
+        attention: None,
     }
 }
 
@@ -331,7 +332,7 @@ fn persist_score(score: &ScoreBreakdown) -> PersistedWorldModelScore {
         keyword_bonus: score.keyword_bonus,
         importance_bonus: score.importance_bonus,
         recency_bonus: score.recency_bonus,
-        emotion_bonus: score.emotion_bonus,
+        attention_bonus: score.attention_bonus,
         final_score: score.final_score,
     }
 }
@@ -343,7 +344,7 @@ fn restore_score(score: &PersistedWorldModelScore) -> ScoreBreakdown {
         keyword_bonus: score.keyword_bonus,
         importance_bonus: score.importance_bonus,
         recency_bonus: score.recency_bonus,
-        emotion_bonus: score.emotion_bonus,
+        attention_bonus: score.attention_bonus,
         final_score: score.final_score,
     }
 }

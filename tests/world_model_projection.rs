@@ -115,7 +115,7 @@ fn sample_result(
             keyword_bonus: 0.04,
             importance_bonus: 0.08,
             recency_bonus: 0.02,
-            emotion_bonus: 0.0,
+            attention_bonus: 0.0,
             final_score: 0.51,
         },
         trace: ResultTrace {
@@ -123,6 +123,7 @@ fn sample_result(
             query_strategies: vec![agent_memos::search::QueryStrategy::Simple],
             channel_contribution: ChannelContribution::LexicalOnly,
             applied_filters: AppliedFilters::default(),
+            attention: None,
         },
     }
 }

@@ -1007,7 +1007,7 @@ fn sqlite_repository_round_trips_world_model_snapshot_for_subject_and_scope() {
                 keyword_bonus: 0.08,
                 importance_bonus: 0.08,
                 recency_bonus: 0.03,
-                emotion_bonus: 0.0,
+                attention_bonus: 0.0,
                 final_score: 0.64,
             },
         }],

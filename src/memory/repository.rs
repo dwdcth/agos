@@ -288,7 +288,7 @@ pub struct PersistedWorldModelScore {
     pub keyword_bonus: f32,
     pub importance_bonus: f32,
     pub recency_bonus: f32,
-    pub emotion_bonus: f32,
+    pub attention_bonus: f32,
     pub final_score: f32,
 }
 

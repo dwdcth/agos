@@ -1,5 +1,6 @@
 pub mod action;
 pub mod assembly;
+pub mod attention;
 pub mod metacog;
 pub mod report;
 pub mod rumination;
