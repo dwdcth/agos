@@ -38,3 +38,36 @@ Added runtime read-model bridge for persisted current world-model snapshots into
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Attention system Layer 5
+
+**Date**: 2026-04-30
+**Task**: Attention system Layer 5
+**Branch**: `main`
+
+### Summary
+
+Implemented attention system as independent cognition Layer 5: AttentionState with dual-timescale Baseline+Delta, derive Delta from request metadata (goal/risk/metacog/readiness/capability), additive capped bonus in scoring, attention trace in ResultTrace, forward through assembly and agent orchestration. 10 new tests, 481 total tests pass.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4f78181` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
