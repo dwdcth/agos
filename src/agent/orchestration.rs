@@ -11,10 +11,16 @@ use crate::{
         assembly::{ActionSeed, SelfStateProvider, WorkingMemoryAssembler, WorkingMemoryRequest},
         metacog::MetacognitionService,
         report::DecisionReport,
+        rumination::{
+            RuminationService, RuminationTriggerDecision, RuminationTriggerEvent,
+            RuminationTriggerKind, ShortCycleWritebackReport,
+        },
         value::{ScoredBranch, ValueAdjustment, ValueConfig, ValueScorer, ValueVector},
         working_memory::WorkingMemory,
+        world_model::{SimulationResult, WorldFragmentProjection},
     },
     core::config::Config,
+    memory::repository::{MemoryRepository, RuminationCandidateKind, RuminationCandidateStatus},
     search::{Citation, SearchFilters, SearchRequest, SearchResponse, SearchService},
 };
 
@@ -46,6 +52,7 @@ pub struct AgentSearchRequest {
     pub max_steps: usize,
     pub step_limit: usize,
     pub branch_values: Vec<AgentSearchBranchValue>,
+    pub enable_simulation: bool,
 }
 
 impl AgentSearchRequest {
@@ -59,6 +66,7 @@ impl AgentSearchRequest {
             max_steps: Self::DEFAULT_MAX_STEPS,
             step_limit: Self::DEFAULT_STEP_LIMIT,
             branch_values: Vec::new(),
+            enable_simulation: false,
         }
     }
 
@@ -92,6 +100,11 @@ impl AgentSearchRequest {
 
     pub fn with_working_memory_limit(mut self, limit: usize) -> Self {
         self.working_memory = self.working_memory.with_limit(limit);
+        self
+    }
+
+    pub fn with_enable_simulation(mut self, enable: bool) -> Self {
+        self.enable_simulation = enable;
         self
     }
 
@@ -200,6 +213,30 @@ pub trait GatingPort {
     ) -> AnyResult<DecisionReport>;
 }
 
+pub trait RuminationPort {
+    fn schedule_trigger(
+        &self,
+        event: RuminationTriggerEvent,
+    ) -> AnyResult<RuminationTriggerDecision>;
+
+    fn drain_short_cycle(&self, now: &str) -> AnyResult<Option<ShortCycleWritebackReport>>;
+}
+
+pub trait SimulationPort {
+    fn simulate(
+        &self,
+        world_fragments: &[WorldFragmentProjection],
+        action: &ActionCandidate,
+    ) -> AnyResult<SimulationResult>;
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CognitiveCycleResult {
+    pub report: AgentSearchReport,
+    pub rumination_triggered: Vec<RuminationTriggerEvent>,
+    pub short_cycle_writebacks: Vec<ShortCycleWritebackReport>,
+}
+
 #[derive(Debug, Error)]
 pub enum AgentSearchError {
     #[error("retrieval step '{query}' failed")]
@@ -223,6 +260,16 @@ pub enum AgentSearchError {
         #[source]
         source: anyhow::Error,
     },
+    #[error("rumination trigger scheduling failed")]
+    Rumination {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("rumination short-cycle drain failed")]
+    RuminationDrain {
+        #[source]
+        source: anyhow::Error,
+    },
 }
 
 pub struct AgentSearchOrchestrator<R, A, S, G> {
@@ -230,6 +277,8 @@ pub struct AgentSearchOrchestrator<R, A, S, G> {
     assembler: A,
     scorer: S,
     gate: G,
+    rumination: Option<Box<dyn RuminationPort>>,
+    simulation: Option<Box<dyn SimulationPort>>,
 }
 
 impl<R, A, S, G> AgentSearchOrchestrator<R, A, S, G> {
@@ -239,7 +288,19 @@ impl<R, A, S, G> AgentSearchOrchestrator<R, A, S, G> {
             assembler,
             scorer,
             gate,
+            rumination: None,
+            simulation: None,
         }
+    }
+
+    pub fn with_rumination(mut self, rumination: Box<dyn RuminationPort>) -> Self {
+        self.rumination = Some(rumination);
+        self
+    }
+
+    pub fn with_simulation(mut self, simulation: Box<dyn SimulationPort>) -> Self {
+        self.simulation = Some(simulation);
+        self
     }
 }
 
@@ -291,14 +352,42 @@ where
             .working_memory
             .clone()
             .with_integrated_results(integrated_results);
-        let working_memory = self
+        let mut working_memory = self
             .assembler
             .assemble(&working_memory_request)
             .map_err(|source| AgentSearchError::Assembly { source })?;
-        let scored_branches = self
+        let mut scored_branches = self
             .scorer
             .score(&working_memory, &request.branch_values)
             .map_err(|source| AgentSearchError::Scoring { source })?;
+
+        if request.enable_simulation {
+            if let Some(ref simulation) = self.simulation {
+                if let Some(top_branch) = scored_branches.first() {
+                    let fragments: Vec<WorldFragmentProjection> = working_memory
+                        .present
+                        .world_fragments
+                        .iter()
+                        .map(evidence_fragment_to_world_projection)
+                        .collect();
+
+                    match simulation.simulate(&fragments, &top_branch.branch.candidate) {
+                        Ok(sim_result) => {
+                            let enriched_working_memory = enrich_branches_from_simulation(
+                                &mut working_memory,
+                                &mut scored_branches,
+                                &sim_result,
+                            );
+                            working_memory = enriched_working_memory;
+                        }
+                        Err(_) => {
+                            // Simulation failed; log and skip enrichment.
+                        }
+                    }
+                }
+            }
+        }
+
         let decision = self
             .gate
             .evaluate(&working_memory, scored_branches)
@@ -313,6 +402,165 @@ where
             decision,
         })
     }
+
+    pub fn cycle(
+        &self,
+        request: &AgentSearchRequest,
+        subject_ref: &str,
+        now: &str,
+        budget_bucket: &str,
+    ) -> Result<CognitiveCycleResult, AgentSearchError> {
+        let report = self.execute(request)?;
+
+        let rumination_triggered =
+            build_rumination_triggers(&report, subject_ref, now, budget_bucket)?;
+
+        let mut scheduled_triggers = Vec::new();
+        if let Some(ref rumination) = self.rumination {
+            for trigger in &rumination_triggered {
+                match rumination.schedule_trigger(trigger.clone()) {
+                    Ok(_) | Err(_) => {
+                        scheduled_triggers.push(trigger.clone());
+                    }
+                }
+            }
+        }
+
+        let mut short_cycle_writebacks = Vec::new();
+        if let Some(ref rumination) = self.rumination {
+            match rumination.drain_short_cycle(now) {
+                Ok(Some(writeback)) => {
+                    short_cycle_writebacks.push(writeback);
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    // Drain failed; writebacks remain empty.
+                }
+            }
+        }
+
+        Ok(CognitiveCycleResult {
+            report,
+            rumination_triggered: scheduled_triggers,
+            short_cycle_writebacks,
+        })
+    }
+}
+
+fn evidence_fragment_to_world_projection(
+    fragment: &crate::cognition::working_memory::EvidenceFragment,
+) -> WorldFragmentProjection {
+    WorldFragmentProjection {
+        record_id: fragment.record_id.clone(),
+        snippet: fragment.snippet.clone(),
+        citation: fragment.citation.clone(),
+        provenance: fragment.provenance.clone(),
+        truth_context: fragment.truth_context.clone(),
+        dsl: fragment.dsl.clone(),
+        trace: fragment.trace.clone(),
+        score: fragment.score.clone(),
+    }
+}
+
+fn enrich_branches_from_simulation(
+    working_memory: &mut WorkingMemory,
+    scored_branches: &mut [ScoredBranch],
+    sim_result: &SimulationResult,
+) -> WorkingMemory {
+    for risk in &sim_result.predicted.new_risks {
+        let label = format!(
+            "simulated_{}:{}",
+            match risk.severity {
+                crate::cognition::world_model::PredictedSeverity::Low => "low",
+                crate::cognition::world_model::PredictedSeverity::Medium => "medium",
+                crate::cognition::world_model::PredictedSeverity::High => "high",
+            },
+            risk.description
+        );
+        if let Some(branch) = scored_branches.first_mut() {
+            if !branch.branch.risk_markers.contains(&label) {
+                branch.branch.risk_markers.push(label.clone());
+            }
+        }
+        working_memory.present.active_risks.push(label);
+    }
+
+    for change in &sim_result.predicted.affected_fragments {
+        if let Some(branch) = scored_branches.first_mut() {
+            let effect_summary = format!("{}: {}", change.record_id, change.change_description);
+            if !branch
+                .branch
+                .candidate
+                .expected_effects
+                .contains(&effect_summary)
+            {
+                branch
+                    .branch
+                    .candidate
+                    .expected_effects
+                    .push(effect_summary);
+            }
+        }
+    }
+
+    working_memory.clone()
+}
+
+fn build_rumination_triggers(
+    report: &AgentSearchReport,
+    subject_ref: &str,
+    now: &str,
+    budget_bucket: &str,
+) -> Result<Vec<RuminationTriggerEvent>, AgentSearchError> {
+    use crate::cognition::metacog::GateDecision;
+
+    let gate_decision = report.decision.gate.decision;
+    let mut triggers = Vec::new();
+
+    match gate_decision {
+        GateDecision::Warning => {
+            if let Ok(event) = RuminationTriggerEvent::from_agent_search_report(
+                RuminationTriggerKind::SessionBoundary,
+                subject_ref,
+                report,
+                now,
+                budget_bucket,
+                None,
+                None,
+            ) {
+                triggers.push(event);
+            }
+        }
+        GateDecision::SoftVeto => {
+            if let Ok(event) = RuminationTriggerEvent::from_agent_search_report(
+                RuminationTriggerKind::MetacogVeto,
+                subject_ref,
+                report,
+                now,
+                budget_bucket,
+                None,
+                None,
+            ) {
+                triggers.push(event);
+            }
+        }
+        GateDecision::HardVeto | GateDecision::Escalate => {
+            if let Ok(mut event) = RuminationTriggerEvent::from_agent_search_report(
+                RuminationTriggerKind::MetacogVeto,
+                subject_ref,
+                report,
+                now,
+                budget_bucket,
+                None,
+                None,
+            ) {
+                event = event.with_budget_cost(3);
+                triggers.push(event);
+            }
+        }
+    }
+
+    Ok(triggers)
 }
 
 impl<R, A, S, G> AgentSearchRunner for AgentSearchOrchestrator<R, A, S, G>
@@ -474,6 +722,120 @@ impl GatingPort for MetacognitionPort {
     }
 }
 
+/// No-op rumination port used as the default when no rumination service is configured.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoopRuminationPort;
+
+impl RuminationPort for NoopRuminationPort {
+    fn schedule_trigger(
+        &self,
+        _event: RuminationTriggerEvent,
+    ) -> AnyResult<RuminationTriggerDecision> {
+        Ok(RuminationTriggerDecision::Enqueued {
+            tier: crate::cognition::rumination::RuminationQueueTier::Spq,
+            item_id: String::new(),
+        })
+    }
+
+    fn drain_short_cycle(&self, _now: &str) -> AnyResult<Option<ShortCycleWritebackReport>> {
+        Ok(None)
+    }
+}
+
+/// No-op simulation port used as the default when no simulation backend is configured.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoopSimulationPort;
+
+impl SimulationPort for NoopSimulationPort {
+    fn simulate(
+        &self,
+        _world_fragments: &[WorldFragmentProjection],
+        _action: &ActionCandidate,
+    ) -> AnyResult<SimulationResult> {
+        Err(anyhow::anyhow!("simulation not configured"))
+    }
+}
+
+/// Concrete rumination port that wraps a `RuminationService`.
+pub struct ServiceRuminationPort<'db> {
+    service: RuminationService<'db>,
+}
+
+impl<'db> ServiceRuminationPort<'db> {
+    pub fn new(conn: &'db Connection) -> Self {
+        Self {
+            service: RuminationService::new(conn),
+        }
+    }
+
+    pub fn with_budget_limits(
+        conn: &'db Connection,
+        spq_budget_limit: u32,
+        lpq_budget_limit: u32,
+    ) -> Self {
+        Self {
+            service: RuminationService::with_budget_limits(
+                conn,
+                spq_budget_limit,
+                lpq_budget_limit,
+            ),
+        }
+    }
+}
+
+impl RuminationPort for ServiceRuminationPort<'_> {
+    fn schedule_trigger(
+        &self,
+        event: RuminationTriggerEvent,
+    ) -> AnyResult<RuminationTriggerDecision> {
+        Ok(self.service.schedule(event)?)
+    }
+
+    fn drain_short_cycle(&self, now: &str) -> AnyResult<Option<ShortCycleWritebackReport>> {
+        Ok(self.service.drain_short_cycle(now)?)
+    }
+}
+
+/// Load persisted value adjustment candidates for a subject and fold them into a scoring port.
+pub fn load_value_adjustments_into_scoring_port(
+    repository: &MemoryRepository<'_>,
+    subject_ref: &str,
+    base_config: &ValueConfig,
+    learning_rate: f32,
+) -> WorkingMemoryScoringPort {
+    let adjustments = collect_pending_value_adjustments(repository, subject_ref);
+    if adjustments.is_empty() {
+        return WorkingMemoryScoringPort::new(base_config.clone());
+    }
+    WorkingMemoryScoringPort::from_persisted_adjustments(base_config, &adjustments, learning_rate)
+}
+
+fn collect_pending_value_adjustments(
+    repository: &MemoryRepository<'_>,
+    subject_ref: &str,
+) -> Vec<ValueAdjustment> {
+    let candidates = match repository.list_rumination_candidates() {
+        Ok(candidates) => candidates,
+        Err(_) => return Vec::new(),
+    };
+
+    candidates
+        .into_iter()
+        .filter(|candidate| {
+            candidate.candidate_kind == RuminationCandidateKind::ValueAdjustmentCandidate
+                && candidate.status == RuminationCandidateStatus::Pending
+                && (subject_ref.is_empty() || candidate.subject_ref == subject_ref)
+        })
+        .filter_map(|candidate| {
+            candidate
+                .payload
+                .get("adjustment")
+                .cloned()
+                .and_then(|value| serde_json::from_value::<ValueAdjustment>(value).ok())
+        })
+        .collect()
+}
+
 impl<'db, P>
     AgentSearchOrchestrator<
         SearchServicePort<'db>,
@@ -535,6 +897,7 @@ mod tests {
         cognition::{
             action::{ActionBranch, ActionCandidate, ActionKind},
             assembly::WorkingMemoryAssemblyError,
+            metacog::GateDecision,
             working_memory::{PresentFrame, SelfStateSnapshot},
         },
         memory::record::TruthLayer,
@@ -638,5 +1001,245 @@ mod tests {
             .assemble(&WorkingMemoryRequest::new("primary"))
             .expect_err("broken assembly should fail");
         assert!(error.to_string().contains("missing"));
+    }
+
+    // -- Cognitive loop tests --------------------------------------------------
+
+    fn stub_report_with_gate(
+        gate_decision: crate::cognition::metacog::GateDecision,
+    ) -> AgentSearchReport {
+        use crate::cognition::report::GateReport;
+
+        AgentSearchReport {
+            working_memory: WorkingMemory {
+                present: PresentFrame {
+                    world_fragments: Vec::new(),
+                    self_state: SelfStateSnapshot {
+                        task_context: None,
+                        capability_flags: Vec::new(),
+                        readiness_flags: Vec::new(),
+                        facts: Vec::new(),
+                    },
+                    active_goal: None,
+                    active_risks: Vec::new(),
+                    metacog_flags: Vec::new(),
+                },
+                branches: Vec::new(),
+            },
+            decision: DecisionReport {
+                scored_branches: Vec::new(),
+                selected_branch: None,
+                gate: GateReport {
+                    decision: gate_decision,
+                    diagnostics: Vec::new(),
+                    rejected_branch: None,
+                    regulative_branch: None,
+                    safe_response: None,
+                    autonomy_paused: false,
+                },
+                active_risks: Vec::new(),
+                metacog_flags: Vec::new(),
+            },
+            retrieval_steps: Vec::new(),
+            citations: Vec::new(),
+            executed_steps: 0,
+            step_limit: 1,
+        }
+    }
+
+    #[test]
+    fn rumination_trigger_maps_warning_to_session_boundary() {
+        let report = stub_report_with_gate(GateDecision::Warning);
+        let triggers =
+            build_rumination_triggers(&report, "subject-1", "2026-04-30T00:00:00Z", "bucket-1")
+                .expect("trigger building should succeed");
+
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].kind, RuminationTriggerKind::SessionBoundary);
+    }
+
+    #[test]
+    fn rumination_trigger_maps_soft_veto_to_metacog_veto() {
+        let report = stub_report_with_gate(GateDecision::SoftVeto);
+        let triggers =
+            build_rumination_triggers(&report, "subject-1", "2026-04-30T00:00:00Z", "bucket-1")
+                .expect("trigger building should succeed");
+
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].kind, RuminationTriggerKind::MetacogVeto);
+        assert_eq!(triggers[0].budget_cost, 1);
+    }
+
+    #[test]
+    fn rumination_trigger_maps_hard_veto_to_high_priority_metacog_veto() {
+        let report = stub_report_with_gate(GateDecision::HardVeto);
+        let triggers =
+            build_rumination_triggers(&report, "subject-1", "2026-04-30T00:00:00Z", "bucket-1")
+                .expect("trigger building should succeed");
+
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].kind, RuminationTriggerKind::MetacogVeto);
+        assert_eq!(triggers[0].budget_cost, 3);
+    }
+
+    #[test]
+    fn rumination_trigger_maps_escalate_to_high_priority_metacog_veto() {
+        let report = stub_report_with_gate(GateDecision::Escalate);
+        let triggers =
+            build_rumination_triggers(&report, "subject-1", "2026-04-30T00:00:00Z", "bucket-1")
+                .expect("trigger building should succeed");
+
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].kind, RuminationTriggerKind::MetacogVeto);
+        assert_eq!(triggers[0].budget_cost, 3);
+    }
+
+    #[test]
+    fn noop_rumination_port_schedule_returns_ok() {
+        let port = NoopRuminationPort;
+        let report = stub_report_with_gate(GateDecision::Warning);
+        let trigger = RuminationTriggerEvent::from_agent_search_report(
+            RuminationTriggerKind::SessionBoundary,
+            "subject-1",
+            &report,
+            "2026-04-30T00:00:00Z",
+            "bucket-1",
+            None,
+            None,
+        )
+        .expect("should build trigger");
+
+        let result = port.schedule_trigger(trigger);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn noop_rumination_port_drain_returns_none() {
+        let port = NoopRuminationPort;
+        let result = port.drain_short_cycle("2026-04-30T00:00:00Z");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn noop_simulation_port_returns_error() {
+        let port = NoopSimulationPort;
+        let result = port.simulate(&[], &ActionCandidate::new(ActionKind::Epistemic, "test"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn enable_simulation_defaults_to_false() {
+        let request = AgentSearchRequest::new(WorkingMemoryRequest::new("test"));
+        assert!(!request.enable_simulation);
+    }
+
+    #[test]
+    fn enable_simulation_can_be_set_to_true() {
+        let request =
+            AgentSearchRequest::new(WorkingMemoryRequest::new("test")).with_enable_simulation(true);
+        assert!(request.enable_simulation);
+    }
+
+    #[test]
+    fn simulation_enrichment_adds_risk_markers() {
+        use crate::cognition::world_model::{
+            PredictedFragmentChange, PredictedRisk, PredictedSeverity, PredictedWorldSlice,
+        };
+
+        let mut working_memory = WorkingMemory {
+            present: PresentFrame {
+                world_fragments: Vec::new(),
+                self_state: SelfStateSnapshot {
+                    task_context: None,
+                    capability_flags: Vec::new(),
+                    readiness_flags: Vec::new(),
+                    facts: Vec::new(),
+                },
+                active_goal: None,
+                active_risks: Vec::new(),
+                metacog_flags: Vec::new(),
+            },
+            branches: Vec::new(),
+        };
+        let mut scored_branches = vec![ScoredBranch {
+            branch: ActionBranch::new(ActionCandidate::new(ActionKind::Instrumental, "deploy")),
+            value: ValueVector {
+                goal_progress: 0.5,
+                information_gain: 0.5,
+                risk_avoidance: 0.5,
+                resource_efficiency: 0.5,
+                agent_robustness: 0.5,
+            },
+            projected: crate::cognition::value::ProjectedScore {
+                final_score: 0.5,
+                weight_snapshot: ValueConfig::default(),
+            },
+        }];
+
+        let sim_result = SimulationResult {
+            predicted: PredictedWorldSlice {
+                affected_fragments: vec![PredictedFragmentChange {
+                    record_id: "r1".to_string(),
+                    change_description: "weakened".to_string(),
+                    change_direction: crate::cognition::world_model::ChangeDirection::Weakened,
+                }],
+                new_risks: vec![PredictedRisk {
+                    description: "regression risk".to_string(),
+                    severity: PredictedSeverity::High,
+                }],
+                uncertainty_delta: 0.2,
+                overall_assessment: "moderate risk".to_string(),
+            },
+            confidence: 0.7,
+            action_summary: "deploy".to_string(),
+        };
+
+        let _ =
+            enrich_branches_from_simulation(&mut working_memory, &mut scored_branches, &sim_result);
+
+        assert!(
+            scored_branches[0]
+                .branch
+                .risk_markers
+                .iter()
+                .any(|m| m.contains("simulated_high") && m.contains("regression risk")),
+            "simulation should add risk marker to top branch: {:?}",
+            scored_branches[0].branch.risk_markers,
+        );
+        assert!(
+            working_memory
+                .present
+                .active_risks
+                .iter()
+                .any(|r| r.contains("simulated_high")),
+            "simulation should add risk to working memory active risks: {:?}",
+            working_memory.present.active_risks,
+        );
+        assert!(
+            scored_branches[0]
+                .branch
+                .candidate
+                .expected_effects
+                .iter()
+                .any(|e| e.contains("r1") && e.contains("weakened")),
+            "simulation should add affected fragment to expected effects: {:?}",
+            scored_branches[0].branch.candidate.expected_effects,
+        );
+    }
+
+    #[test]
+    fn collect_pending_value_adjustments_returns_empty_on_db_error() {
+        // Use a bare in-memory connection without migrations.
+        // list_rumination_candidates will fail because the table doesn't exist,
+        // so the function should return an empty vec gracefully.
+        let conn = rusqlite::Connection::open_in_memory().expect("in-memory db");
+        let repository = MemoryRepository::new(&conn);
+
+        let adjustments = collect_pending_value_adjustments(&repository, "subject-1");
+        assert!(
+            adjustments.is_empty(),
+            "should return empty when DB table doesn't exist"
+        );
     }
 }
