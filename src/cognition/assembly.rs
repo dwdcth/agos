@@ -18,7 +18,10 @@ use crate::{
             ActiveGoal, EvidenceFragment, MetacognitiveFlag, PresentFrame, SelfStateFact,
             SelfStateSnapshot, WorkingMemory, WorkingMemoryBuildError,
         },
-        world_model::{CurrentWorldSlice, ProjectedWorldModel, WorldFragmentProjection},
+        world_model::{
+            CurrentWorldSlice, ProjectedWorldModel, WorldFragmentProjection,
+            load_runtime_current_world_model,
+        },
     },
     memory::{
         repository::{LocalAdaptationEntry, MemoryRepository, RepositoryError},
@@ -324,72 +327,7 @@ where
             .with_persisted_self_model(persisted_self_model);
         overlay_request.skill_templates =
             merge_runtime_skill_templates(&request.skill_templates, persisted_skill_templates);
-        let mut merged_results = if overlay_request.integrated_results.is_empty() {
-            let search_request = SearchRequest::new(overlay_request.query.clone())
-                .with_limit(overlay_request.limit)
-                .with_filters(overlay_request.filters.clone());
-            self.search.search(&search_request)?.results
-        } else {
-            overlay_request.integrated_results.clone()
-        };
-
-        if !overlay_request.integrated_results.is_empty() {
-            let search_request = SearchRequest::new(overlay_request.query.clone())
-                .with_limit(overlay_request.limit)
-                .with_filters(overlay_request.filters.clone());
-            for result in self.search.search(&search_request)?.results {
-                if !merged_results
-                    .iter()
-                    .any(|existing| existing.record.id == result.record.id)
-                {
-                    merged_results.push(result);
-                }
-            }
-        }
-        let mut seen_record_ids = BTreeSet::new();
-        merged_results.retain(|result| seen_record_ids.insert(result.record.id.clone()));
-
-        let mut truths = Vec::with_capacity(merged_results.len());
-        let mut world_fragment_projections = Vec::with_capacity(merged_results.len());
-        let layered_records = merged_results
-            .iter()
-            .any(|result| result.dsl.is_none())
-            .then(|| {
-                self.repository.list_layered_records_for_ids(
-                    &merged_results
-                        .iter()
-                        .map(|result| result.record.id.clone())
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .transpose()?
-            .unwrap_or_default()
-            .into_iter()
-            .map(|record| (record.record.id.clone(), record))
-            .collect::<BTreeMap<_, _>>();
-        merged_results.retain(|result| {
-            integrated_result_matches_filters(result, &overlay_request.filters, &layered_records)
-        });
-        for result in merged_results {
-            let record_id = result.record.id.clone();
-            let truth = self
-                .repository
-                .get_truth_record(&record_id)?
-                .ok_or_else(|| WorkingMemoryAssemblyError::MissingTruthProjection {
-                    record_id: record_id.clone(),
-                })?;
-            let projection = WorldFragmentProjection::from_search_result(
-                result,
-                &truth,
-                layered_records
-                    .get(&record_id)
-                    .and_then(|record| record.dsl.as_ref().map(|dsl| &dsl.payload)),
-            );
-            truths.push(truth);
-            world_fragment_projections.push(projection);
-        }
-        let world_model =
-            ProjectedWorldModel::new(CurrentWorldSlice::new(world_fragment_projections));
+        let (world_model, truths) = self.resolve_world_model(&overlay_request)?;
         let world_fragments = world_model.project_fragments();
 
         let self_model = self.self_state_provider.project(&overlay_request, &truths);
@@ -421,6 +359,121 @@ where
             .present(present)
             .extend_branches(branches)
             .build()?)
+    }
+
+    fn resolve_world_model(
+        &self,
+        request: &WorkingMemoryRequest,
+    ) -> Result<(ProjectedWorldModel, Vec<TruthRecord>), WorkingMemoryAssemblyError> {
+        if request.integrated_results.is_empty()
+            && let Some(subject_ref) = request.subject_ref.as_deref()
+            && let Some(world_model) =
+                load_runtime_current_world_model(&self.repository, subject_ref)?
+        {
+            let truths = self.load_truths_for_world_model(&world_model)?;
+            return Ok((world_model, truths));
+        }
+
+        self.project_live_world_model(request)
+    }
+
+    fn project_live_world_model(
+        &self,
+        request: &WorkingMemoryRequest,
+    ) -> Result<(ProjectedWorldModel, Vec<TruthRecord>), WorkingMemoryAssemblyError> {
+        let mut merged_results = if request.integrated_results.is_empty() {
+            let search_request = SearchRequest::new(request.query.clone())
+                .with_limit(request.limit)
+                .with_filters(request.filters.clone());
+            self.search.search(&search_request)?.results
+        } else {
+            request.integrated_results.clone()
+        };
+
+        if !request.integrated_results.is_empty() {
+            let search_request = SearchRequest::new(request.query.clone())
+                .with_limit(request.limit)
+                .with_filters(request.filters.clone());
+            for result in self.search.search(&search_request)?.results {
+                if !merged_results
+                    .iter()
+                    .any(|existing| existing.record.id == result.record.id)
+                {
+                    merged_results.push(result);
+                }
+            }
+        }
+        let mut seen_record_ids = BTreeSet::new();
+        merged_results.retain(|result| seen_record_ids.insert(result.record.id.clone()));
+
+        let mut truths = Vec::with_capacity(merged_results.len());
+        let mut world_fragment_projections = Vec::with_capacity(merged_results.len());
+        let layered_records = merged_results
+            .iter()
+            .any(|result| result.dsl.is_none())
+            .then(|| {
+                self.repository.list_layered_records_for_ids(
+                    &merged_results
+                        .iter()
+                        .map(|result| result.record.id.clone())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .transpose()?
+            .unwrap_or_default()
+            .into_iter()
+            .map(|record| (record.record.id.clone(), record))
+            .collect::<BTreeMap<_, _>>();
+        merged_results.retain(|result| {
+            integrated_result_matches_filters(result, &request.filters, &layered_records)
+        });
+        for result in merged_results {
+            let record_id = result.record.id.clone();
+            let truth = self
+                .repository
+                .get_truth_record(&record_id)?
+                .ok_or_else(|| WorkingMemoryAssemblyError::MissingTruthProjection {
+                    record_id: record_id.clone(),
+                })?;
+            let projection = WorldFragmentProjection::from_search_result(
+                result,
+                &truth,
+                layered_records
+                    .get(&record_id)
+                    .and_then(|record| record.dsl.as_ref().map(|dsl| &dsl.payload)),
+            );
+            truths.push(truth);
+            world_fragment_projections.push(projection);
+        }
+
+        Ok((
+            ProjectedWorldModel::new(CurrentWorldSlice::new(world_fragment_projections)),
+            truths,
+        ))
+    }
+
+    fn load_truths_for_world_model(
+        &self,
+        world_model: &ProjectedWorldModel,
+    ) -> Result<Vec<TruthRecord>, WorkingMemoryAssemblyError> {
+        let mut truths = Vec::with_capacity(world_model.current.fragments.len());
+        let mut seen_record_ids = BTreeSet::new();
+
+        for fragment in &world_model.current.fragments {
+            if !seen_record_ids.insert(fragment.record_id.clone()) {
+                continue;
+            }
+
+            let truth = self
+                .repository
+                .get_truth_record(&fragment.record_id)?
+                .ok_or_else(|| WorkingMemoryAssemblyError::MissingTruthProjection {
+                    record_id: fragment.record_id.clone(),
+                })?;
+            truths.push(truth);
+        }
+
+        Ok(truths)
     }
 }
 

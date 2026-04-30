@@ -7,7 +7,10 @@ use agent_memos::{
     cognition::{
         assembly::{MinimalSelfStateProvider, WorkingMemoryAssembler, WorkingMemoryRequest},
         working_memory::TruthContext,
-        world_model::{CurrentWorldSlice, ProjectedWorldModel, WorldFragmentProjection},
+        world_model::{
+            CURRENT_WORLD_KEY, CurrentWorldSlice, ProjectedWorldModel, WorldFragmentProjection,
+            load_runtime_current_world_model,
+        },
     },
     core::db::Database,
     ingest::{IngestRequest, IngestService},
@@ -250,6 +253,52 @@ fn projected_world_model_reconstructs_from_persisted_snapshot_without_metadata_l
     assert_eq!(snapshot.subject_ref, "subject://agent/demo");
     assert_eq!(snapshot.world_key, "current");
     assert_eq!(snapshot.snapshot_id, "world-model-snapshot-001");
+    assert_eq!(restored, original);
+    assert_eq!(restored.project_fragments(), original.project_fragments());
+}
+
+#[test]
+fn runtime_world_model_loader_reconstructs_current_snapshot_for_subject() {
+    let path = fresh_db_path("world-model-runtime-loader");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+
+    let record = sample_record(
+        "record-runtime-loader",
+        "memo://project/world-model-runtime-loader",
+        TruthLayer::T3,
+    );
+    let truth = sample_t3_truth(record.clone());
+    let original = ProjectedWorldModel::new(CurrentWorldSlice::new(vec![
+        WorldFragmentProjection::from_search_result(
+            sample_result(
+                record,
+                "runtime loader",
+                Some(sample_dsl(
+                    "runtime current snapshot should round-trip through the loader",
+                    "memo://project/world-model-runtime-loader",
+                )),
+            ),
+            &truth,
+            None,
+        ),
+    ]));
+    let snapshot = original.to_snapshot(
+        "subject://agent/runtime-loader",
+        CURRENT_WORLD_KEY,
+        "world-model-snapshot-runtime-loader",
+        "2026-04-20T11:00:00Z",
+        "2026-04-20T11:00:00Z",
+    );
+
+    repository
+        .replace_world_model_snapshot(&snapshot)
+        .expect("world-model snapshot should persist");
+
+    let restored = load_runtime_current_world_model(&repository, "subject://agent/runtime-loader")
+        .expect("runtime world-model loader should succeed")
+        .expect("current world-model snapshot should exist");
+
     assert_eq!(restored, original);
     assert_eq!(restored.project_fragments(), original.project_fragments());
 }

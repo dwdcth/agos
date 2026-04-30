@@ -21,6 +21,9 @@ use agent_memos::{
             ActiveGoal, MetacognitiveFlag, PresentFrame, SelfStateFact, SelfStateSnapshot,
             WorkingMemoryBuildError, WorkingMemoryBuilder,
         },
+        world_model::{
+            CURRENT_WORLD_KEY, CurrentWorldSlice, ProjectedWorldModel, WorldFragmentProjection,
+        },
     },
     core::config::{
         Config, EmbeddingBackend, RetrievalConfig, RetrievalMode, RootVectorConfig, VectorBackend,
@@ -172,6 +175,47 @@ impl SelfStateProvider for TestSelfStateProvider {
             },
         )
     }
+}
+
+fn persist_current_world_model_snapshot(
+    conn: &rusqlite::Connection,
+    subject_ref: &str,
+    result: SearchResult,
+    snapshot_id: &str,
+) -> ProjectedWorldModel {
+    let repository = MemoryRepository::new(conn);
+    let record_id = result.record.id.clone();
+    let truth = repository
+        .get_truth_record(&record_id)
+        .expect("truth lookup should succeed")
+        .expect("truth should exist for the snapshot-backed fragment");
+    let repository_dsl = result.dsl.is_none().then(|| {
+        repository
+            .list_layered_records_for_ids(std::slice::from_ref(&record_id))
+            .expect("layered records should load")
+            .into_iter()
+            .find(|record| record.record.id == record_id)
+            .and_then(|record| record.dsl.map(|dsl| dsl.payload))
+    });
+    let world_model = ProjectedWorldModel::new(CurrentWorldSlice::new(vec![
+        WorldFragmentProjection::from_search_result(
+            result,
+            &truth,
+            repository_dsl.as_ref().and_then(Option::as_ref),
+        ),
+    ]));
+
+    repository
+        .replace_world_model_snapshot(&world_model.to_snapshot(
+            subject_ref,
+            CURRENT_WORLD_KEY,
+            snapshot_id,
+            "2026-04-20T12:00:00Z",
+            "2026-04-20T12:00:00Z",
+        ))
+        .expect("world-model snapshot should persist");
+
+    world_model
 }
 
 fn ready_embedding_config(mode: RetrievalMode) -> Config {
@@ -5390,6 +5434,247 @@ fn assembler_preserves_integrated_results_when_query_is_whitespace() {
         record_ids,
         vec![record_id.as_str()],
         "blank assembly query should not discard caller-provided integrated results"
+    );
+}
+
+#[test]
+fn assembler_uses_snapshot_backed_current_world_model_when_available() {
+    let path = fresh_db_path("snapshot-backed-current-world-model");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    let snapshot_record = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/snapshot-backed-current-world-model".to_string(),
+            source_label: Some("snapshot-backed-current-world-model".to_string()),
+            source_kind: Some(SourceKind::Note),
+            content: "persisted current world model should back runtime assembly".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:11:01Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("snapshot-backed ingest should succeed");
+
+    let snapshot_id = snapshot_record.record_ids[0].clone();
+    let mut snapshot_result = SearchService::new(db.conn())
+        .search(&SearchRequest::new("persisted current world model").with_limit(1))
+        .expect("search should succeed")
+        .results
+        .into_iter()
+        .next()
+        .expect("snapshot result should exist");
+    snapshot_result.snippet = "snapshot-backed world fragment".to_string();
+    let expected_world_model = persist_current_world_model_snapshot(
+        db.conn(),
+        "subject://agent/snapshot-backed",
+        snapshot_result,
+        "world-model-snapshot-runtime-001",
+    );
+
+    let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
+        .assemble(
+            &WorkingMemoryRequest::new("this live query should not be used")
+                .with_subject_ref("subject://agent/snapshot-backed"),
+        )
+        .expect("assembly should load the persisted current world model");
+
+    assert_eq!(
+        working_memory.present.world_fragments,
+        expected_world_model.project_fragments(),
+        "runtime assembly should project the persisted current world-model snapshot back through the explicit seam"
+    );
+    assert!(
+        working_memory
+            .present
+            .self_state
+            .facts
+            .iter()
+            .any(|fact| fact.source_record_id.as_deref() == Some(snapshot_id.as_str())),
+        "snapshot-backed assembly should still rebuild truth-derived self-state facts for downstream compatibility"
+    );
+}
+
+#[test]
+fn assembler_falls_back_to_live_retrieval_when_snapshot_is_missing() {
+    let path = fresh_db_path("snapshot-missing-live-fallback");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    let live_record = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/snapshot-missing-live-fallback".to_string(),
+            source_label: Some("snapshot-missing-live-fallback".to_string()),
+            source_kind: Some(SourceKind::Note),
+            content: "live retrieval fallback must stay unchanged when no snapshot exists"
+                .to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:11:02Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("live fallback ingest should succeed");
+
+    let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
+        .assemble(
+            &WorkingMemoryRequest::new("live retrieval fallback")
+                .with_limit(1)
+                .with_subject_ref("subject://agent/no-snapshot"),
+        )
+        .expect("assembly should fall back to live retrieval");
+
+    assert_eq!(working_memory.present.world_fragments.len(), 1);
+    let fragment = &working_memory.present.world_fragments[0];
+    assert_eq!(fragment.record_id, live_record.record_ids[0]);
+    assert_eq!(fragment.trace.matched_query, "live retrieval fallback");
+}
+
+#[test]
+fn assembler_prefers_explicit_integrated_results_over_snapshot_backed_world_model() {
+    let path = fresh_db_path("integrated-results-precede-snapshot");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/integrated-results-precede-snapshot".to_string(),
+            source_label: Some("integrated-results-precede-snapshot".to_string()),
+            source_kind: Some(SourceKind::Note),
+            content: "persisted snapshot should stay lower-precedence than explicit evidence"
+                .to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:11:03Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("snapshot precedence ingest should succeed");
+    let integrated_record = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/integrated-results-precede-snapshot-live".to_string(),
+            source_label: Some("integrated-results-precede-snapshot-live".to_string()),
+            source_kind: Some(SourceKind::Note),
+            content: "explicit integrated evidence must outrank the persisted snapshot".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Observation,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:11:04Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("integrated precedence ingest should succeed");
+
+    let snapshot_result = SearchService::new(db.conn())
+        .search(&SearchRequest::new("persisted snapshot").with_limit(1))
+        .expect("snapshot search should succeed")
+        .results
+        .into_iter()
+        .next()
+        .expect("snapshot result should exist");
+    persist_current_world_model_snapshot(
+        db.conn(),
+        "subject://agent/integrated-precedence",
+        snapshot_result,
+        "world-model-snapshot-runtime-002",
+    );
+
+    let mut integrated_result = SearchService::new(db.conn())
+        .search(&SearchRequest::new("explicit integrated evidence").with_limit(1))
+        .expect("integrated search should succeed")
+        .results
+        .into_iter()
+        .next()
+        .expect("integrated result should exist");
+    integrated_result.snippet = "explicit integrated snippet outranks snapshot".to_string();
+
+    let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
+        .assemble(
+            &WorkingMemoryRequest::new("   ")
+                .with_subject_ref("subject://agent/integrated-precedence")
+                .with_integrated_results(vec![integrated_result]),
+        )
+        .expect("assembly should prefer explicit integrated results");
+
+    assert_eq!(
+        working_memory
+            .present
+            .world_fragments
+            .iter()
+            .map(|fragment| fragment.record_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![integrated_record.record_ids[0].as_str()],
+        "explicit integrated results should remain higher-precedence than the persisted current world model"
+    );
+    assert_eq!(
+        working_memory.present.world_fragments[0].snippet,
+        "explicit integrated snippet outranks snapshot"
+    );
+}
+
+#[test]
+fn snapshot_backed_world_fragments_remain_compatible_with_branch_materialization() {
+    let path = fresh_db_path("snapshot-backed-branch-compatibility");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+
+    let snapshot_record = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/snapshot-backed-branch-compatibility".to_string(),
+            source_label: Some("snapshot-backed-branch-compatibility".to_string()),
+            source_kind: Some(SourceKind::Note),
+            content: "snapshot-backed fragments must still support downstream branches".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-16T11:11:05Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("snapshot-backed branch ingest should succeed");
+
+    let mut snapshot_result = SearchService::new(db.conn())
+        .search(&SearchRequest::new("snapshot-backed fragments").with_limit(1))
+        .expect("search should succeed")
+        .results
+        .into_iter()
+        .next()
+        .expect("snapshot result should exist");
+    snapshot_result.snippet = "snapshot-backed branch fragment".to_string();
+    let expected_world_model = persist_current_world_model_snapshot(
+        db.conn(),
+        "subject://agent/snapshot-branch",
+        snapshot_result,
+        "world-model-snapshot-runtime-003",
+    );
+
+    let working_memory = WorkingMemoryAssembler::new(db.conn(), TestSelfStateProvider)
+        .assemble(
+            &WorkingMemoryRequest::new("ignore live retrieval in favor of the snapshot")
+                .with_subject_ref("subject://agent/snapshot-branch")
+                .with_action_seed(ActionSeed::new(ActionCandidate::new(
+                    ActionKind::Epistemic,
+                    "review the snapshot-backed evidence",
+                ))),
+        )
+        .expect("snapshot-backed fragments should remain compatible with branch materialization");
+
+    assert_eq!(
+        working_memory.present.world_fragments,
+        expected_world_model.project_fragments()
+    );
+    assert_eq!(working_memory.branches.len(), 1);
+    assert_eq!(
+        working_memory.branches[0].supporting_evidence, working_memory.present.world_fragments,
+        "default branch support should continue to consume outward world_fragments even when they come from the snapshot-backed runtime read model"
+    );
+    assert_eq!(
+        working_memory.branches[0].supporting_evidence[0].record_id,
+        snapshot_record.record_ids[0]
     );
 }
 

@@ -231,3 +231,95 @@
 - Store dedicated world-model snapshot DTOs behind the repository seam
 - Preserve citation, truth, DSL, trace, and score metadata inside `fragments_json`
 - Keep the change internal to cognition/repository/schema layers while preserving outward working-memory compatibility
+
+---
+
+## Scenario: World-Model Runtime Read Model From Snapshot
+
+### 1. Scope / Trigger
+
+- Trigger: Phase 10 added durable snapshot persistence, but runtime working-memory assembly still always reconstructed world state from live retrieval. This phase bridges persisted `"current"` snapshots back into the assembly path.
+- Why this needs code-spec depth: the change introduces a runtime read-model helper, a precedence-resolving dispatch inside `WorkingMemoryAssembler`, truth rehydration from snapshot fragments, and explicit precedence rules that must remain deterministic across sessions.
+
+### 2. Signatures
+
+- `src/cognition/world_model.rs`
+  - `CURRENT_WORLD_KEY: &str = "current"`
+  - `load_runtime_current_world_model(repository, subject_ref) -> Result<Option<ProjectedWorldModel>, RepositoryError>`
+- `src/cognition/assembly.rs`
+  - `WorkingMemoryAssembler::resolve_world_model(&self, request) -> Result<(ProjectedWorldModel, Vec<TruthRecord>), WorkingMemoryAssemblyError>`
+  - `WorkingMemoryAssembler::project_live_world_model(&self, request) -> Result<(ProjectedWorldModel, Vec<TruthRecord>), WorkingMemoryAssemblyError>`
+  - `WorkingMemoryAssembler::load_truths_for_world_model(&self, world_model) -> Result<Vec<TruthRecord>, WorkingMemoryAssemblyError>`
+
+### 3. Contracts
+
+#### Precedence contract
+
+- When `integrated_results` is non-empty, assembly uses live retrieval (the snapshot path is skipped entirely).
+- When `integrated_results` is empty and `subject_ref` is present and a `"current"` snapshot exists for that subject, assembly uses the snapshot-backed `ProjectedWorldModel`.
+- When `integrated_results` is empty and no snapshot exists, assembly falls back to live retrieval unchanged.
+- This precedence is three-tier: explicit integrated results > snapshot-backed current world model > live retrieval.
+
+#### Snapshot read-model contract
+
+- `load_runtime_current_world_model` loads the snapshot keyed by `subject_ref + "current"` and reconstructs `ProjectedWorldModel` via `from_snapshot`.
+- The reconstructed model must produce identical `project_fragments()` output to the original pre-persisted projection.
+
+#### Truth rehydration contract
+
+- Snapshot-backed assembly rehydrates `TruthRecord`s from the repository using each fragment's `record_id`.
+- Deduplication is by `record_id` using a `BTreeSet`.
+- If a truth record is missing, assembly fails with `MissingTruthProjection` — the same error as the live path.
+
+#### Outward compatibility
+
+- `WorkingMemory.present.world_fragments` remains `Vec<EvidenceFragment>` regardless of which world-model source was used.
+- Self-model projection, action branches, skill seeds, and downstream consumers are unaffected.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| `integrated_results` non-empty | Live retrieval path used; snapshot ignored |
+| `integrated_results` empty, `subject_ref` present, `"current"` snapshot exists | Snapshot-backed assembly |
+| `integrated_results` empty, no `subject_ref` | Live retrieval |
+| `integrated_results` empty, `subject_ref` present, no snapshot | Live retrieval fallback |
+| Snapshot fragment references a missing truth record | `MissingTruthProjection` error |
+| Snapshot fragment has duplicate `record_id`s | Deduplicated; each truth loaded once |
+
+### 5. Good / Base / Bad Cases
+
+- Good:
+  - Three-tier precedence keeps explicit caller data authoritative.
+  - Truth rehydration reuses the same repository seam as live assembly.
+  - `project_fragments()` produces identical output regardless of source.
+- Base:
+  - No `subject_ref` or no snapshot means zero behavior change from the live path.
+- Bad:
+  - Loading snapshot fragments directly into `EvidenceFragment` without truth rehydration.
+  - Letting snapshot-backed fragments skip the `project_fragments()` bridge.
+  - Adding a second world-model source without documenting precedence rules.
+
+### 6. Tests Required
+
+- `tests/world_model_projection.rs`
+  - Assert `load_runtime_current_world_model` round-trips through snapshot persistence and reconstructs an equal `ProjectedWorldModel`.
+- `tests/working_memory_assembly.rs`
+  - Assert snapshot-backed assembly produces correct `world_fragments`.
+  - Assert live retrieval fallback when no snapshot exists.
+  - Assert explicit integrated results outrank snapshot-backed world state.
+  - Assert snapshot-backed fragments remain compatible with branch materialization and self-state projection.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Bypass `resolve_world_model` and load the snapshot inside the main `assemble` body without precedence checks.
+- Skip truth rehydration for snapshot-backed fragments, leaving `self_state` incomplete.
+- Add a new outward field on `PresentFrame` to distinguish snapshot vs live sources.
+
+#### Correct
+
+- Dispatch through `resolve_world_model` with three-tier precedence.
+- Rehydrate truths from the repository using snapshot fragment `record_id`s.
+- Keep the outward `world_fragments` contract identical regardless of source.

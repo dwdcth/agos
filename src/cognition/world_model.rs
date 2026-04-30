@@ -6,10 +6,11 @@ use crate::{
         dsl::FlatFactDslRecordV1,
         record::Provenance,
         repository::{
-            PersistedWorldModelAppliedFilters, PersistedWorldModelChannelContribution,
-            PersistedWorldModelCitation, PersistedWorldModelCitationAnchor,
-            PersistedWorldModelQueryStrategy, PersistedWorldModelScore, PersistedWorldModelTrace,
-            PersistedWorldModelTruthContext,
+            MemoryRepository, PersistedWorldModelAppliedFilters,
+            PersistedWorldModelChannelContribution, PersistedWorldModelCitation,
+            PersistedWorldModelCitationAnchor, PersistedWorldModelQueryStrategy,
+            PersistedWorldModelScore, PersistedWorldModelTrace, PersistedWorldModelTruthContext,
+            RepositoryError,
         },
         truth::TruthRecord,
     },
@@ -23,6 +24,8 @@ pub use crate::memory::repository::{
     PersistedWorldModelSnapshot as WorldModelSnapshot,
     PersistedWorldModelSnapshotFragment as WorldModelSnapshotFragment,
 };
+
+pub const CURRENT_WORLD_KEY: &str = "current";
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct ProjectedWorldModel {
@@ -74,6 +77,15 @@ impl ProjectedWorldModel {
             updated_at: updated_at.into(),
         }
     }
+}
+
+pub fn load_runtime_current_world_model(
+    repository: &MemoryRepository<'_>,
+    subject_ref: &str,
+) -> Result<Option<ProjectedWorldModel>, RepositoryError> {
+    repository
+        .load_world_model_snapshot(subject_ref, CURRENT_WORLD_KEY)
+        .map(|snapshot| snapshot.map(|snapshot| ProjectedWorldModel::from_snapshot(&snapshot)))
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
