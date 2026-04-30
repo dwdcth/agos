@@ -1737,7 +1737,7 @@ fn assembler_preserves_explicit_persisted_self_model_seam() {
 }
 
 #[test]
-fn assembler_loads_consumed_subject_skill_templates_additively() {
+fn assembler_loads_active_consumed_skill_template_winners_additively() {
     let path = fresh_db_path("persisted-skill-template-runtime-read-model");
     let db = Database::open(&path).expect("database should open");
     let ingest = IngestService::new(db.conn());
@@ -1826,15 +1826,33 @@ fn assembler_loads_consumed_subject_skill_templates_additively() {
         "load the consumed persisted template",
         &persisted_support,
     );
+    let superseded_template = build_persisted_template(
+        "persisted-consumed-template",
+        "older duplicate consumed template should stay inactive",
+        &persisted_support,
+    );
+
+    let mut older_duplicate = persisted_skill_template_candidate(
+        "lpq:subject-a:consumed:older",
+        subject_ref,
+        RuminationCandidateStatus::Consumed,
+        "2026-04-29T09:09:00Z",
+        &superseded_template,
+    );
+    older_duplicate.updated_at = "2026-04-29T09:09:00Z".to_string();
+
+    let mut consumed_winner = persisted_skill_template_candidate(
+        "lpq:subject-a:consumed:winner",
+        subject_ref,
+        RuminationCandidateStatus::Consumed,
+        "2026-04-29T09:10:00Z",
+        &consumed_template,
+    );
+    consumed_winner.updated_at = "2026-04-29T09:15:00Z".to_string();
 
     for candidate in [
-        persisted_skill_template_candidate(
-            "lpq:subject-a:consumed",
-            subject_ref,
-            RuminationCandidateStatus::Consumed,
-            "2026-04-29T09:10:00Z",
-            &consumed_template,
-        ),
+        older_duplicate,
+        consumed_winner,
         persisted_skill_template_candidate(
             "lpq:subject-a:pending",
             subject_ref,
@@ -1938,6 +1956,12 @@ fn assembler_loads_consumed_subject_skill_templates_additively() {
             .iter()
             .all(|branch| !branch.candidate.summary.contains("do not load")),
         "pending, rejected, archived, and non-subject candidates must stay inactive"
+    );
+    assert!(
+        working_memory.branches.iter().all(|branch| {
+            branch.candidate.summary != "older duplicate consumed template should stay inactive"
+        }),
+        "duplicate consumed candidates should resolve through the active read model before branch projection"
     );
 }
 

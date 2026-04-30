@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for verification."}
+{"file": ".trellis/spec/backend/skill-memory-contracts.md", "reason": "Verify active read-model aggregation and runtime merge contracts."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality checklist for code review."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared verification guide index."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check data flow across consumed candidate loading, read-model aggregation, and runtime assembly."}

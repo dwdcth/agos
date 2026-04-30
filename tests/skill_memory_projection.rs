@@ -11,7 +11,8 @@ use agent_memos::{
         },
         skill_memory::{
             ActionTemplate, Boundaries, ExpectedOutcome, Preconditions, SkillMemoryTemplate,
-            SkillMemoryTemplateDecodeError, merge_runtime_skill_templates,
+            SkillMemoryTemplateDecodeError, load_runtime_skill_templates_for_subject,
+            merge_runtime_skill_templates,
         },
     },
     core::db::Database,
@@ -19,8 +20,8 @@ use agent_memos::{
     memory::{
         record::{RecordType, Scope, TruthLayer},
         repository::{
-            PersistedSkillMemoryTemplateCandidate, RuminationCandidate, RuminationCandidateKind,
-            RuminationCandidateStatus, SKILL_TEMPLATE_PAYLOAD_VERSION,
+            MemoryRepository, PersistedSkillMemoryTemplateCandidate, RuminationCandidate,
+            RuminationCandidateKind, RuminationCandidateStatus, SKILL_TEMPLATE_PAYLOAD_VERSION,
         },
     },
 };
@@ -60,6 +61,37 @@ fn ingest_record(
         .expect("ingest should succeed")
         .record_ids[0]
         .clone()
+}
+
+fn persisted_skill_template_candidate(
+    candidate_id: &str,
+    subject_ref: &str,
+    status: RuminationCandidateStatus,
+    created_at: &str,
+    updated_at: &str,
+    template: &SkillMemoryTemplate,
+) -> RuminationCandidate {
+    RuminationCandidate {
+        candidate_id: candidate_id.to_string(),
+        source_queue_item_id: Some(format!("lpq:{candidate_id}")),
+        candidate_kind: RuminationCandidateKind::SkillTemplate,
+        subject_ref: subject_ref.to_string(),
+        payload: serde_json::to_value(template.to_candidate_payload(
+            "evidence_accumulation",
+            json!({
+                "decision": {
+                    "selected_branch": template.action.summary.clone(),
+                }
+            }),
+            template.boundaries.supporting_record_ids.len(),
+        ))
+        .expect("skill template payload should serialize"),
+        evidence_refs: template.boundaries.supporting_record_ids.clone(),
+        governance_ref_id: None,
+        status,
+        created_at: created_at.to_string(),
+        updated_at: updated_at.to_string(),
+    }
 }
 
 #[test]
@@ -344,6 +376,137 @@ fn runtime_skill_template_merge_preserves_explicit_templates_and_adds_unique_per
     assert_eq!(
         merged[1].action.summary,
         "add the consumed persisted template"
+    );
+}
+
+#[test]
+fn runtime_skill_template_load_dedupes_consumed_candidates_by_template_id() {
+    let path = fresh_db_path("runtime-skill-template-read-model-dedupe");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+    let subject_ref = "subject://agent/runtime-dedupe";
+
+    let mut older = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "older consumed template should lose",
+        ),
+    );
+    older.expected_outcome = ExpectedOutcome::from_effect("older effect");
+
+    let mut newer = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "newer consumed template should win",
+        ),
+    );
+    newer.expected_outcome = ExpectedOutcome::from_effect("newer effect");
+
+    let unique = SkillMemoryTemplate::new(
+        "unique-template",
+        ActionTemplate::new(
+            ActionKind::Regulative,
+            "unique consumed template stays active",
+        ),
+    );
+
+    for candidate in [
+        persisted_skill_template_candidate(
+            "lpq:runtime:older",
+            subject_ref,
+            RuminationCandidateStatus::Consumed,
+            "2026-04-30T09:00:00Z",
+            "2026-04-30T09:00:00Z",
+            &older,
+        ),
+        persisted_skill_template_candidate(
+            "lpq:runtime:newer",
+            subject_ref,
+            RuminationCandidateStatus::Consumed,
+            "2026-04-30T09:01:00Z",
+            "2026-04-30T09:05:00Z",
+            &newer,
+        ),
+        persisted_skill_template_candidate(
+            "lpq:runtime:unique",
+            subject_ref,
+            RuminationCandidateStatus::Consumed,
+            "2026-04-30T09:02:00Z",
+            "2026-04-30T09:02:00Z",
+            &unique,
+        ),
+    ] {
+        repository
+            .insert_rumination_candidate(&candidate)
+            .expect("candidate should insert");
+    }
+
+    let active_templates = load_runtime_skill_templates_for_subject(&repository, subject_ref)
+        .expect("runtime templates should load from the active read model");
+
+    assert_eq!(active_templates.len(), 2);
+    assert_eq!(active_templates[0].template_id, "shared-template");
+    assert_eq!(
+        active_templates[0].action.summary,
+        "newer consumed template should win"
+    );
+    assert_eq!(active_templates[1].template_id, "unique-template");
+}
+
+#[test]
+fn runtime_skill_template_load_breaks_updated_at_ties_with_candidate_id() {
+    let path = fresh_db_path("runtime-skill-template-read-model-tiebreak");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+    let subject_ref = "subject://agent/runtime-tiebreak";
+
+    let lower_candidate = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "lower candidate id should lose the tie",
+        ),
+    );
+    let higher_candidate = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "higher candidate id should win the tie",
+        ),
+    );
+
+    for candidate in [
+        persisted_skill_template_candidate(
+            "lpq:runtime:001",
+            subject_ref,
+            RuminationCandidateStatus::Consumed,
+            "2026-04-30T10:00:00Z",
+            "2026-04-30T10:05:00Z",
+            &lower_candidate,
+        ),
+        persisted_skill_template_candidate(
+            "lpq:runtime:999",
+            subject_ref,
+            RuminationCandidateStatus::Consumed,
+            "2026-04-30T10:01:00Z",
+            "2026-04-30T10:05:00Z",
+            &higher_candidate,
+        ),
+    ] {
+        repository
+            .insert_rumination_candidate(&candidate)
+            .expect("candidate should insert");
+    }
+
+    let active_templates = load_runtime_skill_templates_for_subject(&repository, subject_ref)
+        .expect("runtime templates should load from the active read model");
+
+    assert_eq!(active_templates.len(), 1);
+    assert_eq!(
+        active_templates[0].action.summary,
+        "higher candidate id should win the tie"
     );
 }
 

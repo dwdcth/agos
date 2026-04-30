@@ -285,6 +285,10 @@
 #### Single-path projection contract
 
 - Persisted runtime templates must reconstruct into ordinary `SkillMemoryTemplate` values first.
+- Persisted consumed candidates must first compact into an explicit active read model keyed by `template_id` within the current `subject_ref`.
+- The active read model resolves duplicate logical templates by latest-wins ordering:
+  - later `updated_at`
+  - then later `candidate_id`
 - Repository-loaded templates must flow through `WorkingMemoryRequest.skill_templates`.
 - Branch materialization stays single-path:
   - `SkillMemoryTemplate -> ActionSeed -> ActionBranch`
@@ -301,6 +305,7 @@
 | Condition | Expected behavior |
 | --- | --- |
 | Subject has one consumed `skill_template` candidate | Assembly loads it into runtime `skill_templates` and projects it through the ordinary skill path |
+| Subject has multiple consumed `skill_template` candidates with the same `template_id` | Runtime loading resolves them through the active read model and keeps only the latest winner by `updated_at`, then `candidate_id` |
 | Subject has pending / rejected / archived `skill_template` candidates | They remain inactive and produce no branches |
 | Another subject has consumed `skill_template` candidates | They are ignored |
 | Request already carries explicit `skill_templates` | Explicit templates remain present and persisted consumed templates merge additively |
@@ -311,9 +316,11 @@
 - `tests/memory_repository_store.rs`
   - Assert runtime helper filters by `status = consumed` and `subject_ref`
 - `tests/skill_memory_projection.rs`
+  - Assert consumed duplicate candidates for the same `template_id` collapse to one runtime template
+  - Assert equal-`updated_at` duplicates break ties by `candidate_id`
   - Assert runtime merge preserves explicit templates and adds unique persisted templates
 - `tests/working_memory_assembly.rs`
-  - Assert assembly loads consumed subject-scoped templates, ignores inactive statuses, and still produces ordinary `ActionBranch` values
+  - Assert assembly loads the active winner for duplicate consumed templates, ignores inactive statuses, and still produces ordinary `ActionBranch` values
 
 ### 6. Good / Base / Bad Cases
 

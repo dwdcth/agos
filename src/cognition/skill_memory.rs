@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::cognition::{
     action::{ActionCandidate, ActionKind, ActionSource},
@@ -258,16 +258,55 @@ impl SkillMemoryTemplate {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct ActiveSkillTemplateReadModel {
+    active_candidates: Vec<PersistedSkillMemoryTemplateCandidate>,
+}
+
+impl ActiveSkillTemplateReadModel {
+    fn from_consumed_candidates(
+        consumed_candidates: Vec<PersistedSkillMemoryTemplateCandidate>,
+    ) -> Self {
+        let mut winners_by_template_id =
+            BTreeMap::<String, PersistedSkillMemoryTemplateCandidate>::new();
+
+        for candidate in consumed_candidates {
+            let template_id = candidate.payload.template_id.clone();
+            let should_replace = winners_by_template_id
+                .get(&template_id)
+                .is_none_or(|current| {
+                    runtime_candidate_cursor(&candidate) > runtime_candidate_cursor(current)
+                });
+
+            if should_replace {
+                winners_by_template_id.insert(template_id, candidate);
+            }
+        }
+
+        Self {
+            active_candidates: winners_by_template_id.into_values().collect(),
+        }
+    }
+
+    fn into_skill_templates(
+        self,
+    ) -> Result<Vec<SkillMemoryTemplate>, SkillMemoryTemplateDecodeError> {
+        self.active_candidates
+            .iter()
+            .map(SkillMemoryTemplate::from_rumination_candidate)
+            .collect()
+    }
+}
+
 pub fn load_runtime_skill_templates_for_subject(
     repository: &MemoryRepository<'_>,
     subject_ref: &str,
 ) -> Result<Vec<SkillMemoryTemplate>, RuntimeSkillTemplateLoadError> {
-    repository
-        .list_consumed_skill_template_candidates_for_subject(subject_ref)?
-        .iter()
-        .map(SkillMemoryTemplate::from_rumination_candidate)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Into::into)
+    ActiveSkillTemplateReadModel::from_consumed_candidates(
+        repository.list_consumed_skill_template_candidates_for_subject(subject_ref)?,
+    )
+    .into_skill_templates()
+    .map_err(Into::into)
 }
 
 pub fn merge_runtime_skill_templates(
@@ -318,6 +357,13 @@ fn contains_all(values: &[String], required_values: &[String]) -> bool {
     required_values
         .iter()
         .all(|required| values.iter().any(|value| value == required))
+}
+
+fn runtime_candidate_cursor(candidate: &PersistedSkillMemoryTemplateCandidate) -> (&str, &str) {
+    (
+        candidate.candidate.updated_at.as_str(),
+        candidate.candidate.candidate_id.as_str(),
+    )
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
