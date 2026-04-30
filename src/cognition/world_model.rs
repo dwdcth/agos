@@ -1,7 +1,15 @@
-use serde::Serialize;
+use std::future::Future;
+use std::pin::Pin;
+
+use rig::{client::CompletionClient, completion::TypedPrompt, providers::openai};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
+    cognition::action::ActionCandidate,
     cognition::working_memory::{EvidenceFragment, TruthContext},
+    core::config::RootLlmConfig,
     memory::{
         dsl::FlatFactDslRecordV1,
         record::Provenance,
@@ -346,5 +354,560 @@ fn restore_score(score: &PersistedWorldModelScore) -> ScoreBreakdown {
         recency_bonus: score.recency_bonus,
         attention_bonus: score.attention_bonus,
         final_score: score.final_score,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// World model prediction / simulation
+// ---------------------------------------------------------------------------
+
+/// Direction of a predicted change to a world fragment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeDirection {
+    Strengthened,
+    Weakened,
+    Invalidated,
+    Unchanged,
+    NewRisk,
+}
+
+/// A single predicted change to a world fragment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PredictedFragmentChange {
+    pub record_id: String,
+    pub change_description: String,
+    pub change_direction: ChangeDirection,
+}
+
+/// Severity level for a predicted risk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PredictedSeverity {
+    Low,
+    Medium,
+    High,
+}
+
+/// A predicted risk emerging from the simulation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PredictedRisk {
+    pub description: String,
+    pub severity: PredictedSeverity,
+}
+
+/// The result of simulating an action against the current world state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PredictedWorldSlice {
+    pub affected_fragments: Vec<PredictedFragmentChange>,
+    pub new_risks: Vec<PredictedRisk>,
+    /// Delta in uncertainty: negative means less uncertain, positive means more.
+    pub uncertainty_delta: f32,
+    pub overall_assessment: String,
+}
+
+/// Complete simulation result combining the predicted slice with confidence metadata.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SimulationResult {
+    pub predicted: PredictedWorldSlice,
+    /// Confidence of the prediction, between 0.0 and 1.0.
+    pub confidence: f32,
+    pub action_summary: String,
+}
+
+#[derive(Debug, Error)]
+pub enum SimulationError {
+    #[error("{0}")]
+    LlmUnconfigured(String),
+    #[error("{0}")]
+    LlmRequestFailed(String),
+}
+
+/// Structured output schema for the LLM simulation response.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SimulationStructuredOutput {
+    pub affected_fragments: Vec<PredictedFragmentChange>,
+    pub new_risks: Vec<PredictedRisk>,
+    pub uncertainty_delta: f32,
+    pub overall_assessment: String,
+    pub confidence: f32,
+}
+
+impl SimulationStructuredOutput {
+    pub fn into_simulation_result(self, action_summary: String) -> SimulationResult {
+        SimulationResult {
+            predicted: PredictedWorldSlice {
+                affected_fragments: self.affected_fragments,
+                new_risks: self.new_risks,
+                uncertainty_delta: self.uncertainty_delta,
+                overall_assessment: self.overall_assessment,
+            },
+            confidence: self.confidence,
+            action_summary,
+        }
+    }
+}
+
+const SIMULATION_PREAMBLE: &str = concat!(
+    "You predict the consequences of an action on a world model. ",
+    "Given current world fragments and an action description, predict which fragments ",
+    "are affected, what new risks emerge, and how uncertainty changes. ",
+    "Be concise and factual. Do not invent information. ",
+    "Return structured JSON only."
+);
+
+/// Trait abstracting the LLM backend for world simulation.
+pub trait RigWorldSimulationBackend: Send + Sync {
+    fn complete<'a>(
+        &'a self,
+        prompt: String,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<SimulationStructuredOutput, SimulationError>> + Send + 'a>,
+    >;
+}
+
+/// OpenAI-compatible LLM backend for world simulation (same pattern as RigSummaryBackend).
+#[derive(Debug, Clone)]
+pub struct OpenAiCompatibleSimulationBackend {
+    config: RootLlmConfig,
+}
+
+impl OpenAiCompatibleSimulationBackend {
+    pub fn new(config: RootLlmConfig) -> Self {
+        Self { config }
+    }
+}
+
+impl RigWorldSimulationBackend for OpenAiCompatibleSimulationBackend {
+    fn complete<'a>(
+        &'a self,
+        prompt: String,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<SimulationStructuredOutput, SimulationError>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            if !self.config.is_configured() {
+                return Err(SimulationError::LlmUnconfigured(
+                    "llm config is incomplete for world simulation".to_string(),
+                ));
+            }
+
+            if self.config.provider != "openai" {
+                return Err(SimulationError::LlmUnconfigured(format!(
+                    "unsupported world simulation provider: {}",
+                    self.config.provider
+                )));
+            }
+
+            let api_key = self.config.api_key.as_deref().ok_or_else(|| {
+                SimulationError::LlmUnconfigured("missing api_key for world simulation".to_string())
+            })?;
+
+            let mut builder = openai::Client::builder().api_key(api_key);
+            if let Some(api_base) = self.config.api_base.as_deref() {
+                builder = builder.base_url(api_base);
+            }
+
+            let client = builder.build().map_err(|error| {
+                SimulationError::LlmRequestFailed(format!(
+                    "failed to build openai-compatible rig client: {error}"
+                ))
+            })?;
+
+            let mut agent = client
+                .agent(self.config.model.clone())
+                .preamble(SIMULATION_PREAMBLE);
+            if let Some(temperature) = self.config.temperature {
+                agent = agent.temperature(f64::from(temperature));
+            }
+            if let Some(max_tokens) = self.config.max_tokens {
+                agent = agent.max_tokens(u64::from(max_tokens));
+            }
+
+            agent
+                .build()
+                .prompt_typed::<SimulationStructuredOutput>(prompt)
+                .await
+                .map_err(|error| {
+                    SimulationError::LlmRequestFailed(format!(
+                        "rig world simulation request failed: {error}"
+                    ))
+                })
+        })
+    }
+}
+
+/// High-level simulator that uses an LLM backend to predict action consequences.
+#[derive(Debug, Clone)]
+pub struct WorldSimulator<B> {
+    backend: B,
+}
+
+impl<B> WorldSimulator<B> {
+    pub fn new(backend: B) -> Self {
+        Self { backend }
+    }
+}
+
+impl WorldSimulator<OpenAiCompatibleSimulationBackend> {
+    pub fn from_llm_config(config: RootLlmConfig) -> Self {
+        Self::new(OpenAiCompatibleSimulationBackend::new(config))
+    }
+}
+
+impl<B> WorldSimulator<B>
+where
+    B: RigWorldSimulationBackend,
+{
+    /// Run simulation asynchronously.
+    pub async fn simulate_async(
+        &self,
+        world_fragments: &[WorldFragmentProjection],
+        action: &ActionCandidate,
+    ) -> Result<SimulationResult, SimulationError> {
+        let prompt = build_simulation_prompt(world_fragments, action);
+        let action_summary = action.summary.clone();
+        let output = self.backend.complete(prompt).await?;
+        Ok(output.into_simulation_result(action_summary))
+    }
+
+    /// Run simulation synchronously using tokio runtime.
+    pub fn simulate(
+        &self,
+        world_fragments: &[WorldFragmentProjection],
+        action: &ActionCandidate,
+    ) -> Result<SimulationResult, SimulationError> {
+        let handle = tokio::runtime::Handle::current();
+        handle.block_on(self.simulate_async(world_fragments, action))
+    }
+}
+
+/// Build the prompt sent to the LLM for world simulation.
+pub fn build_simulation_prompt(
+    world_fragments: &[WorldFragmentProjection],
+    action: &ActionCandidate,
+) -> String {
+    let mut fragments_section = String::new();
+    for (i, fragment) in world_fragments.iter().enumerate() {
+        fragments_section.push_str(&format!(
+            "  [{}] record_id: {}\n       snippet: {}\n",
+            i + 1,
+            fragment.record_id,
+            fragment.snippet,
+        ));
+        if let Some(ref dsl) = fragment.dsl {
+            fragments_section.push_str(&format!("       dsl_claim: {}\n", dsl.claim));
+        }
+    }
+
+    let expected_effects = if action.expected_effects.is_empty() {
+        "  (none specified)".to_string()
+    } else {
+        action
+            .expected_effects
+            .iter()
+            .enumerate()
+            .map(|(i, effect)| format!("  {}. {effect}", i + 1))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let intent = action.intent.as_deref().unwrap_or("(not specified)");
+
+    format!(
+        concat!(
+            "Predict the consequences of the following action on the current world state.\n",
+            "\n",
+            "## Current World Fragments\n",
+            "{fragments}\n",
+            "## Action\n",
+            "kind: {kind}\n",
+            "summary: {summary}\n",
+            "intent: {intent}\n",
+            "expected_effects:\n{expected_effects}\n",
+            "\n",
+            "For each world fragment that would be affected, describe the change and direction.\n",
+            "Identify any new risks that could emerge.\n",
+            "Estimate the uncertainty delta (negative = less uncertain, positive = more).\n",
+            "Provide an overall assessment and your confidence (0.0 to 1.0).\n"
+        ),
+        fragments = fragments_section,
+        kind = action.kind.as_str(),
+        summary = action.summary,
+        intent = intent,
+        expected_effects = expected_effects,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+    use crate::cognition::action::ActionKind;
+    use crate::memory::dsl::FlatFactDslRecordV1;
+    use crate::memory::record::{ChunkAnchor, Provenance, SourceKind, TruthLayer, ValidityWindow};
+    use crate::search::{Citation, CitationAnchor, ScoreBreakdown};
+
+    fn sample_fragment(record_id: &str, snippet: &str) -> WorldFragmentProjection {
+        WorldFragmentProjection {
+            record_id: record_id.to_string(),
+            snippet: snippet.to_string(),
+            citation: Citation {
+                record_id: record_id.to_string(),
+                source_uri: format!("memo://test/{record_id}"),
+                source_kind: SourceKind::Note,
+                source_label: Some("test".to_string()),
+                recorded_at: "2026-04-30T00:00:00Z".to_string(),
+                validity: ValidityWindow {
+                    valid_from: Some("2026-04-30T00:00:00Z".to_string()),
+                    valid_to: None,
+                },
+                anchor: CitationAnchor {
+                    chunk_index: 0,
+                    chunk_count: 1,
+                    anchor: ChunkAnchor::LineRange {
+                        start_line: 1,
+                        end_line: 3,
+                    },
+                },
+            },
+            provenance: Provenance {
+                origin: "test".to_string(),
+                imported_via: None,
+                derived_from: Vec::new(),
+            },
+            truth_context: crate::cognition::working_memory::TruthContext {
+                truth_layer: TruthLayer::T2,
+                t3_state: None,
+                open_review_ids: Vec::new(),
+                open_candidate_ids: Vec::new(),
+            },
+            dsl: None,
+            trace: crate::search::ResultTrace {
+                matched_query: "test".to_string(),
+                query_strategies: Vec::new(),
+                channel_contribution: ChannelContribution::LexicalOnly,
+                applied_filters: AppliedFilters::default(),
+                attention: None,
+            },
+            score: ScoreBreakdown {
+                lexical_raw: 0.0,
+                lexical_base: 0.0,
+                keyword_bonus: 0.0,
+                importance_bonus: 0.0,
+                recency_bonus: 0.0,
+                attention_bonus: 0.0,
+                final_score: 0.0,
+            },
+        }
+    }
+
+    fn sample_fragment_with_dsl(
+        record_id: &str,
+        snippet: &str,
+        claim: &str,
+    ) -> WorldFragmentProjection {
+        let mut fragment = sample_fragment(record_id, snippet);
+        fragment.dsl = Some(FlatFactDslRecordV1 {
+            domain: "project".to_string(),
+            topic: "world_model".to_string(),
+            aspect: "state".to_string(),
+            kind: "decision".to_string(),
+            claim: claim.to_string(),
+            truth_layer: "t2".to_string(),
+            source_ref: format!("memo://test/{record_id}"),
+            why: None,
+            time: None,
+            cond: None,
+            impact: None,
+            conf: None,
+            rel: None,
+        });
+        fragment
+    }
+
+    #[test]
+    fn simulation_prompt_includes_world_fragments_and_action() {
+        let fragments = vec![
+            sample_fragment_with_dsl(
+                "r1",
+                "baseline is lexical search",
+                "lexical search is stable",
+            ),
+            sample_fragment("r2", "embedding index is empty"),
+        ];
+        let action = ActionCandidate::new(ActionKind::Epistemic, "switch to embedding search")
+            .with_intent("improve recall quality for semantic queries");
+
+        let prompt = build_simulation_prompt(&fragments, &action);
+
+        assert!(prompt.contains("record_id: r1"));
+        assert!(prompt.contains("snippet: baseline is lexical search"));
+        assert!(prompt.contains("dsl_claim: lexical search is stable"));
+        assert!(prompt.contains("record_id: r2"));
+        assert!(prompt.contains("snippet: embedding index is empty"));
+        assert!(prompt.contains("kind: epistemic"));
+        assert!(prompt.contains("summary: switch to embedding search"));
+        assert!(prompt.contains("intent: improve recall quality for semantic queries"));
+        assert!(prompt.contains("uncertainty delta"));
+    }
+
+    #[test]
+    fn simulation_prompt_handles_empty_expected_effects() {
+        let fragments = vec![sample_fragment("r1", "some fact")];
+        let action = ActionCandidate::new(ActionKind::Instrumental, "deploy new index");
+
+        let prompt = build_simulation_prompt(&fragments, &action);
+
+        assert!(prompt.contains("(none specified)"));
+    }
+
+    #[test]
+    fn simulation_prompt_lists_expected_effects() {
+        let fragments = vec![sample_fragment("r1", "some fact")];
+        let mut action =
+            ActionCandidate::new(ActionKind::Regulative, "adjust retrieval parameters");
+        action.expected_effects.push("faster retrieval".to_string());
+        action.expected_effects.push("slower indexing".to_string());
+
+        let prompt = build_simulation_prompt(&fragments, &action);
+
+        assert!(prompt.contains("1. faster retrieval"));
+        assert!(prompt.contains("2. slower indexing"));
+    }
+
+    #[test]
+    fn simulation_prompt_uses_not_specified_when_intent_is_missing() {
+        let fragments = vec![sample_fragment("r1", "fragment")];
+        let action = ActionCandidate::new(ActionKind::Epistemic, "observe");
+
+        let prompt = build_simulation_prompt(&fragments, &action);
+
+        assert!(prompt.contains("intent: (not specified)"));
+    }
+
+    #[derive(Debug, Clone)]
+    struct StubSimulationBackend {
+        response: SimulationStructuredOutput,
+        prompt: Arc<Mutex<Option<String>>>,
+    }
+
+    impl RigWorldSimulationBackend for StubSimulationBackend {
+        fn complete<'a>(
+            &'a self,
+            prompt: String,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<SimulationStructuredOutput, SimulationError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            let slot = Arc::clone(&self.prompt);
+            let response = self.response.clone();
+            Box::pin(async move {
+                *slot.lock().expect("prompt slot should lock") = Some(prompt);
+                Ok(response)
+            })
+        }
+    }
+
+    fn stub_output() -> SimulationStructuredOutput {
+        SimulationStructuredOutput {
+            affected_fragments: vec![PredictedFragmentChange {
+                record_id: "r1".to_string(),
+                change_description: "lexical baseline may be replaced".to_string(),
+                change_direction: ChangeDirection::Weakened,
+            }],
+            new_risks: vec![PredictedRisk {
+                description: "recall regression during transition".to_string(),
+                severity: PredictedSeverity::Medium,
+            }],
+            uncertainty_delta: 0.2,
+            overall_assessment: "moderate risk of transition instability".to_string(),
+            confidence: 0.65,
+        }
+    }
+
+    #[tokio::test]
+    async fn world_simulator_returns_structured_result() {
+        let prompt = Arc::new(Mutex::new(None));
+        let output = stub_output();
+        let expected_action_summary = "switch to hybrid search".to_string();
+        let simulator = WorldSimulator::new(StubSimulationBackend {
+            response: output.clone(),
+            prompt: Arc::clone(&prompt),
+        });
+
+        let fragments = vec![sample_fragment("r1", "lexical baseline is active")];
+        let action = ActionCandidate::new(ActionKind::Epistemic, &expected_action_summary);
+
+        let result = simulator
+            .simulate_async(&fragments, &action)
+            .await
+            .expect("simulation should succeed");
+
+        assert_eq!(result.action_summary, expected_action_summary);
+        assert_eq!(result.confidence, 0.65);
+        assert_eq!(result.predicted.affected_fragments.len(), 1);
+        assert_eq!(result.predicted.affected_fragments[0].record_id, "r1");
+        assert_eq!(
+            result.predicted.affected_fragments[0].change_direction,
+            ChangeDirection::Weakened
+        );
+        assert_eq!(result.predicted.new_risks.len(), 1);
+        assert_eq!(
+            result.predicted.new_risks[0].severity,
+            PredictedSeverity::Medium
+        );
+        assert!((result.predicted.uncertainty_delta - 0.2).abs() < f32::EPSILON);
+
+        let captured_prompt = prompt
+            .lock()
+            .expect("prompt slot should lock")
+            .clone()
+            .expect("prompt should have been captured");
+        assert!(captured_prompt.contains("record_id: r1"));
+        assert!(captured_prompt.contains(&expected_action_summary));
+    }
+
+    #[test]
+    fn simulation_structured_output_converts_to_simulation_result() {
+        let output = stub_output();
+        let action_summary = "test action".to_string();
+        let result = output.into_simulation_result(action_summary.clone());
+
+        assert_eq!(result.action_summary, action_summary);
+        assert_eq!(result.confidence, 0.65);
+        assert_eq!(
+            result.predicted.overall_assessment,
+            "moderate risk of transition instability"
+        );
+        assert_eq!(result.predicted.affected_fragments.len(), 1);
+        assert_eq!(result.predicted.new_risks.len(), 1);
+    }
+
+    #[test]
+    fn predicted_world_slice_serialization_round_trip() {
+        let slice = PredictedWorldSlice {
+            affected_fragments: vec![PredictedFragmentChange {
+                record_id: "r1".to_string(),
+                change_description: "weakened".to_string(),
+                change_direction: ChangeDirection::Weakened,
+            }],
+            new_risks: vec![PredictedRisk {
+                description: "risk".to_string(),
+                severity: PredictedSeverity::High,
+            }],
+            uncertainty_delta: -0.3,
+            overall_assessment: "less uncertain".to_string(),
+        };
+
+        let json = serde_json::to_string(&slice).expect("should serialize");
+        let restored: PredictedWorldSlice =
+            serde_json::from_str(&json).expect("should deserialize");
+
+        assert_eq!(restored, slice);
     }
 }
