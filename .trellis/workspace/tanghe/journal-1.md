@@ -71,3 +71,36 @@ Implemented attention system as independent cognition Layer 5: AttentionState wi
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Value layer learnable weights
+
+**Date**: 2026-04-30
+**Task**: Value layer learnable weights
+**Branch**: `main`
+
+### Summary
+
+Added ValueAdjustment with apply_adjustment() (learning rate, clamping [0.05,0.60], renormalization). Rumination LPQ derives adjustments from action outcomes. Scoring port constructs from persisted adjustments. 13 new tests, new spec value-layer-contracts.md.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c1638af` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
