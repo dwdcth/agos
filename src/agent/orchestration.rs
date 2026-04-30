@@ -11,7 +11,7 @@ use crate::{
         assembly::{ActionSeed, SelfStateProvider, WorkingMemoryAssembler, WorkingMemoryRequest},
         metacog::MetacognitionService,
         report::DecisionReport,
-        value::{ScoredBranch, ValueConfig, ValueScorer, ValueVector},
+        value::{ScoredBranch, ValueAdjustment, ValueConfig, ValueScorer, ValueVector},
         working_memory::WorkingMemory,
     },
     core::config::Config,
@@ -390,6 +390,18 @@ impl WorkingMemoryScoringPort {
     pub fn new(config: ValueConfig) -> Self {
         Self {
             scorer: ValueScorer::new(config),
+        }
+    }
+
+    pub fn from_persisted_adjustments(
+        base_config: &ValueConfig,
+        adjustments: &[ValueAdjustment],
+        learning_rate: f32,
+    ) -> Self {
+        let adjusted =
+            ValueConfig::from_persisted_adjustments(base_config, adjustments, learning_rate);
+        Self {
+            scorer: ValueScorer::new(adjusted),
         }
     }
 }

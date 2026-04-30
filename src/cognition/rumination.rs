@@ -13,6 +13,7 @@ use crate::{
         skill_memory::{
             ActionTemplate, Boundaries, ExpectedOutcome, Preconditions, SkillMemoryTemplate,
         },
+        value::ValueAdjustment,
     },
     memory::{
         governance::{
@@ -1109,6 +1110,7 @@ fn derive_long_cycle_candidates(
         "active_risks": item.payload.get("active_risks").cloned().unwrap_or_else(|| json!([])),
         "metacog_flags": item.payload.get("metacog_flags").cloned().unwrap_or_else(|| json!([])),
         "source_report": source_report,
+        "adjustment": serde_json::to_value(derive_value_adjustment(item, &source_report))?,
     });
 
     Ok(vec![
@@ -1270,6 +1272,67 @@ fn metacog_flag_codes(value: Option<&Value>) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Derive a `ValueAdjustment` from the action outcome encoded in the rumination
+/// queue item and its source report.
+///
+/// When the selected action succeeded (gate decision is `Warning`, i.e. no veto,
+/// no escalation), the dimensions that were high for the selected action get a
+/// small positive delta. When the action failed (veto or escalation), those
+/// dimensions get a small negative delta. Dimensions with no signal remain at
+/// zero so they are not affected by the learning-rate multiplication.
+fn derive_value_adjustment(item: &RuminationQueueItem, source_report: &Value) -> ValueAdjustment {
+    let gate_decision = item
+        .payload
+        .get("gate_decision")
+        .and_then(Value::as_str)
+        .unwrap_or("warning");
+
+    let succeeded = !matches!(gate_decision, "soft_veto" | "hard_veto" | "escalate");
+    let sign: f32 = if succeeded { 1.0 } else { -1.0 };
+
+    let selected_value = source_report
+        .pointer("/decision/selected_branch/value")
+        .or_else(|| source_report.pointer("/selected_branch/value"));
+
+    let scale = 0.01f32;
+
+    match selected_value {
+        Some(value) => ValueAdjustment {
+            goal_progress: sign
+                * scale
+                * value
+                    .get("goal_progress")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0) as f32,
+            information_gain: sign
+                * scale
+                * value
+                    .get("information_gain")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0) as f32,
+            risk_avoidance: sign
+                * scale
+                * value
+                    .get("risk_avoidance")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0) as f32,
+            resource_efficiency: sign
+                * scale
+                * value
+                    .get("resource_efficiency")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0) as f32,
+            agent_robustness: sign
+                * scale
+                * value
+                    .get("agent_robustness")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0) as f32,
+        },
+        None => ValueAdjustment::zero(),
+    }
 }
 
 fn append_entries_from_object(
