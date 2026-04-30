@@ -324,6 +324,65 @@ fn sqlite_repository_lists_only_skill_template_candidates_and_filters_by_subject
 }
 
 #[test]
+fn sqlite_repository_lists_subject_skill_template_candidates_across_lifecycle_statuses() {
+    let path = fresh_db_path("skill-template-candidates-by-subject-statuses");
+    let db = Database::open(&path).expect("database should open");
+    let repo = MemoryRepository::new(db.conn());
+    let subject_ref = "task://subject-a";
+
+    let mut pending = sample_skill_template_candidate(
+        "lpq:subject-a:pending",
+        subject_ref,
+        "2026-04-28T12:20:00Z",
+    );
+    pending.status = RuminationCandidateStatus::Pending;
+
+    let mut consumed = sample_skill_template_candidate(
+        "lpq:subject-a:consumed",
+        subject_ref,
+        "2026-04-28T12:21:00Z",
+    );
+    consumed.status = RuminationCandidateStatus::Consumed;
+
+    let mut rejected = sample_skill_template_candidate(
+        "lpq:subject-a:rejected",
+        subject_ref,
+        "2026-04-28T12:22:00Z",
+    );
+    rejected.status = RuminationCandidateStatus::Rejected;
+
+    let mut archived = sample_skill_template_candidate(
+        "lpq:subject-a:archived",
+        subject_ref,
+        "2026-04-28T12:23:00Z",
+    );
+    archived.status = RuminationCandidateStatus::Archived;
+
+    for candidate in [&pending, &consumed, &rejected, &archived] {
+        repo.insert_rumination_candidate(candidate)
+            .expect("rumination candidate should insert");
+    }
+
+    let filtered = repo
+        .list_skill_template_candidates_for_subject(subject_ref)
+        .expect("subject-scoped skill template candidates should load");
+
+    assert_eq!(filtered.len(), 4);
+    assert_eq!(
+        filtered
+            .iter()
+            .map(|candidate| candidate.candidate.status)
+            .collect::<Vec<_>>(),
+        vec![
+            RuminationCandidateStatus::Pending,
+            RuminationCandidateStatus::Consumed,
+            RuminationCandidateStatus::Rejected,
+            RuminationCandidateStatus::Archived,
+        ]
+    );
+}
+
+#[test]
 fn sqlite_repository_rejects_legacy_placeholder_skill_template_candidates() {
     let path = fresh_db_path("legacy-skill-template-candidates");
     let db = Database::open(&path).expect("database should open");

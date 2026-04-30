@@ -9,7 +9,7 @@ use crate::memory::repository::{
     MemoryRepository, PersistedSkillMemoryTemplateAction, PersistedSkillMemoryTemplateBoundaries,
     PersistedSkillMemoryTemplateCandidate, PersistedSkillMemoryTemplateExpectedOutcome,
     PersistedSkillMemoryTemplatePayload, PersistedSkillMemoryTemplatePreconditions,
-    RepositoryError, SKILL_TEMPLATE_PAYLOAD_VERSION,
+    RepositoryError, RuminationCandidateStatus, SKILL_TEMPLATE_PAYLOAD_VERSION,
 };
 use serde_json::Value;
 use thiserror::Error;
@@ -264,13 +264,11 @@ struct ActiveSkillTemplateReadModel {
 }
 
 impl ActiveSkillTemplateReadModel {
-    fn from_consumed_candidates(
-        consumed_candidates: Vec<PersistedSkillMemoryTemplateCandidate>,
-    ) -> Self {
+    fn from_subject_candidates(candidates: Vec<PersistedSkillMemoryTemplateCandidate>) -> Self {
         let mut winners_by_template_id =
             BTreeMap::<String, PersistedSkillMemoryTemplateCandidate>::new();
 
-        for candidate in consumed_candidates {
+        for candidate in candidates {
             let template_id = candidate.payload.template_id.clone();
             let should_replace = winners_by_template_id
                 .get(&template_id)
@@ -284,7 +282,12 @@ impl ActiveSkillTemplateReadModel {
         }
 
         Self {
-            active_candidates: winners_by_template_id.into_values().collect(),
+            active_candidates: winners_by_template_id
+                .into_values()
+                .filter(|candidate| {
+                    candidate.candidate.status == RuminationCandidateStatus::Consumed
+                })
+                .collect(),
         }
     }
 
@@ -302,8 +305,8 @@ pub fn load_runtime_skill_templates_for_subject(
     repository: &MemoryRepository<'_>,
     subject_ref: &str,
 ) -> Result<Vec<SkillMemoryTemplate>, RuntimeSkillTemplateLoadError> {
-    ActiveSkillTemplateReadModel::from_consumed_candidates(
-        repository.list_consumed_skill_template_candidates_for_subject(subject_ref)?,
+    ActiveSkillTemplateReadModel::from_subject_candidates(
+        repository.list_skill_template_candidates_for_subject(subject_ref)?,
     )
     .into_skill_templates()
     .map_err(Into::into)

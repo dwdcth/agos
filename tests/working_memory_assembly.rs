@@ -1966,6 +1966,201 @@ fn assembler_loads_active_consumed_skill_template_winners_additively() {
 }
 
 #[test]
+fn assembler_suppresses_tombstoned_persisted_skill_templates_but_keeps_explicit_templates() {
+    let path = fresh_db_path("persisted-skill-template-runtime-tombstones");
+    let db = Database::open(&path).expect("database should open");
+    let ingest = IngestService::new(db.conn());
+    let repository = MemoryRepository::new(db.conn());
+    let subject_ref = "subject://agent/tombstones";
+
+    let explicit_support = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/runtime-tombstone-explicit".to_string(),
+            source_label: Some("runtime-tombstone-explicit".to_string()),
+            source_kind: None,
+            content: "explicit runtime template support should remain active".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-30T08:00:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("explicit support ingest should succeed")
+        .record_ids[0]
+        .clone();
+    let persisted_support = ingest
+        .ingest(IngestRequest {
+            source_uri: "memo://project/runtime-tombstone-persisted".to_string(),
+            source_label: Some("runtime-tombstone-persisted".to_string()),
+            source_kind: None,
+            content: "persisted runtime template support should remain explainable".to_string(),
+            scope: Scope::Project,
+            record_type: RecordType::Decision,
+            truth_layer: TruthLayer::T2,
+            recorded_at: "2026-04-30T08:01:00Z".to_string(),
+            valid_from: None,
+            valid_to: None,
+        })
+        .expect("persisted support ingest should succeed")
+        .record_ids[0]
+        .clone();
+
+    let mut explicit_template = SkillMemoryTemplate::new(
+        "explicit-template",
+        ActionTemplate::new(ActionKind::Regulative, "use the caller supplied template"),
+    );
+    explicit_template.preconditions = Preconditions {
+        required_goal_terms: vec!["clarify".to_string()],
+        required_capability_flags: vec!["skill_projection_ready".to_string()],
+        required_readiness_flags: vec!["citation_trace_ready".to_string()],
+        ..Preconditions::default()
+    };
+    explicit_template.boundaries.supporting_record_ids = vec![explicit_support.clone()];
+
+    let build_persisted_template = |template_id: &str, summary: &str| {
+        let mut template = SkillMemoryTemplate::new(
+            template_id,
+            ActionTemplate::new(ActionKind::Instrumental, summary),
+        );
+        template.preconditions = Preconditions {
+            required_goal_terms: vec!["clarify".to_string()],
+            required_task_context_terms: vec!["runtime".to_string()],
+            required_capability_flags: vec!["skill_projection_ready".to_string()],
+            required_readiness_flags: vec!["citation_trace_ready".to_string()],
+            ..Preconditions::default()
+        };
+        template.boundaries = Boundaries {
+            risk_markers: vec!["persisted_skill".to_string()],
+            supporting_record_ids: vec![persisted_support.clone()],
+            blocked_active_risks: Vec::new(),
+        };
+        template
+    };
+
+    let mut rejected_consumed = persisted_skill_template_candidate(
+        "lpq:tombstone:rejected:consumed",
+        subject_ref,
+        RuminationCandidateStatus::Consumed,
+        "2026-04-30T08:05:00Z",
+        &build_persisted_template(
+            "rejected-template",
+            "earlier consumed template should be suppressed by rejection",
+        ),
+    );
+    rejected_consumed.updated_at = "2026-04-30T08:05:00Z".to_string();
+
+    let mut rejected_tombstone = persisted_skill_template_candidate(
+        "lpq:tombstone:rejected:tombstone",
+        subject_ref,
+        RuminationCandidateStatus::Rejected,
+        "2026-04-30T08:06:00Z",
+        &build_persisted_template(
+            "rejected-template",
+            "later rejected tombstone should stay inactive",
+        ),
+    );
+    rejected_tombstone.updated_at = "2026-04-30T08:10:00Z".to_string();
+
+    let mut archived_consumed = persisted_skill_template_candidate(
+        "lpq:tombstone:archived:consumed",
+        subject_ref,
+        RuminationCandidateStatus::Consumed,
+        "2026-04-30T08:07:00Z",
+        &build_persisted_template(
+            "archived-template",
+            "earlier consumed template should be suppressed by archive",
+        ),
+    );
+    archived_consumed.updated_at = "2026-04-30T08:07:00Z".to_string();
+
+    let mut archived_tombstone = persisted_skill_template_candidate(
+        "lpq:tombstone:archived:tombstone",
+        subject_ref,
+        RuminationCandidateStatus::Archived,
+        "2026-04-30T08:08:00Z",
+        &build_persisted_template(
+            "archived-template",
+            "later archived tombstone should stay inactive",
+        ),
+    );
+    archived_tombstone.updated_at = "2026-04-30T08:11:00Z".to_string();
+
+    let mut active_consumed = persisted_skill_template_candidate(
+        "lpq:tombstone:active",
+        subject_ref,
+        RuminationCandidateStatus::Consumed,
+        "2026-04-30T08:09:00Z",
+        &build_persisted_template(
+            "active-template",
+            "keep the active consumed persisted template",
+        ),
+    );
+    active_consumed.updated_at = "2026-04-30T08:09:00Z".to_string();
+
+    for candidate in [
+        rejected_consumed,
+        rejected_tombstone,
+        archived_consumed,
+        archived_tombstone,
+        active_consumed,
+    ] {
+        repository
+            .insert_rumination_candidate(&candidate)
+            .expect("skill template candidate should insert");
+    }
+
+    let assembler = WorkingMemoryAssembler::new(db.conn(), MinimalSelfStateProvider);
+    let working_memory = assembler
+        .assemble(
+            &WorkingMemoryRequest::new("runtime skill template tombstones")
+                .with_subject_ref(subject_ref)
+                .with_task_context("runtime assembly")
+                .with_active_goal("clarify the next step safely")
+                .with_capability_flag("skill_projection_ready")
+                .with_readiness_flag("citation_trace_ready")
+                .with_skill_template(explicit_template),
+        )
+        .expect("assembly should suppress tombstoned persisted templates");
+
+    assert_eq!(working_memory.branches.len(), 2);
+    assert_eq!(
+        working_memory
+            .branches
+            .iter()
+            .map(|branch| branch.candidate.summary.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "use the caller supplied template",
+            "keep the active consumed persisted template",
+        ]
+    );
+    assert_eq!(
+        working_memory.branches[0]
+            .supporting_evidence
+            .iter()
+            .map(|fragment| fragment.record_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![explicit_support.as_str()]
+    );
+    assert_eq!(
+        working_memory.branches[1]
+            .supporting_evidence
+            .iter()
+            .map(|fragment| fragment.record_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![persisted_support.as_str()]
+    );
+    assert!(
+        working_memory.branches.iter().all(|branch| {
+            !branch.candidate.summary.contains("should be suppressed by")
+                && !branch.candidate.summary.contains("tombstone")
+        }),
+        "later rejected or archived rows must suppress earlier consumed persisted templates"
+    );
+}
+
+#[test]
 fn assembler_activates_persisted_skill_templates_only_after_consume_transition() {
     let path = fresh_db_path("persisted-skill-template-lifecycle-activation");
     let db = Database::open(&path).expect("database should open");

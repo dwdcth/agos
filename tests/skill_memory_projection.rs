@@ -380,7 +380,7 @@ fn runtime_skill_template_merge_preserves_explicit_templates_and_adds_unique_per
 }
 
 #[test]
-fn runtime_skill_template_load_dedupes_consumed_candidates_by_template_id() {
+fn runtime_skill_template_load_keeps_latest_consumed_winner_per_template_id() {
     let path = fresh_db_path("runtime-skill-template-read-model-dedupe");
     let db = Database::open(&path).expect("database should open");
     let repository = MemoryRepository::new(db.conn());
@@ -507,6 +507,193 @@ fn runtime_skill_template_load_breaks_updated_at_ties_with_candidate_id() {
     assert_eq!(
         active_templates[0].action.summary,
         "higher candidate id should win the tie"
+    );
+}
+
+#[test]
+fn runtime_skill_template_load_suppresses_earlier_consumed_template_when_later_rejected_exists() {
+    let path = fresh_db_path("runtime-skill-template-read-model-rejected-tombstone");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+    let subject_ref = "subject://agent/runtime-rejected-tombstone";
+
+    let consumed = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "older consumed template should be suppressed",
+        ),
+    );
+    let rejected = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "later rejected tombstone should win",
+        ),
+    );
+
+    for candidate in [
+        persisted_skill_template_candidate(
+            "lpq:runtime:consumed",
+            subject_ref,
+            RuminationCandidateStatus::Consumed,
+            "2026-04-30T11:00:00Z",
+            "2026-04-30T11:00:00Z",
+            &consumed,
+        ),
+        persisted_skill_template_candidate(
+            "lpq:runtime:rejected",
+            subject_ref,
+            RuminationCandidateStatus::Rejected,
+            "2026-04-30T11:01:00Z",
+            "2026-04-30T11:05:00Z",
+            &rejected,
+        ),
+    ] {
+        repository
+            .insert_rumination_candidate(&candidate)
+            .expect("candidate should insert");
+    }
+
+    let active_templates = load_runtime_skill_templates_for_subject(&repository, subject_ref)
+        .expect("runtime templates should load from the active read model");
+
+    assert!(
+        active_templates.is_empty(),
+        "a later rejected row must suppress the earlier consumed template"
+    );
+}
+
+#[test]
+fn runtime_skill_template_load_suppresses_earlier_consumed_template_when_later_archived_exists() {
+    let path = fresh_db_path("runtime-skill-template-read-model-archived-tombstone");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+    let subject_ref = "subject://agent/runtime-archived-tombstone";
+
+    let consumed = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "older consumed template should be suppressed",
+        ),
+    );
+    let archived = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "later archived tombstone should win",
+        ),
+    );
+
+    for candidate in [
+        persisted_skill_template_candidate(
+            "lpq:runtime:consumed",
+            subject_ref,
+            RuminationCandidateStatus::Consumed,
+            "2026-04-30T12:00:00Z",
+            "2026-04-30T12:00:00Z",
+            &consumed,
+        ),
+        persisted_skill_template_candidate(
+            "lpq:runtime:archived",
+            subject_ref,
+            RuminationCandidateStatus::Archived,
+            "2026-04-30T12:01:00Z",
+            "2026-04-30T12:05:00Z",
+            &archived,
+        ),
+    ] {
+        repository
+            .insert_rumination_candidate(&candidate)
+            .expect("candidate should insert");
+    }
+
+    let active_templates = load_runtime_skill_templates_for_subject(&repository, subject_ref)
+        .expect("runtime templates should load from the active read model");
+
+    assert!(
+        active_templates.is_empty(),
+        "a later archived row must suppress the earlier consumed template"
+    );
+}
+
+#[test]
+fn runtime_skill_template_merge_keeps_explicit_templates_after_tombstone_suppression() {
+    let path = fresh_db_path("runtime-skill-template-merge-after-tombstone");
+    let db = Database::open(&path).expect("database should open");
+    let repository = MemoryRepository::new(db.conn());
+    let subject_ref = "subject://agent/runtime-merge-after-tombstone";
+
+    let explicit = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(ActionKind::Regulative, "use the explicit request template"),
+    );
+    let suppressed_consumed = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "persisted consumed duplicate should stay inactive",
+        ),
+    );
+    let tombstone = SkillMemoryTemplate::new(
+        "shared-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "persisted tombstone should suppress the duplicate",
+        ),
+    );
+    let unique_persisted = SkillMemoryTemplate::new(
+        "persisted-template",
+        ActionTemplate::new(
+            ActionKind::Instrumental,
+            "keep the unique persisted template",
+        ),
+    );
+
+    for candidate in [
+        persisted_skill_template_candidate(
+            "lpq:runtime:shared-consumed",
+            subject_ref,
+            RuminationCandidateStatus::Consumed,
+            "2026-04-30T13:00:00Z",
+            "2026-04-30T13:00:00Z",
+            &suppressed_consumed,
+        ),
+        persisted_skill_template_candidate(
+            "lpq:runtime:shared-archived",
+            subject_ref,
+            RuminationCandidateStatus::Archived,
+            "2026-04-30T13:01:00Z",
+            "2026-04-30T13:05:00Z",
+            &tombstone,
+        ),
+        persisted_skill_template_candidate(
+            "lpq:runtime:unique-consumed",
+            subject_ref,
+            RuminationCandidateStatus::Consumed,
+            "2026-04-30T13:02:00Z",
+            "2026-04-30T13:02:00Z",
+            &unique_persisted,
+        ),
+    ] {
+        repository
+            .insert_rumination_candidate(&candidate)
+            .expect("candidate should insert");
+    }
+
+    let merged = merge_runtime_skill_templates(
+        std::slice::from_ref(&explicit),
+        load_runtime_skill_templates_for_subject(&repository, subject_ref)
+            .expect("runtime templates should load from the active read model"),
+    );
+
+    assert_eq!(merged.len(), 2);
+    assert_eq!(merged[0], explicit);
+    assert_eq!(merged[1].template_id, "persisted-template");
+    assert_eq!(
+        merged[1].action.summary,
+        "keep the unique persisted template"
     );
 }
 

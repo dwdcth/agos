@@ -263,7 +263,7 @@
 ### 2. Signatures
 
 - `src/memory/repository.rs`
-  - `MemoryRepository::list_consumed_skill_template_candidates_for_subject(subject_ref) -> Result<Vec<PersistedSkillMemoryTemplateCandidate>, RepositoryError>`
+  - `MemoryRepository::list_skill_template_candidates_for_subject(subject_ref) -> Result<Vec<PersistedSkillMemoryTemplateCandidate>, RepositoryError>`
 - `src/cognition/skill_memory.rs`
   - `load_runtime_skill_templates_for_subject(repository, subject_ref) -> Result<Vec<SkillMemoryTemplate>, RuntimeSkillTemplateLoadError>`
   - `merge_runtime_skill_templates(explicit_templates, persisted_templates) -> Vec<SkillMemoryTemplate>`
@@ -275,20 +275,18 @@
 
 #### Activation contract
 
-- Only persisted skill-template candidates with all of these properties may become runtime templates:
-  - `candidate_kind = skill_template`
-  - `status = consumed`
-  - `subject_ref = WorkingMemoryRequest.subject_ref`
-- `Pending`, `Rejected`, and `Archived` skill-template candidates must remain inactive.
+- Runtime loading first resolves the latest persisted `skill_template` candidate per `template_id` within `WorkingMemoryRequest.subject_ref`.
+- Winner selection is deterministic:
+  - later `updated_at`
+  - then later `candidate_id`
+- Only a latest winner with `status = consumed` may become a runtime template.
+- A latest winner with `status = pending`, `rejected`, or `archived` must suppress runtime activation for that `template_id`.
 - Runtime loading is subject-scoped only; there is no global activation path.
 
 #### Single-path projection contract
 
 - Persisted runtime templates must reconstruct into ordinary `SkillMemoryTemplate` values first.
-- Persisted consumed candidates must first compact into an explicit active read model keyed by `template_id` within the current `subject_ref`.
-- The active read model resolves duplicate logical templates by latest-wins ordering:
-  - later `updated_at`
-  - then later `candidate_id`
+- Persisted candidates must first compact into an explicit active read model keyed by `template_id` within the current `subject_ref`.
 - Repository-loaded templates must flow through `WorkingMemoryRequest.skill_templates`.
 - Branch materialization stays single-path:
   - `SkillMemoryTemplate -> ActionSeed -> ActionBranch`
@@ -306,7 +304,8 @@
 | --- | --- |
 | Subject has one consumed `skill_template` candidate | Assembly loads it into runtime `skill_templates` and projects it through the ordinary skill path |
 | Subject has multiple consumed `skill_template` candidates with the same `template_id` | Runtime loading resolves them through the active read model and keeps only the latest winner by `updated_at`, then `candidate_id` |
-| Subject has pending / rejected / archived `skill_template` candidates | They remain inactive and produce no branches |
+| Subject has a consumed `skill_template` candidate followed by a later rejected or archived row for the same `template_id` | The later row wins the active read model and suppresses runtime activation for that template |
+| Subject has pending / rejected / archived `skill_template` candidates with no later consumed winner | They remain inactive and produce no branches |
 | Another subject has consumed `skill_template` candidates | They are ignored |
 | Request already carries explicit `skill_templates` | Explicit templates remain present and persisted consumed templates merge additively |
 | Persisted consumed candidate payload is invalid | Runtime loading fails deterministically through the typed decode boundary |
@@ -314,23 +313,24 @@
 ### 5. Tests Required
 
 - `tests/memory_repository_store.rs`
-  - Assert runtime helper filters by `status = consumed` and `subject_ref`
+  - Assert subject-scoped skill-template candidate loading returns all lifecycle statuses for read-model resolution
 - `tests/skill_memory_projection.rs`
   - Assert consumed duplicate candidates for the same `template_id` collapse to one runtime template
   - Assert equal-`updated_at` duplicates break ties by `candidate_id`
+  - Assert later rejected and archived rows suppress earlier consumed winners for the same `template_id`
   - Assert runtime merge preserves explicit templates and adds unique persisted templates
 - `tests/working_memory_assembly.rs`
-  - Assert assembly loads the active winner for duplicate consumed templates, ignores inactive statuses, and still produces ordinary `ActionBranch` values
+  - Assert assembly loads the active winner for duplicate consumed templates, suppresses tombstoned persisted templates, and still produces ordinary `ActionBranch` values
 
 ### 6. Good / Base / Bad Cases
 
 - Good:
-  - Load only consumed subject-scoped `skill_template` candidates into runtime assembly.
+  - Resolve the latest subject-scoped `skill_template` candidate per `template_id` before deciding whether it activates.
   - Reconstruct persisted templates before projection and merge them additively with explicit templates.
 - Base:
   - Callers that provide only explicit `skill_templates` keep working without repository participation.
 - Bad:
-  - Activate `Pending` candidates in runtime just because they exist in the substrate.
+  - Activate an older consumed candidate after a later rejected or archived row already won the same logical `template_id`.
   - Build persisted branches through a second runtime-only path.
 
 ### 7. Wrong vs Correct
@@ -342,7 +342,7 @@
 
 #### Correct
 
-- Load only `Consumed` candidates for the current subject.
+- Resolve the latest subject-scoped candidate for each `template_id`, then activate only winners whose latest status is `Consumed`.
 - Merge persisted templates after explicit request templates and keep the single projection path.
 
 ---
