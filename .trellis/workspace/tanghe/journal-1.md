@@ -137,3 +137,36 @@ Added Simulate(s_t, a) using rig TypedPrompt: PredictedWorldSlice with affected 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Attention system deepening
+
+**Date**: 2026-04-30
+**Task**: Attention system deepening
+**Branch**: `main`
+
+### Summary
+
+ContextBase 4-dimension baseline with smooth update. EmotionModulator with 4 predefined profiles and multiplicative mask. Inhibition from self-model constraints. MetacogModifier from metacog flags. Scoring uses modulated baseline + inhibition penalty + adjusted lane weights. 23 new tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `90a7161` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
