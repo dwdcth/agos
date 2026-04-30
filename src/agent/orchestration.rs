@@ -15,7 +15,10 @@ use crate::{
             RuminationService, RuminationTriggerDecision, RuminationTriggerEvent,
             RuminationTriggerKind, ShortCycleWritebackReport,
         },
-        value::{ScoredBranch, ValueAdjustment, ValueConfig, ValueScorer, ValueVector},
+        value::{
+            ScoredBranch, ValueAdjustment, ValueConfig, ValueScorer, ValueVector,
+            derive_dynamic_delta,
+        },
         working_memory::WorkingMemory,
         world_model::{SimulationResult, WorldFragmentProjection},
     },
@@ -660,6 +663,18 @@ impl ScoringPort for WorkingMemoryScoringPort {
         working_memory: &WorkingMemory,
         branch_values: &[AgentSearchBranchValue],
     ) -> AnyResult<Vec<ScoredBranch>> {
+        let delta = derive_dynamic_delta(
+            working_memory
+                .present
+                .active_goal
+                .as_ref()
+                .map(|g| g.summary.as_str()),
+            &working_memory.present.active_risks,
+            &working_memory.present.metacog_flags,
+            &working_memory.present.self_state.readiness_flags,
+            &working_memory.present.self_state.capability_flags,
+        );
+
         working_memory
             .branches
             .iter()
@@ -690,12 +705,12 @@ impl ScoringPort for WorkingMemoryScoringPort {
                         summary: branch.candidate.summary.clone(),
                     })?;
 
-                Ok(self
-                    .scorer
-                    .score_branch(crate::cognition::value::BranchValueInput::new(
-                        branch.clone(),
-                        branch_value.value.clone(),
-                    )))
+                let projected = self.scorer.project_with_delta(&branch_value.value, &delta);
+                Ok(ScoredBranch {
+                    branch: branch.clone(),
+                    value: branch_value.value.clone(),
+                    projected,
+                })
             })
             .collect()
     }
@@ -1174,6 +1189,7 @@ mod tests {
             projected: crate::cognition::value::ProjectedScore {
                 final_score: 0.5,
                 weight_snapshot: ValueConfig::default(),
+                threshold_passed: true,
             },
         }];
 

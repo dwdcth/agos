@@ -243,6 +243,7 @@ impl MetacognitionService {
                     + (value.resource_efficiency * weight_snapshot.resource_efficiency)
                     + (value.agent_robustness * weight_snapshot.agent_robustness),
                 weight_snapshot: weight_snapshot.clone(),
+                threshold_passed: true,
             },
             value,
         }

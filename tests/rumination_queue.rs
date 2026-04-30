@@ -185,6 +185,7 @@ fn sample_agent_search_report() -> AgentSearchReport {
         projected: ProjectedScore {
             final_score: 0.71,
             weight_snapshot: ValueConfig::default(),
+            threshold_passed: true,
         },
     };
 

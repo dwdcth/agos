@@ -169,6 +169,7 @@ fn sample_agent_search_report(
         projected: ProjectedScore {
             final_score: 0.73,
             weight_snapshot: ValueConfig::default(),
+            threshold_passed: true,
         },
     };
     let citation = sample_result(
