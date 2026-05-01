@@ -12,37 +12,44 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          # Linux
+          # Linux (使用 Zig 提升兼容性)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             bin: agent-memos
-            cross: false
+            use-zig: true
+            features: "chinese-tokenizer"
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             bin: agent-memos
-            cross: true
+            use-zig: true
+            features: "chinese-tokenizer"
           - os: ubuntu-latest
             target: loongarch64-unknown-linux-gnu
             bin: agent-memos
-            cross: true
+            use-zig: true
+            features: "" # LoongArch 的 Zig 支持尚不稳健，暂不开启中文分词
           # macOS
           - os: macos-latest
             target: x86_64-apple-darwin
             bin: agent-memos
-            cross: false
+            use-zig: false
+            features: "chinese-tokenizer"
           - os: macos-latest
             target: aarch64-apple-darwin
             bin: agent-memos
-            cross: false
-          # Windows
+            use-zig: false
+            features: "chinese-tokenizer"
+          # Windows (由于 patch 工具限制，暂不开启中文分词)
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bin: agent-memos.exe
-            cross: false
+            use-zig: false
+            features: ""
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             bin: agent-memos.exe
-            cross: false
+            use-zig: false
+            features: ""
 
     runs-on: ${{ matrix.platform.os }}
 
@@ -55,20 +62,21 @@ jobs:
         with:
           targets: ${{ matrix.platform.target }}
 
-      - name: Build (Native)
-        if: matrix.platform.cross == false
-        run: |
-          if [ "${{ matrix.platform.target }}" = "x86_64-unknown-linux-gnu" ]; then
-            cargo build --release --target ${{ matrix.platform.target }} --features chinese-tokenizer
-          else
-            cargo build --release --target ${{ matrix.platform.target }}
-          fi
+      - name: Install Zig
+        if: matrix.platform.use-zig == true
+        uses: goto-bus-stop/setup-zig@v2
 
-      - name: Build (Cross)
-        if: matrix.platform.cross == true
-        run: |
-          cargo install cross --git https://github.com/cross-rs/cross.git
-          cross build --release --target ${{ matrix.platform.target }}
+      - name: Install cargo-zigbuild
+        if: matrix.platform.use-zig == true
+        run: cargo install cargo-zigbuild
+
+      - name: Build (Zig)
+        if: matrix.platform.use-zig == true
+        run: cargo zigbuild --release --target ${{ matrix.platform.target }} --features "${{ matrix.platform.features }}"
+
+      - name: Build (Native)
+        if: matrix.platform.use-zig == false
+        run: cargo build --release --target ${{ matrix.platform.target }} --features "${{ matrix.platform.features }}"
 
       - name: Package
         shell: bash
