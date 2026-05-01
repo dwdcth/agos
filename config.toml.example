@@ -42,3 +42,8 @@ similarity = "cosine"                   # cosine | dot | l2
 level = "INFO"                          # DEBUG | INFO | WARNING | ERROR
 json = true
 path = "~/.memos/logs/app.log"
+
+# [prompts]  可选：覆盖内置 system prompt，不填则用默认值
+# summary_preamble = "You compress raw memory text into a fixed memory DSL draft..."
+# simulation_preamble = "You predict the consequences of an action on a world model..."
+# agent_preamble = "Delegate all cognition to the internal agent-search orchestrator..."

@@ -129,11 +129,19 @@ pub trait RigStructuredSummaryBackend {
 #[derive(Debug, Clone)]
 pub struct OpenAiCompatibleRigSummaryBackend {
     config: RootLlmConfig,
+    preamble: String,
 }
 
 impl OpenAiCompatibleRigSummaryBackend {
     pub fn new(config: RootLlmConfig) -> Self {
-        Self { config }
+        Self::with_preamble(config, None)
+    }
+
+    pub fn with_preamble(config: RootLlmConfig, preamble: Option<String>) -> Self {
+        Self {
+            preamble: preamble.unwrap_or_else(|| RIG_SUMMARY_PREAMBLE.to_string()),
+            config,
+        }
     }
 }
 
@@ -173,7 +181,7 @@ impl RigStructuredSummaryBackend for OpenAiCompatibleRigSummaryBackend {
 
             let mut agent = client
                 .agent(self.config.model.clone())
-                .preamble(RIG_SUMMARY_PREAMBLE);
+                .preamble(&self.preamble);
             if let Some(temperature) = self.config.temperature {
                 agent = agent.temperature(f64::from(temperature));
             }
@@ -221,6 +229,10 @@ impl<B> RigSummaryGenerator<B> {
 impl RigSummaryGenerator<OpenAiCompatibleRigSummaryBackend> {
     pub fn from_llm_config(config: RootLlmConfig) -> Self {
         Self::new(OpenAiCompatibleRigSummaryBackend::new(config))
+    }
+
+    pub fn from_llm_config_with_preamble(config: RootLlmConfig, preamble: Option<String>) -> Self {
+        Self::new(OpenAiCompatibleRigSummaryBackend::with_preamble(config, preamble))
     }
 }
 

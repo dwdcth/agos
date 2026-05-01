@@ -472,11 +472,19 @@ pub trait RigWorldSimulationBackend: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct OpenAiCompatibleSimulationBackend {
     config: RootLlmConfig,
+    preamble: String,
 }
 
 impl OpenAiCompatibleSimulationBackend {
     pub fn new(config: RootLlmConfig) -> Self {
-        Self { config }
+        Self::with_preamble(config, None)
+    }
+
+    pub fn with_preamble(config: RootLlmConfig, preamble: Option<String>) -> Self {
+        Self {
+            preamble: preamble.unwrap_or_else(|| SIMULATION_PREAMBLE.to_string()),
+            config,
+        }
     }
 }
 
@@ -514,7 +522,7 @@ impl RigWorldSimulationBackend for OpenAiCompatibleSimulationBackend {
 
             let mut agent = client
                 .agent(self.config.model.clone())
-                .preamble(SIMULATION_PREAMBLE);
+                .preamble(&self.preamble);
             if let Some(temperature) = self.config.temperature {
                 agent = agent.temperature(f64::from(temperature));
             }
@@ -563,6 +571,10 @@ impl<B> WorldSimulator<B> {
 impl WorldSimulator<OpenAiCompatibleSimulationBackend> {
     pub fn from_llm_config(config: RootLlmConfig) -> Self {
         Self::new(OpenAiCompatibleSimulationBackend::new(config))
+    }
+
+    pub fn from_llm_config_with_preamble(config: RootLlmConfig, preamble: Option<String>) -> Self {
+        Self::new(OpenAiCompatibleSimulationBackend::with_preamble(config, preamble))
     }
 }
 

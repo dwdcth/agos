@@ -64,6 +64,13 @@ pub enum MemorySummaryBackend {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
+pub struct PromptsConfig {
+    pub summary_preamble: Option<String>,
+    pub simulation_preamble: Option<String>,
+    pub agent_preamble: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct MemoryConfig {
     pub summary_backend: MemorySummaryBackend,
@@ -89,6 +96,7 @@ pub struct Config {
     pub llm: RootLlmConfig,
     pub memory: MemoryConfig,
     pub vector: RootVectorConfig,
+    pub prompts: PromptsConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Default)]
@@ -98,6 +106,7 @@ pub struct RootRuntimeConfig {
     pub llm: RootLlmConfig,
     pub embedding: RootEmbeddingRuntimeConfig,
     pub vector: RootVectorConfig,
+    pub prompts: PromptsConfig,
 }
 
 impl RootRuntimeConfig {
@@ -129,6 +138,7 @@ impl RootRuntimeConfig {
             llm: self.llm.clone(),
             memory: MemoryConfig::default(),
             vector: self.vector.clone(),
+            prompts: self.prompts.clone(),
         }
     }
 
@@ -259,6 +269,7 @@ impl Default for Config {
             llm: RootLlmConfig::default(),
             memory: MemoryConfig::default(),
             vector: RootVectorConfig::default(),
+            prompts: PromptsConfig::default(),
         }
     }
 }

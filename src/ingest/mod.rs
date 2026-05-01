@@ -69,6 +69,7 @@ pub struct IngestService<'db> {
     embedding_config: EmbeddingConfig,
     memory_config: MemoryConfig,
     llm_config: RootLlmConfig,
+    summary_preamble: Option<String>,
 }
 
 impl<'db> IngestService<'db> {
@@ -79,6 +80,7 @@ impl<'db> IngestService<'db> {
             EmbeddingConfig::default(),
             MemoryConfig::default(),
             RootLlmConfig::default(),
+            None,
         )
     }
 
@@ -89,6 +91,7 @@ impl<'db> IngestService<'db> {
             EmbeddingConfig::default(),
             MemoryConfig::default(),
             RootLlmConfig::default(),
+            None,
         )
     }
 
@@ -103,6 +106,7 @@ impl<'db> IngestService<'db> {
             embedding_config,
             MemoryConfig::default(),
             RootLlmConfig::default(),
+            None,
         )
     }
 
@@ -113,6 +117,7 @@ impl<'db> IngestService<'db> {
             config.embedding.clone(),
             config.memory.clone(),
             config.llm.clone(),
+            config.prompts.summary_preamble.clone(),
         )
     }
 
@@ -122,6 +127,7 @@ impl<'db> IngestService<'db> {
         embedding_config: EmbeddingConfig,
         memory_config: MemoryConfig,
         llm_config: RootLlmConfig,
+        summary_preamble: Option<String>,
     ) -> Self {
         Self {
             repository: MemoryRepository::new(conn),
@@ -129,6 +135,7 @@ impl<'db> IngestService<'db> {
             embedding_config,
             memory_config,
             llm_config,
+            summary_preamble,
         }
     }
 
@@ -231,7 +238,7 @@ impl IngestService<'_> {
             .into_summary_input(record.truth_layer, &record.source.uri, &record.content_text)
             .map_err(MemoryPipelineError::Classification)?;
         let draft = self.block_on_summary(
-            RigSummaryGenerator::from_llm_config(self.llm_config.clone()).summarize(&summary_input),
+            RigSummaryGenerator::from_llm_config_with_preamble(self.llm_config.clone(), self.summary_preamble.clone()).summarize(&summary_input),
         )?;
         let built = summary_input
             .into_record(draft)

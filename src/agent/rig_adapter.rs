@@ -63,14 +63,15 @@ impl<O> RigAgentSearchAdapter<O> {
     where
         M: CompletionModel,
     {
+        const DEFAULT_AGENT_PREAMBLE: &str =
+            "Delegate all cognition to the internal agent-search orchestrator and preserve gate diagnostics.";
+
         self.static_context
             .iter()
             .fold(
                 builder
                     .description("Thin Rig adapter for cited agent-search orchestration")
-                    .preamble(
-                        "Delegate all cognition to the internal agent-search orchestrator and preserve gate diagnostics.",
-                    )
+                    .preamble(DEFAULT_AGENT_PREAMBLE)
                     .default_max_turns(self.boundary.default_max_turns),
                 |builder, doc| builder.context(doc),
             )
