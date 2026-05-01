@@ -39,10 +39,11 @@ impl DoctorReport {
         if blocks_reserved_semantic_modes(command_path) {
             match (status.configured_mode, status.embedding_backend) {
                 (RetrievalMode::EmbeddingOnly, EmbeddingBackend::Reserved) => failures.push(
-                    "embedding_only is reserved but not implemented in Phase 1".to_string(),
+                    "embedding_only is reserved and requires a builtin embedding backend to run"
+                        .to_string(),
                 ),
                 (RetrievalMode::Hybrid, EmbeddingBackend::Reserved) => failures.push(
-                    "hybrid keeps lexical as the primary baseline, but the embedding secondary path is reserved in Phase 1"
+                    "hybrid requires a builtin embedding backend for the secondary path"
                         .to_string(),
                 ),
                 _ => {}
@@ -58,7 +59,7 @@ impl DoctorReport {
         }
 
         if matches!(status.configured_mode, RetrievalMode::LexicalOnly)
-            && matches!(status.embedding_backend, EmbeddingBackend::Builtin)
+            && matches!(status.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi)
             && matches!(status.embedding_dependency_state, CapabilityState::Ready)
             && matches!(status.embedding_index_readiness, CapabilityState::Ready)
         {
@@ -85,7 +86,8 @@ impl DoctorReport {
         }
 
         if matches!(status.index_readiness, CapabilityState::NotBuiltInPhase1) {
-            warnings.push("retrieval indexes are reserved and not built in Phase 1".to_string());
+            warnings
+                .push("retrieval indexes are not available in the current database".to_string());
         }
 
         Self {
@@ -153,7 +155,16 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
         RetrievalMode::EmbeddingOnly => {
             if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
                 failures.push(
-                    "embedding backend is not ready for embedding_only retrieval".to_string(),
+                    if matches!(status.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi)
+                        && matches!(
+                            status.vector_backend,
+                            crate::core::config::VectorBackend::None
+                        )
+                    {
+                        "vector backend is not ready for embedding_only retrieval".to_string()
+                    } else {
+                        "embedding backend is not ready for embedding_only retrieval".to_string()
+                    },
                 );
             }
             if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
@@ -168,7 +179,18 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
                 failures.push("lexical sidecar indexes are missing or incomplete".to_string());
             }
             if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
-                failures.push("embedding backend is not ready for hybrid retrieval".to_string());
+                failures.push(
+                    if matches!(status.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi)
+                        && matches!(
+                            status.vector_backend,
+                            crate::core::config::VectorBackend::None
+                        )
+                    {
+                        "vector backend is not ready for hybrid retrieval".to_string()
+                    } else {
+                        "embedding backend is not ready for hybrid retrieval".to_string()
+                    },
+                );
             }
             if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
                 failures.push(
@@ -196,7 +218,16 @@ fn doctor_mode_readiness_failures(status: &StatusReport) -> Vec<String> {
         RetrievalMode::EmbeddingOnly => {
             if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
                 failures.push(
-                    "embedding backend is not ready for embedding_only retrieval".to_string(),
+                    if matches!(status.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi)
+                        && matches!(
+                            status.vector_backend,
+                            crate::core::config::VectorBackend::None
+                        )
+                    {
+                        "vector backend is not ready for embedding_only retrieval".to_string()
+                    } else {
+                        "embedding backend is not ready for embedding_only retrieval".to_string()
+                    },
                 );
             }
             if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
@@ -208,7 +239,18 @@ fn doctor_mode_readiness_failures(status: &StatusReport) -> Vec<String> {
         }
         RetrievalMode::Hybrid => {
             if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
-                failures.push("embedding backend is not ready for hybrid retrieval".to_string());
+                failures.push(
+                    if matches!(status.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi)
+                        && matches!(
+                            status.vector_backend,
+                            crate::core::config::VectorBackend::None
+                        )
+                    {
+                        "vector backend is not ready for hybrid retrieval".to_string()
+                    } else {
+                        "embedding backend is not ready for hybrid retrieval".to_string()
+                    },
+                );
             }
             if !matches!(status.embedding_index_readiness, CapabilityState::Ready) {
                 failures.push(

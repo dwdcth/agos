@@ -115,7 +115,7 @@ fn status_exits_successfully_for_reserved_modes() {
             "not_applicable",
         ),
         (
-            "hybrid", "hybrid", "reserved", "false", "ready", "deferred", "deferred",
+            "hybrid", "hybrid", "reserved", "false", "ready", "deferred", "ready",
         ),
     ] {
         let dir = unique_temp_dir(name);
@@ -155,6 +155,57 @@ fn status_exits_successfully_for_reserved_modes() {
         assert!(
             text.contains(&format!("ready: {ready}")),
             "status should report ready={ready} for {mode}: {text}"
+        );
+    }
+}
+
+#[test]
+fn status_reports_ready_for_configured_semantic_modes_when_dependencies_exist() {
+    for (name, mode, expected_channels) in [
+        ("embedding-ready", "embedding_only", "embedding"),
+        ("hybrid-ready", "hybrid", "lexical,embedding"),
+    ] {
+        let dir = unique_temp_dir(name);
+        let db_path = dir.join("agent-memos.sqlite");
+        let config_path = dir.join("config.toml");
+        Database::open(&db_path).expect("database should bootstrap for semantic-ready status");
+        write_config_with_runtime(
+            &config_path,
+            &db_path,
+            mode,
+            "builtin",
+            Some("hash-64"),
+            None,
+            Some("sqlite_vec"),
+        );
+
+        let output = run_cli(&config_path, &["status"]);
+        let text = stdout(&output);
+
+        assert!(
+            output.status.success(),
+            "status should succeed for ready semantic mode {mode}: stderr={}",
+            stderr(&output)
+        );
+        assert!(
+            text.contains("ready: true"),
+            "status should report ready=true for {mode}: {text}"
+        );
+        assert!(
+            text.contains(&format!("active_channels: {expected_channels}")),
+            "status should surface active channels for {mode}: {text}"
+        );
+        assert!(
+            text.contains("embedding_dependency_state: ready"),
+            "status should report a ready embedding dependency for {mode}: {text}"
+        );
+        assert!(
+            text.contains("vector_backend: sqlite_vec"),
+            "status should report the configured vector backend for {mode}: {text}"
+        );
+        assert!(
+            text.contains("embedding_index_readiness: ready"),
+            "status should report a ready embedding index for {mode}: {text}"
         );
     }
 }
@@ -394,7 +445,7 @@ fn diagnostic_commands_remain_informational_while_operational_gate_uses_same_con
     );
     assert!(
         stdout(&reserved_search)
-            .contains("embedding_only is reserved but not implemented in Phase 1"),
+            .contains("embedding_only is reserved and requires a builtin embedding backend to run"),
         "operational gate should preserve the explicit reserved semantic-mode failure: {}",
         stdout(&reserved_search)
     );
@@ -442,15 +493,24 @@ fn diagnostic_commands_remain_informational_while_operational_gate_uses_same_con
 
 #[test]
 fn embedding_foundation_status_reports_backend_readiness_truthfully() {
-    for (name, model, embedding_state, expected_note) in [
+    for (name, model, vector_backend, embedding_state, expected_note) in [
         (
             "builtin-ready",
             Some("hash-64"),
+            Some("sqlite_vec"),
             "ready",
             "optional second-channel foundation",
         ),
         (
+            "builtin-missing-vector-backend",
+            Some("hash-64"),
+            None,
+            "deferred",
+            "optional second-channel foundation",
+        ),
+        (
             "builtin-missing-model",
+            None,
             None,
             "deferred",
             "no embedding model is set yet",
@@ -460,13 +520,14 @@ fn embedding_foundation_status_reports_backend_readiness_truthfully() {
         let db_path = dir.join("agent-memos.sqlite");
         let config_path = dir.join("config.toml");
         Database::open(&db_path).expect("database should bootstrap for status");
-        write_config_with_embedding(
+        write_config_with_runtime(
             &config_path,
             &db_path,
             "lexical_only",
             "builtin",
             model,
             None,
+            vector_backend,
         );
 
         let output = run_cli(&config_path, &["status"]);
@@ -483,6 +544,13 @@ fn embedding_foundation_status_reports_backend_readiness_truthfully() {
         assert!(
             text.contains("embedding_backend: builtin"),
             "status should render the builtin backend label: {text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "vector_backend: {}",
+                vector_backend.unwrap_or("none")
+            )),
+            "status should report the configured vector backend truthfully: {text}"
         );
         assert!(
             text.contains(&format!("embedding_dependency_state: {embedding_state}")),
@@ -710,4 +778,72 @@ fn dual_channel_status_and_doctor_report_mode_compatibility_truthfully() {
         "doctor should explain which channel is gated: {}",
         stdout(&gated_doctor)
     );
+}
+
+#[test]
+fn semantic_status_and_doctor_do_not_overclaim_when_vector_backend_is_missing() {
+    for (name, mode, expected_active, expected_doctor_failure) in [
+        (
+            "embedding-vector-missing",
+            "embedding_only",
+            "none",
+            "vector backend is not ready for embedding_only retrieval",
+        ),
+        (
+            "hybrid-vector-missing",
+            "hybrid",
+            "lexical",
+            "vector backend is not ready for hybrid retrieval",
+        ),
+    ] {
+        let dir = unique_temp_dir(name);
+        let db_path = dir.join("agent-memos.sqlite");
+        let config_path = dir.join("config.toml");
+        Database::open(&db_path).expect("database should bootstrap for missing-vector status");
+        write_config_with_runtime(
+            &config_path,
+            &db_path,
+            mode,
+            "builtin",
+            Some("hash-64"),
+            None,
+            None,
+        );
+
+        let status_output = run_cli(&config_path, &["status"]);
+        let status_text = stdout(&status_output);
+        assert!(
+            status_output.status.success(),
+            "status should remain informational when vector backend is missing: stderr={}",
+            stderr(&status_output)
+        );
+        assert!(
+            status_text.contains("ready: false"),
+            "status should not report ready=true when vector backend is missing for {mode}: {status_text}"
+        );
+        assert!(
+            status_text.contains("vector_backend: none"),
+            "status should surface vector_backend=none for {mode}: {status_text}"
+        );
+        assert!(
+            status_text.contains("embedding_dependency_state: missing"),
+            "status should show the missing semantic dependency for {mode}: {status_text}"
+        );
+        assert!(
+            status_text.contains(&format!("active_channels: {expected_active}")),
+            "status should keep active channel reporting truthful for {mode}: {status_text}"
+        );
+
+        let doctor_output = run_cli(&config_path, &["doctor"]);
+        let doctor_text = stdout(&doctor_output);
+        assert!(
+            !doctor_output.status.success(),
+            "doctor should fail when vector backend is missing for {mode}: stdout={doctor_text} stderr={}",
+            stderr(&doctor_output)
+        );
+        assert!(
+            doctor_text.contains(expected_doctor_failure),
+            "doctor should explain the missing vector backend for {mode}: {doctor_text}"
+        );
+    }
 }

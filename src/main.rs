@@ -9,6 +9,7 @@ use agent_memos::{
 };
 
 fn main() -> ExitCode {
+    tracing_subscriber::fmt::init();
     match run() {
         Ok(code) => code,
         Err(error) => {

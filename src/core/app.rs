@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 
-use crate::core::config::{Config, EmbeddingBackend, RetrievalMode};
+use crate::core::config::{Config, EmbeddingBackend, RetrievalMode, VectorBackend};
 
 #[derive(Debug, Clone)]
 pub struct AppContext {
@@ -52,11 +52,11 @@ impl RuntimeReadiness {
                         "embedding foundation remains reserved until the optional semantic substrate is implemented"
                             .to_string(),
                     ),
-                    (EmbeddingBackend::Builtin, Some(model)) => notes.push(format!(
-                        "builtin embedding backend is configured with model '{model}' as an optional second-channel foundation"
+                    (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(model)) => notes.push(format!(
+                        "embedding backend is configured with model '{model}' as an optional second-channel foundation"
                     )),
-                    (EmbeddingBackend::Builtin, None) => notes.push(
-                        "builtin embedding backend is configured, but no embedding model is set yet"
+                    (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, None) => notes.push(
+                        "embedding backend is configured, but no embedding model is set yet"
                             .to_string(),
                     ),
                 }
@@ -71,7 +71,14 @@ impl RuntimeReadiness {
             RetrievalMode::EmbeddingOnly => Self {
                 configured_mode: RetrievalMode::EmbeddingOnly,
                 effective_mode: RetrievalMode::EmbeddingOnly,
-                ready: false,
+                ready: matches!(
+                    (
+                        config.embedding.backend,
+                        config.embedding.model.as_deref(),
+                        config.vector.backend
+                    ),
+                    (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(_), VectorBackend::SqliteVec)
+                ),
                 notes: vec![
                     embedding_only_note(config),
                     "semantic retrieval remains explicit instead of collapsing to a boolean flag"
@@ -81,7 +88,14 @@ impl RuntimeReadiness {
             RetrievalMode::Hybrid => Self {
                 configured_mode: RetrievalMode::Hybrid,
                 effective_mode: RetrievalMode::Hybrid,
-                ready: false,
+                ready: matches!(
+                    (
+                        config.embedding.backend,
+                        config.embedding.model.as_deref(),
+                        config.vector.backend
+                    ),
+                    (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(_), VectorBackend::SqliteVec)
+                ),
                 notes: vec![
                     "hybrid is configured with lexical as the primary explanation channel"
                         .to_string(),
@@ -93,40 +107,54 @@ impl RuntimeReadiness {
 }
 
 fn embedding_only_note(config: &Config) -> String {
-    match (config.embedding.backend, config.embedding.model.as_deref()) {
-        (EmbeddingBackend::Disabled, _) => {
+    match (
+        config.embedding.backend,
+        config.embedding.model.as_deref(),
+        config.vector.backend,
+    ) {
+        (EmbeddingBackend::Disabled, _, _) => {
             "embedding_only is configured, but a non-disabled embedding backend is required"
                 .to_string()
         }
-        (EmbeddingBackend::Reserved, _) => {
+        (EmbeddingBackend::Reserved, _, _) => {
             "embedding_only is configured, but the embedding substrate is still reserved until a later phase"
                 .to_string()
         }
-        (EmbeddingBackend::Builtin, Some(model)) => format!(
-            "embedding_only is configured with builtin model '{model}', but semantic-primary retrieval remains gated until dual-channel retrieval lands"
+        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(model), VectorBackend::SqliteVec) => format!(
+            "embedding_only is configured with model '{model}'; operational readiness still depends on the embedding vector backend and sidecar/index state"
         ),
-        (EmbeddingBackend::Builtin, None) => {
-            "embedding_only is configured for the builtin backend, but no embedding model is set"
+        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(model), VectorBackend::None) => format!(
+            "embedding_only is configured with model '{model}', but vector.backend=none leaves the semantic channel unavailable"
+        ),
+        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, None, _) => {
+            "embedding_only is configured for the backend, but no embedding model is set"
                 .to_string()
         }
     }
 }
 
 fn hybrid_note(config: &Config) -> String {
-    match (config.embedding.backend, config.embedding.model.as_deref()) {
-        (EmbeddingBackend::Disabled, _) => {
+    match (
+        config.embedding.backend,
+        config.embedding.model.as_deref(),
+        config.vector.backend,
+    ) {
+        (EmbeddingBackend::Disabled, _, _) => {
             "hybrid is configured, but an embedding backend is required for the secondary path"
                 .to_string()
         }
-        (EmbeddingBackend::Reserved, _) => {
+        (EmbeddingBackend::Reserved, _, _) => {
             "embedding backend Reserved remains foundation-only until dual-channel retrieval lands"
                 .to_string()
         }
-        (EmbeddingBackend::Builtin, Some(model)) => format!(
-            "builtin embedding model '{model}' is configured, but hybrid fusion remains gated until the dual-channel retrieval phase"
+        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(model), VectorBackend::SqliteVec) => format!(
+            "embedding model '{model}' is configured; operational readiness still depends on the lexical path plus the embedding vector backend and sidecar/index state"
         ),
-        (EmbeddingBackend::Builtin, None) => {
-            "hybrid is configured for the builtin backend, but no embedding model is set"
+        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(model), VectorBackend::None) => format!(
+            "embedding model '{model}' is configured, but vector.backend=none disables the hybrid secondary path"
+        ),
+        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, None, _) => {
+            "hybrid is configured for the backend, but no embedding model is set"
                 .to_string()
         }
     }
@@ -211,7 +239,7 @@ mod tests {
         };
 
         let embedding_readiness = RuntimeReadiness::from_config(&embedding_only);
-        assert!(!embedding_readiness.ready);
+        assert!(embedding_readiness.ready);
         assert_eq!(
             embedding_readiness.configured_mode,
             RetrievalMode::EmbeddingOnly
@@ -225,8 +253,8 @@ mod tests {
             embedding_readiness
                 .notes
                 .iter()
-                .any(|note| note.contains("semantic-primary retrieval remains gated")),
-            "embedding_only should stay explicitly deferred: {:?}",
+                .any(|note| note.contains("embedding vector backend and sidecar/index state")),
+            "embedding_only should describe the remaining operational dependency: {:?}",
             embedding_readiness.notes
         );
 
@@ -249,15 +277,15 @@ mod tests {
         };
 
         let hybrid_readiness = RuntimeReadiness::from_config(&hybrid);
-        assert!(!hybrid_readiness.ready);
+        assert!(hybrid_readiness.ready);
         assert_eq!(hybrid_readiness.configured_mode, RetrievalMode::Hybrid);
         assert_eq!(hybrid_readiness.effective_mode, RetrievalMode::Hybrid);
         assert!(
             hybrid_readiness
                 .notes
                 .iter()
-                .any(|note| note.contains("hybrid fusion remains gated")),
-            "hybrid should keep semantic capability deferred: {:?}",
+                .any(|note| note.contains("embedding vector backend and sidecar/index state")),
+            "hybrid should describe the remaining operational dependency: {:?}",
             hybrid_readiness.notes
         );
     }

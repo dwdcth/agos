@@ -14,6 +14,7 @@ use crate::{
     core::config::{Config, EmbeddingBackend, RetrievalMode, RetrievalModeVariant, VectorBackend},
     memory::{
         dsl::FlatFactDslRecordV1,
+        embedding::RigEmbeddingGenerator,
         record::MemoryRecord,
         repository::{MemoryRepository, RepositoryError},
     },
@@ -101,6 +102,8 @@ pub struct SearchService<'db> {
     mode: RetrievalMode,
     embedding_backend: EmbeddingBackend,
     embedding_model: Option<String>,
+    embedding_endpoint: Option<String>,
+    embedding_api_key: Option<String>,
     vector_backend: VectorBackend,
 }
 
@@ -112,6 +115,8 @@ impl<'db> SearchService<'db> {
             mode: RetrievalMode::LexicalOnly,
             embedding_backend: EmbeddingBackend::Disabled,
             embedding_model: None,
+            embedding_endpoint: None,
+            embedding_api_key: None,
             vector_backend: VectorBackend::None,
         }
     }
@@ -123,6 +128,8 @@ impl<'db> SearchService<'db> {
             mode: variant.mode,
             embedding_backend: variant.embedding_backend,
             embedding_model: variant.embedding.as_ref().map(|cfg| cfg.model.clone()),
+            embedding_endpoint: variant.embedding.as_ref().and_then(|cfg| cfg.api_base.clone()),
+            embedding_api_key: variant.embedding.as_ref().and_then(|cfg| cfg.api_key.clone()),
             vector_backend: variant
                 .vector
                 .as_ref()
@@ -142,6 +149,8 @@ impl<'db> SearchService<'db> {
             mode: mode_override.unwrap_or(config.retrieval.mode),
             embedding_backend: config.embedding.backend,
             embedding_model: config.embedding.model.clone(),
+            embedding_endpoint: config.embedding.endpoint.clone(),
+            embedding_api_key: config.embedding.api_key.clone(),
             vector_backend: config.vector.backend,
         }
     }
@@ -186,7 +195,7 @@ impl<'db> SearchService<'db> {
         &self,
         request: &SearchRequest,
     ) -> Result<Vec<lexical::LexicalCandidate>, SearchError> {
-        if !matches!(self.embedding_backend, EmbeddingBackend::Builtin)
+        if matches!(self.embedding_backend, EmbeddingBackend::Disabled)
             || !matches!(self.vector_backend, VectorBackend::SqliteVec)
         {
             return Ok(Vec::new());
@@ -195,16 +204,38 @@ impl<'db> SearchService<'db> {
         let Some(model) = self.embedding_model.as_deref() else {
             return Ok(Vec::new());
         };
-        let embeddings = self.repository.list_record_embeddings()?;
-        let query_embedding =
-            builtin_embedding(request.query.trim(), parse_builtin_dimensions(model));
+
+        let query_embedding = match self.embedding_backend {
+            EmbeddingBackend::Builtin => {
+                builtin_embedding(request.query.trim(), parse_builtin_dimensions(model))
+            }
+            EmbeddingBackend::OpenAi => {
+                let runtime_config = crate::core::config::RootEmbeddingRuntimeConfig {
+                    provider: "openai".to_string(),
+                    model: model.to_string(),
+                    api_base: self.embedding_endpoint.clone(),
+                    api_key: self.embedding_api_key.clone(),
+                    ..Default::default()
+                };
+                let generator = RigEmbeddingGenerator::new(runtime_config);
+                self.block_on(generator.generate_embedding(request.query.trim()))
+                    .map_err(|e| {
+                        SearchError::Repository(RepositoryError::Sqlite(
+                            rusqlite::Error::ToSqlConversionFailure(e.into()),
+                        ))
+                    })?
+            }
+            _ => return Ok(Vec::new()),
+        };
+
         if query_embedding.is_empty() {
             return Ok(Vec::new());
         }
 
+        let embeddings = self.repository.list_record_embeddings()?;
         let mut candidates = Vec::new();
         for embedding in embeddings {
-            if embedding.backend != EmbeddingBackend::Builtin || embedding.model != model {
+            if embedding.backend != self.embedding_backend || embedding.model != model {
                 continue;
             }
             let similarity = cosine_similarity(&query_embedding, &embedding.embedding);
@@ -230,6 +261,23 @@ impl<'db> SearchService<'db> {
         });
         candidates.truncate(request.bounded_limit());
         Ok(candidates)
+    }
+
+    fn block_on<F, T>(&self, future: F) -> Result<T, String>
+    where
+        F: std::future::Future<Output = Result<T, crate::memory::embedding::EmbeddingError>> + Send,
+    {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            return tokio::task::block_in_place(|| handle.block_on(future))
+                .map_err(|e| e.to_string());
+        }
+
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?
+            .block_on(future)
+            .map_err(|e| e.to_string())
     }
 
     fn attach_dsl_sidecars(&self, results: &mut [SearchResult]) -> Result<(), SearchError> {

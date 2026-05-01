@@ -19,6 +19,7 @@ use crate::{
     },
     memory::{
         classifier::KeywordTaxonomyClassifier,
+        embedding::RigEmbeddingGenerator,
         pipeline::{DefaultMemoryPipeline, MemoryPipelineError},
         record::{
             MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceKind, SourceRef,
@@ -292,30 +293,97 @@ impl IngestService<'_> {
     }
 
     fn build_embedding(&self, record: &MemoryRecord) -> Option<RecordEmbedding> {
-        if !matches!(self.embedding_config.backend, EmbeddingBackend::Builtin) {
-            return None;
+        match self.embedding_config.backend {
+            EmbeddingBackend::Builtin => {
+                let model = self.embedding_config.model.as_ref()?;
+                let dimensions = parse_builtin_dimensions(model);
+                let embedding = builtin_embedding(&record.content_text, dimensions);
+                let timestamp = record.timestamp.recorded_at.clone();
+                let source_text_hash = record
+                    .chunk
+                    .as_ref()
+                    .map(|chunk| chunk.content_hash.clone())
+                    .unwrap_or_else(|| "inline-text".to_string());
+
+                Some(RecordEmbedding {
+                    record_id: record.id.clone(),
+                    backend: EmbeddingBackend::Builtin,
+                    model: model.clone(),
+                    dimensions: dimensions as u32,
+                    embedding,
+                    source_text_hash,
+                    created_at: timestamp.clone(),
+                    updated_at: timestamp,
+                })
+            }
+            EmbeddingBackend::OpenAi => {
+                let model = self.embedding_config.model.as_ref()?;
+                let runtime_config = crate::core::config::RootEmbeddingRuntimeConfig {
+                    provider: "openai".to_string(),
+                    model: model.clone(),
+                    api_base: self.embedding_config.endpoint.clone(),
+                    api_key: self.embedding_config.api_key.clone(),
+                    ..Default::default()
+                };
+
+                let generator = RigEmbeddingGenerator::new(runtime_config);
+                let embedding = self
+                    .block_on_embedding(generator.generate_embedding(&record.content_text))
+                    .map_err(|e| {
+                        warn!(error = %e, record_id = %record.id, "failed to generate openai embedding");
+                        e
+                    })
+                    .ok()?;
+
+                let timestamp = record.timestamp.recorded_at.clone();
+                let source_text_hash = record
+                    .chunk
+                    .as_ref()
+                    .map(|chunk| chunk.content_hash.clone())
+                    .unwrap_or_else(|| "inline-text".to_string());
+
+                Some(RecordEmbedding {
+                    record_id: record.id.clone(),
+                    backend: EmbeddingBackend::OpenAi,
+                    model: model.clone(),
+                    dimensions: embedding.len() as u32,
+                    embedding,
+                    source_text_hash,
+                    created_at: timestamp.clone(),
+                    updated_at: timestamp,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn block_on_embedding<F>(&self, future: F) -> Result<Vec<f32>, IngestError>
+    where
+        F: std::future::Future<Output = Result<Vec<f32>, crate::memory::embedding::EmbeddingError>>
+            + Send,
+    {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            return tokio::task::block_in_place(|| handle.block_on(future)).map_err(|e| {
+                IngestError::LayeredMemory(MemoryPipelineError::Summary(
+                    crate::memory::summary::FactSummaryError::Generator(e.to_string()),
+                ))
+            });
         }
 
-        let model = self.embedding_config.model.as_ref()?;
-        let dimensions = parse_builtin_dimensions(model);
-        let embedding = builtin_embedding(&record.content_text, dimensions);
-        let timestamp = record.timestamp.recorded_at.clone();
-        let source_text_hash = record
-            .chunk
-            .as_ref()
-            .map(|chunk| chunk.content_hash.clone())
-            .unwrap_or_else(|| "inline-text".to_string());
-
-        Some(RecordEmbedding {
-            record_id: record.id.clone(),
-            backend: EmbeddingBackend::Builtin,
-            model: model.clone(),
-            dimensions: dimensions as u32,
-            embedding,
-            source_text_hash,
-            created_at: timestamp.clone(),
-            updated_at: timestamp,
-        })
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| {
+                IngestError::LayeredMemory(MemoryPipelineError::Summary(
+                    crate::memory::summary::FactSummaryError::Generator(e.to_string()),
+                ))
+            })?
+            .block_on(future)
+            .map_err(|e| {
+                IngestError::LayeredMemory(MemoryPipelineError::Summary(
+                    crate::memory::summary::FactSummaryError::Generator(e.to_string()),
+                ))
+            })
     }
 }
 

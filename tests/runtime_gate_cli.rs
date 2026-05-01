@@ -138,13 +138,13 @@ fn gated_commands_fail_for_reserved_or_invalid_runtime_modes() {
             "embedding-reserved",
             "embedding_only",
             "reserved",
-            "embedding_only is reserved but not implemented in Phase 1",
+            "embedding_only is reserved and requires a builtin embedding backend to run",
         ),
         (
             "hybrid-reserved",
             "hybrid",
             "reserved",
-            "hybrid keeps lexical as the primary baseline, but the embedding secondary path is reserved in Phase 1",
+            "hybrid requires a builtin embedding backend for the secondary path",
         ),
         (
             "embedding-disabled",
@@ -219,6 +219,70 @@ fn gated_commands_succeed_for_ready_lexical_mode() {
         stdout(&agent_search_output),
         stderr(&agent_search_output)
     );
+}
+
+#[test]
+fn gated_commands_succeed_for_ready_semantic_modes() {
+    for (name, mode) in [
+        ("embedding-ready", "embedding_only"),
+        ("hybrid-ready", "hybrid"),
+    ] {
+        let dir = unique_temp_dir(name);
+        let db_path = dir.join("agent-memos.sqlite");
+        let config_path = dir.join("config.toml");
+        let parent = config_path
+            .parent()
+            .expect("config path should have parent");
+        fs::create_dir_all(parent).expect("config parent should exist");
+        fs::write(
+            &config_path,
+            format!(
+                r#"
+db_path = "{}"
+
+[retrieval]
+mode = "{mode}"
+
+[embedding]
+backend = "builtin"
+model = "hash-64"
+
+[vector]
+backend = "sqlite_vec"
+table = "object_embeddings_vec"
+similarity = "cosine"
+"#,
+                db_path.display()
+            ),
+        )
+        .expect("semantic-ready config should be written");
+
+        Database::open(&db_path).expect("database should bootstrap for semantic-ready config");
+
+        let ingest_output = run_cli(&config_path, &ingest_args());
+        assert!(
+            ingest_output.status.success(),
+            "ingest should succeed for ready semantic mode {mode}: stdout={} stderr={}",
+            stdout(&ingest_output),
+            stderr(&ingest_output)
+        );
+
+        let search_output = run_cli(&config_path, &search_args());
+        assert!(
+            search_output.status.success(),
+            "search should succeed for ready semantic mode {mode}: stdout={} stderr={}",
+            stdout(&search_output),
+            stderr(&search_output)
+        );
+
+        let agent_search_output = run_cli(&config_path, &agent_search_args());
+        assert!(
+            agent_search_output.status.success(),
+            "agent-search should succeed for ready semantic mode {mode}: stdout={} stderr={}",
+            stdout(&agent_search_output),
+            stderr(&agent_search_output)
+        );
+    }
 }
 
 #[test]

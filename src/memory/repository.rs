@@ -2930,6 +2930,7 @@ fn parse_embedding_backend(value: &str) -> Result<EmbeddingBackend, RepositoryEr
         "disabled" => Ok(EmbeddingBackend::Disabled),
         "reserved" => Ok(EmbeddingBackend::Reserved),
         "builtin" => Ok(EmbeddingBackend::Builtin),
+        "openai" => Ok(EmbeddingBackend::OpenAi),
         other => Err(RepositoryError::InvalidEnum {
             field: "embedding_backend",
             value: other.to_string(),

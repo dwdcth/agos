@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"Load backend spec index for delegated review context."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Apply backend quality verification expectations during delegated checking."}
+{"file":"doc/理论实现对应.md","reason":"Validate whether the theory mapping document matches the actual codebase."}
+{"file":"doc/0415-00记忆认知架构.md","reason":"Validate coverage claims against the top-level cognition architecture document."}
+{"file":".trellis/tasks/04-30-audit-theory-implementation-coverage/prd.md","reason":"Task-specific audit criteria and expected deliverables."}

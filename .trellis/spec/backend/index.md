@@ -21,6 +21,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Self Model Contracts](./self-model-contracts.md) | Explicit self-model projection contracts for working-memory assembly | Added |
 | [Skill Memory Contracts](./skill-memory-contracts.md) | Explicit skill-memory template projection contracts for working-memory assembly | Added |
 | [World Model Contracts](./world-model-contracts.md) | Explicit world-model projection contracts for working-memory assembly | Added |
+| [Value Layer Contracts](./value-layer-contracts.md) | Learnable weight adjustment and dynamic value projection contracts | Added |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 

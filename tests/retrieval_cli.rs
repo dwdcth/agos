@@ -14521,7 +14521,7 @@ fn cli_search_hybrid_fails_closed_when_embedding_model_is_missing() {
 }
 
 #[test]
-fn cli_search_embedding_only_returns_empty_results_when_vector_backend_is_none() {
+fn cli_search_embedding_only_fails_closed_when_vector_backend_is_none() {
     let dir = unique_temp_dir("embedding-only-missing-vector");
     let db_path = dir.join("agent-memos.sqlite");
     let config_path = dir.join("config.toml");
@@ -14566,17 +14566,21 @@ fn cli_search_embedding_only_returns_empty_results_when_vector_backend_is_none()
     let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
 
     assert!(
-        search_output.status.success(),
-        "embedding_only search should still succeed when the vector backend is missing: {combined}"
+        !search_output.status.success(),
+        "embedding_only search should fail closed when the vector backend is missing: {combined}"
     );
     assert!(
-        combined.contains("results: 0"),
-        "embedding_only search should surface an empty result set when the vector backend is missing: {combined}"
+        combined.contains("ready: false"),
+        "failure output should include readiness=false for embedding_only missing-vector mode: {combined}"
+    );
+    assert!(
+        combined.contains("vector backend is not ready for embedding_only retrieval"),
+        "failure output should explain the missing vector backend for embedding_only mode: {combined}"
     );
 }
 
 #[test]
-fn cli_search_hybrid_falls_back_to_lexical_when_vector_backend_is_none() {
+fn cli_search_hybrid_fails_closed_when_vector_backend_is_none() {
     let dir = unique_temp_dir("hybrid-missing-vector");
     let db_path = dir.join("agent-memos.sqlite");
     let config_path = dir.join("config.toml");
@@ -14618,16 +14622,16 @@ fn cli_search_hybrid_falls_back_to_lexical_when_vector_backend_is_none() {
     let combined = format!("{}\n{}", stdout(&search_output), stderr(&search_output));
 
     assert!(
-        search_output.status.success(),
-        "hybrid search should still succeed when the vector backend is missing: {combined}"
+        !search_output.status.success(),
+        "hybrid search should fail closed when the vector backend is missing: {combined}"
     );
     assert!(
-        combined.contains("memo://project/hybrid-missing-vector"),
-        "hybrid search should still surface the lexical result when the vector backend is missing: {combined}"
+        combined.contains("ready: false"),
+        "failure output should include readiness=false for hybrid missing-vector mode: {combined}"
     );
     assert!(
-        combined.contains("channel: lexical_only"),
-        "hybrid search should degrade to lexical_only channel contribution when the vector backend is missing: {combined}"
+        combined.contains("vector backend is not ready for hybrid retrieval"),
+        "failure output should explain the missing vector backend for hybrid mode: {combined}"
     );
 }
 
@@ -14685,7 +14689,8 @@ fn cli_search_embedding_only_fails_closed_when_embedding_backend_is_reserved() {
         "failure output should include readiness=false for embedding_only reserved mode: {combined}"
     );
     assert!(
-        combined.contains("embedding_only is reserved but not implemented in Phase 1"),
+        combined
+            .contains("embedding_only is reserved and requires a builtin embedding backend to run"),
         "failure output should explain the reserved embedding_only mode: {combined}"
     );
     assert!(
@@ -14745,9 +14750,7 @@ fn cli_search_hybrid_fails_closed_when_embedding_backend_is_reserved() {
         "failure output should include readiness=false for hybrid reserved mode: {combined}"
     );
     assert!(
-        combined.contains(
-            "hybrid keeps lexical as the primary baseline, but the embedding secondary path is reserved in Phase 1"
-        ),
+        combined.contains("hybrid requires a builtin embedding backend for the secondary path"),
         "failure output should explain the reserved hybrid mode: {combined}"
     );
     assert!(

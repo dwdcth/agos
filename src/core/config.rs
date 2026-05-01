@@ -25,6 +25,7 @@ pub enum EmbeddingBackend {
     Disabled,
     Reserved,
     Builtin,
+    OpenAi,
 }
 
 impl EmbeddingBackend {
@@ -33,6 +34,7 @@ impl EmbeddingBackend {
             Self::Disabled => "disabled",
             Self::Reserved => "reserved",
             Self::Builtin => "builtin",
+            Self::OpenAi => "openai",
         }
     }
 }
@@ -49,6 +51,7 @@ pub struct EmbeddingConfig {
     pub backend: EmbeddingBackend,
     pub model: Option<String>,
     pub endpoint: Option<String>,
+    pub api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -105,7 +108,30 @@ impl RootRuntimeConfig {
         toml::from_str(&contents).map_err(ConfigError::Parse)
     }
 
+    pub fn to_config(&self) -> Config {
+        Config {
+            db_path: self.store.sqlite_path.clone(),
+            retrieval: RetrievalConfig {
+                mode: RetrievalMode::LexicalOnly, // Default to lexical for safety
+            },
+            embedding: EmbeddingConfig {
+                backend: match self.embedding.provider.as_str() {
+                    "openai" => EmbeddingBackend::OpenAi,
+                    "builtin" => EmbeddingBackend::Builtin,
+                    _ => EmbeddingBackend::Disabled,
+                },
+                model: Some(self.embedding.model.clone()),
+                endpoint: self.embedding.api_base.clone(),
+                api_key: self.embedding.api_key.clone(),
+            },
+            llm: self.llm.clone(),
+            memory: MemoryConfig::default(),
+            vector: self.vector.clone(),
+        }
+    }
+
     pub fn retrieval_mode_variants(&self) -> Vec<RetrievalModeVariant> {
+        let base = self.to_config();
         vec![
             RetrievalModeVariant {
                 name: "lexical_only".to_string(),
@@ -120,7 +146,7 @@ impl RootRuntimeConfig {
                 name: "embedding_only".to_string(),
                 db_path: self.store.sqlite_path.clone(),
                 mode: RetrievalMode::EmbeddingOnly,
-                embedding_backend: EmbeddingBackend::Builtin,
+                embedding_backend: base.embedding.backend,
                 llm: self.llm.clone(),
                 embedding: Some(self.embedding.clone()),
                 vector: Some(self.vector.clone()),
@@ -129,7 +155,7 @@ impl RootRuntimeConfig {
                 name: "hybrid".to_string(),
                 db_path: self.store.sqlite_path.clone(),
                 mode: RetrievalMode::Hybrid,
-                embedding_backend: EmbeddingBackend::Builtin,
+                embedding_backend: base.embedding.backend,
                 llm: self.llm.clone(),
                 embedding: Some(self.embedding.clone()),
                 vector: Some(self.vector.clone()),
@@ -237,14 +263,34 @@ impl Config {
     }
 
     pub fn load_from(path: &Path) -> Result<Self, ConfigError> {
-        match fs::read_to_string(path) {
-            Ok(contents) => toml::from_str(&contents).map_err(ConfigError::Parse),
-            Err(source) if source.kind() == ErrorKind::NotFound => Ok(Self::default()),
-            Err(source) => Err(ConfigError::Read {
-                path: path.to_path_buf(),
-                source,
-            }),
+        let contents = match fs::read_to_string(path) {
+            Ok(contents) => contents,
+            Err(source) if source.kind() == ErrorKind::NotFound => return Ok(Self::default()),
+            Err(source) => {
+                return Err(ConfigError::Read {
+                    path: path.to_path_buf(),
+                    source,
+                })
+            }
+        };
+
+        // Try parsing as RootRuntimeConfig first (the user's schema)
+        if let Ok(runtime) = toml::from_str::<RootRuntimeConfig>(&contents) {
+            let mut config = runtime.to_config();
+            // If it also contains a [retrieval] or [memory] block, preserve them
+            if let Ok(legacy) = toml::from_str::<Config>(&contents) {
+                // If legacy.retrieval was actually present in TOML (not just default), preserve it
+                if contents.contains("[retrieval]") {
+                    config.retrieval = legacy.retrieval;
+                }
+                if contents.contains("[memory]") {
+                    config.memory = legacy.memory;
+                }
+            }
+            return Ok(config);
         }
+
+        toml::from_str(&contents).map_err(ConfigError::Parse)
     }
 }
 

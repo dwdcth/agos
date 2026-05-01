@@ -8,7 +8,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use crate::core::{
     app::AppContext,
-    config::{EmbeddingBackend, RetrievalMode},
+    config::{EmbeddingBackend, RetrievalMode, VectorBackend},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +57,7 @@ pub struct StatusReport {
     pub configured_mode: RetrievalMode,
     pub effective_mode: RetrievalMode,
     pub embedding_backend: EmbeddingBackend,
+    pub vector_backend: VectorBackend,
     pub schema_state: CapabilityState,
     pub lexical_dependency_state: CapabilityState,
     pub embedding_dependency_state: CapabilityState,
@@ -102,19 +103,17 @@ impl StatusReport {
             app.config.retrieval.mode,
             app.config.embedding.backend,
             app.config.embedding.model.as_deref(),
+            app.config.vector.backend,
         );
         let index_readiness = match app.config.retrieval.mode {
             RetrievalMode::LexicalOnly => inspection.lexical_index_state,
             RetrievalMode::EmbeddingOnly => CapabilityState::NotApplicable,
-            RetrievalMode::Hybrid => match inspection.lexical_index_state {
-                CapabilityState::Ready => CapabilityState::Deferred,
-                other => other,
-            },
+            RetrievalMode::Hybrid => inspection.lexical_index_state,
         };
         let embedding_index_readiness = match app.config.embedding.backend {
             EmbeddingBackend::Disabled => CapabilityState::NotApplicable,
             EmbeddingBackend::Reserved => CapabilityState::Deferred,
-            EmbeddingBackend::Builtin => inspection.embedding_index_state,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi => inspection.embedding_index_state,
         };
 
         let mut readiness_notes = app.readiness.notes.clone();
@@ -142,7 +141,15 @@ impl StatusReport {
             && matches!(inspection.base_table_state, CapabilityState::Ready)
             && match app.config.retrieval.mode {
                 RetrievalMode::LexicalOnly => matches!(index_readiness, CapabilityState::Ready),
-                RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid => false,
+                RetrievalMode::EmbeddingOnly => {
+                    matches!(embedding_dependency_state, CapabilityState::Ready)
+                        && matches!(embedding_index_readiness, CapabilityState::Ready)
+                }
+                RetrievalMode::Hybrid => {
+                    matches!(index_readiness, CapabilityState::Ready)
+                        && matches!(embedding_dependency_state, CapabilityState::Ready)
+                        && matches!(embedding_index_readiness, CapabilityState::Ready)
+                }
             };
 
         Ok(Self {
@@ -151,6 +158,7 @@ impl StatusReport {
             configured_mode: app.readiness.configured_mode,
             effective_mode: app.readiness.effective_mode,
             embedding_backend: app.config.embedding.backend,
+            vector_backend: app.config.vector.backend,
             schema_state: inspection.schema_state,
             lexical_dependency_state,
             embedding_dependency_state,
@@ -187,6 +195,10 @@ impl StatusReport {
             format!(
                 "  embedding_backend: {}",
                 embedding_backend_label(self.embedding_backend)
+            ),
+            format!(
+                "  vector_backend: {}",
+                vector_backend_label(self.vector_backend)
             ),
             format!("  ready: {}", self.ready),
             format!("  active_channels: {}", active_channels_label(self)),
@@ -249,7 +261,7 @@ fn gated_channels_label(report: &StatusReport) -> &'static str {
         RetrievalMode::LexicalOnly => {
             if matches!(
                 report.embedding_backend,
-                EmbeddingBackend::Builtin | EmbeddingBackend::Reserved
+                EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::Reserved
             ) && (!matches!(report.embedding_dependency_state, CapabilityState::Ready)
                 || !matches!(report.embedding_index_readiness, CapabilityState::Ready))
             {
@@ -352,26 +364,53 @@ fn embedding_dependency_state(
     mode: RetrievalMode,
     backend: EmbeddingBackend,
     model: Option<&str>,
+    vector_backend: VectorBackend,
 ) -> CapabilityState {
-    match (mode, backend, model) {
-        (RetrievalMode::LexicalOnly, EmbeddingBackend::Disabled, _) => CapabilityState::Disabled,
-        (RetrievalMode::LexicalOnly, EmbeddingBackend::Reserved, _) => CapabilityState::Deferred,
-        (RetrievalMode::LexicalOnly, EmbeddingBackend::Builtin, Some(_)) => CapabilityState::Ready,
-        (RetrievalMode::LexicalOnly, EmbeddingBackend::Builtin, None) => CapabilityState::Deferred,
-        (RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid, EmbeddingBackend::Disabled, _) => {
-            CapabilityState::Missing
+    match (mode, backend, model, vector_backend) {
+        (RetrievalMode::LexicalOnly, EmbeddingBackend::Disabled, _, _) => CapabilityState::Disabled,
+        (RetrievalMode::LexicalOnly, EmbeddingBackend::Reserved, _, _) => CapabilityState::Deferred,
+        (
+            RetrievalMode::LexicalOnly,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            Some(_),
+            VectorBackend::SqliteVec,
+        ) => CapabilityState::Ready,
+        (RetrievalMode::LexicalOnly, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(_), VectorBackend::None) => {
+            CapabilityState::Deferred
         }
-        (RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid, EmbeddingBackend::Reserved, _) => {
+        (RetrievalMode::LexicalOnly, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, None, _) => {
             CapabilityState::Deferred
         }
         (
             RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
-            EmbeddingBackend::Builtin,
+            EmbeddingBackend::Disabled,
+            _,
+            _,
+        ) => CapabilityState::Missing,
+        (
+            RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
+            EmbeddingBackend::Reserved,
+            _,
+            _,
+        ) => CapabilityState::Deferred,
+        (
+            RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
             Some(_),
+            VectorBackend::SqliteVec,
         ) => CapabilityState::Ready,
-        (RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid, EmbeddingBackend::Builtin, None) => {
-            CapabilityState::Deferred
-        }
+        (
+            RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            Some(_),
+            VectorBackend::None,
+        ) => CapabilityState::Missing,
+        (
+            RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            None,
+            _,
+        ) => CapabilityState::Deferred,
     }
 }
 
@@ -387,6 +426,13 @@ pub fn embedding_backend_label(backend: EmbeddingBackend) -> &'static str {
     match backend {
         EmbeddingBackend::Disabled => "disabled",
         EmbeddingBackend::Reserved => "reserved",
-        EmbeddingBackend::Builtin => "builtin",
+        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi => "builtin",
+    }
+}
+
+pub fn vector_backend_label(backend: VectorBackend) -> &'static str {
+    match backend {
+        VectorBackend::None => "none",
+        VectorBackend::SqliteVec => "sqlite_vec",
     }
 }

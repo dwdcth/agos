@@ -27,7 +27,7 @@
     "best_iteration": 1092,
     "best_metric": 426,
     "blocked": 0,
-    "consecutive_discards": 21,
+    "consecutive_discards": 152,
     "crashes": 2,
     "current_labels": [
       "override-ready-path-source-metadata-lock",
@@ -37,7 +37,7 @@
     ],
     "current_metric": 413,
     "discards": 0,
-    "iteration": 1222,
+    "iteration": 1353,
     "keeps": 319,
     "last_commit": "ea729c5bf63d6ef424e44518e57ccb9382e51ee0",
     "last_repo_commits": {
@@ -46,7 +46,7 @@
     "last_status": "no-op",
     "last_trial_commit": "ea729c5bf63d6ef424e44518e57ccb9382e51ee0",
     "last_trial_labels": [
-      "read-only-monitor-413e",
+      "read-only-monitor-413dx",
       "lexical-first",
       "working-memory-assembly"
     ],
@@ -54,9 +54,9 @@
     "last_trial_repo_commits": {
       "/home/tongyuan/project/agent_memos": "ea729c5bf63d6ef424e44518e57ccb9382e51ee0"
     },
-    "no_ops": 881,
+    "no_ops": 1012,
     "pivot_count": 0
   },
-  "updated_at": "2026-04-23T07:58:39Z",
+  "updated_at": "2026-04-26T12:10:35Z",
   "version": 1
 }

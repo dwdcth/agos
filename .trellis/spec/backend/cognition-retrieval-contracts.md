@@ -14,11 +14,16 @@
 ### 2. Signatures
 
 - `src/cognition/attention.rs`
-  - `AttentionCue { cue: String, weight: f32 }`
+  - `AttentionLane { Goal, Risk, Metacog, Readiness, Capability }`
+  - `AttentionCue { lane, source, cue, weight }`
   - `AttentionBaseline`
-  - `AttentionDelta`
+  - `AttentionContribution { lane, source, cue, matched_fields, bonus }`
+  - `AttentionDelta { total_bonus, contributions }`
   - `AttentionState { baseline: AttentionBaseline, delta: AttentionDelta }`
-  - `AttentionTrace { total_bonus: f32, contributions: Vec<AttentionContribution> }`
+  - `AttentionTrace { total_bonus, contributions: Vec<AttentionContribution> }`
+  - `ATTENTION_BONUS_CAP: f32 = 0.15`
+  - Lane weight constants: Goal=0.06, Risk=0.04, Metacog=0.03, Readiness=0.02, Capability=0.02
+  - `AttentionState::derive_delta(goal, risks, metacog_flags, readiness_flags, capability_flags) -> AttentionDelta`
 - `src/search/mod.rs`
   - `SearchRequest { query, limit, filters, attention_state: Option<AttentionState> }`
   - `SearchRequest::with_attention_state(attention_state)`
@@ -55,6 +60,9 @@
 - Attention must not create a parallel retrieval path outside `SearchService`.
 - Attention must not replace lexical explanation.
 - `attention_bonus` contributes to `final_score`, but lexical scoring and citations remain the primary explanation surface.
+- Total attention bonus is capped at `ATTENTION_BONUS_CAP` (0.15).
+- Per-lane weights are: Goal 0.06, Risk 0.04, Metacog 0.03, Readiness 0.02, Capability 0.02.
+- Matching: each cue is split into terms and checked against candidate label, content, and DSL fields. A match adds the lane weight as bonus.
 
 #### Trace contract
 
@@ -143,3 +151,127 @@
 - `src/search/rerank.rs`
 - `src/cognition/assembly.rs`
 - `src/agent/orchestration.rs`
+
+---
+
+## Scenario: Semantic Retrieval Runtime Readiness
+
+### 1. Scope / Trigger
+
+- Trigger: runtime status and doctor output now treat `embedding_only` / `hybrid` as real supported modes, but only when the semantic runtime substrate is actually configured and present.
+- Why this needs code-spec depth: this is a cross-layer command/runtime contract affecting config parsing, status rendering, doctor gating, CLI behavior, and retrieval-mode tests.
+
+### 2. Signatures
+
+- `src/core/app.rs`
+  - `RuntimeReadiness { configured_mode, effective_mode, ready, notes }`
+  - `RuntimeReadiness::from_config(config)`
+- `src/core/status.rs`
+  - `StatusReport { ..., embedding_backend, vector_backend, lexical_dependency_state, embedding_dependency_state, index_readiness, embedding_index_readiness, ready, ... }`
+  - `StatusReport::collect(app)`
+  - `embedding_dependency_state(mode, backend, model, vector_backend) -> CapabilityState`
+  - `embedding_backend_label(backend) -> &'static str`
+  - `vector_backend_label(backend) -> &'static str`
+- `src/core/doctor.rs`
+  - `DoctorReport::evaluate(status, command_path)`
+  - `operational_readiness_failures(status) -> Vec<String>`
+  - `doctor_mode_readiness_failures(status) -> Vec<String>`
+- `src/search/mod.rs`
+  - `SearchService::search(request)` with `RetrievalMode::{LexicalOnly, EmbeddingOnly, Hybrid}`
+
+### 3. Contracts
+
+#### Runtime-readiness contract
+
+- `lexical_only` remains the default ready mode after schema/index initialization.
+- `embedding_only` is config-ready only when all of the following hold:
+  - `embedding.backend = builtin`
+  - `embedding.model` is present
+  - `vector.backend = sqlite_vec`
+- `hybrid` is config-ready only when all of the following hold:
+  - `embedding.backend = builtin`
+  - `embedding.model` is present
+  - `vector.backend = sqlite_vec`
+- Config readiness is not the same thing as operational readiness.
+- Operational readiness for semantic modes additionally depends on:
+  - embedding sidecar/index presence in the database
+  - lexical index presence for `hybrid`
+
+#### Status contract
+
+- `status` is informational and must still render even when `ready: false`.
+- `status` must expose:
+  - `embedding_backend`
+  - `vector_backend`
+  - `lexical_dependency_state`
+  - `embedding_dependency_state`
+  - `index_readiness`
+  - `embedding_index_readiness`
+  - `active_channels`
+  - `gated_channels`
+- `embedding_dependency_state` must reflect vector backend reality:
+  - builtin + model + `sqlite_vec` -> semantic dependency can be `ready`
+  - builtin + model + `none` -> semantic dependency is not ready for semantic modes
+
+#### Doctor / operational gate contract
+
+- `doctor`, `search`, `ingest`, and `agent-search` must fail closed when semantic runtime requirements are missing.
+- If `embedding.backend = reserved`:
+  - `embedding_only` failure text must say it requires a builtin embedding backend
+  - `hybrid` failure text must say it requires a builtin embedding backend for the secondary path
+- If `vector.backend = none` under semantic modes:
+  - `embedding_only` must fail with `vector backend is not ready for embedding_only retrieval`
+  - `hybrid` must fail with `vector backend is not ready for hybrid retrieval`
+- `hybrid` must not silently degrade to lexical-only in operational commands when the semantic path is explicitly requested but unavailable.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| `lexical_only` + `embedding.backend=disabled` | `status ready: true`; lexical path remains usable |
+| `embedding_only` + `embedding.backend=reserved` | `doctor/search/agent-search` fail closed with builtin-backend requirement |
+| `hybrid` + `embedding.backend=reserved` | `doctor/search/agent-search` fail closed with builtin-backend requirement |
+| `embedding_only` + builtin model + `vector.backend=none` | `status ready: false`; doctor/search fail closed with vector-backend error |
+| `hybrid` + builtin model + `vector.backend=none` | `status ready: false`; `active_channels` may still show lexical, but doctor/search fail closed with vector-backend error |
+| `embedding_only` + builtin model + `sqlite_vec` + ready sidecar/index | `status ready: true`; semantic operational commands succeed |
+| `hybrid` + builtin model + `sqlite_vec` + ready lexical + embedding indexes | `status ready: true`; semantic operational commands succeed |
+
+### 5. Good / Base / Bad Cases
+
+- Good:
+  - `status` reports semantic modes truthfully without overclaiming readiness.
+  - `doctor` distinguishes missing embedding backend from missing vector backend.
+  - Tests cover reserved backend, missing vector backend, and fully ready semantic modes.
+- Base:
+  - `lexical_only` remains informative even when embedding config exists as optional foundation.
+- Bad:
+  - Reporting semantic mode as ready from config alone while vector backend is absent.
+  - Allowing `hybrid` CLI commands to silently fall back to lexical when semantic mode was explicitly selected but unavailable.
+  - Keeping stale “Phase 1 reserved” messaging after semantic code paths exist.
+
+### 6. Tests Required
+
+- `tests/status_cli.rs`
+  - Assert `status` remains informational for reserved or missing semantic substrates
+  - Assert ready semantic modes require `vector_backend: sqlite_vec`
+  - Assert missing vector backend produces `ready: false` and truthful active channel reporting
+- `tests/runtime_gate_cli.rs`
+  - Assert `ingest`, `search`, and `agent-search` succeed for ready semantic modes
+  - Assert reserved backends still fail closed with updated error text
+- `tests/retrieval_cli.rs`
+  - Assert semantic modes fail closed when vector backend is missing
+  - Assert ready semantic modes preserve dual-channel retrieval behavior
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Mark `embedding_only` / `hybrid` as supported in retrieval code
+- But leave `status` and `doctor` hardcoded to “reserved in Phase 1”
+- Or mark them `ready` without checking `vector.backend`
+
+#### Correct
+
+- Treat semantic modes as supported runtime variants
+- Gate operational readiness on backend, model, vector backend, and DB sidecar/index state
+- Keep `status`, `doctor`, and CLI tests aligned with the actual retrieval/runtime contract

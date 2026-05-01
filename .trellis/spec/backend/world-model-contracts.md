@@ -323,3 +323,91 @@
 - Dispatch through `resolve_world_model` with three-tier precedence.
 - Rehydrate truths from the repository using snapshot fragment `record_id`s.
 - Keep the outward `world_fragments` contract identical regardless of source.
+
+---
+
+## Scenario: World-Model Prediction / Simulation
+
+### 1. Scope / Trigger
+
+- Trigger: The theory requires `Simulate(s_t, a) → ŝ_{t+1}, r̂, û` — the world model must predict consequences of candidate actions.
+- Why this needs code-spec depth: prediction crosses the world model, action system, and LLM backend; it produces ephemeral structured output that must not mutate the current world model.
+
+### 2. Signatures
+
+- `src/cognition/world_model.rs`
+  - `ChangeDirection { Strengthened, Weakened, Invalidated, Unchanged, NewRisk }`
+  - `PredictedFragmentChange { record_id, change_description, change_direction }`
+  - `PredictedSeverity { Low, Medium, High }`
+  - `PredictedRisk { description, severity }`
+  - `PredictedWorldSlice { affected_fragments, new_risks, uncertainty_delta, overall_assessment }`
+  - `SimulationResult { predicted: PredictedWorldSlice, confidence, action_summary }`
+  - `SimulationError { LlmUnconfigured, LlmRequestFailed }`
+  - `SimulationStructuredOutput` (JsonSchema for rig TypedPrompt)
+  - `WorldSimulator<B>` with `simulate_async()` and `simulate()`
+  - `build_simulation_prompt(world_fragments, action) -> String`
+
+### 3. Contracts
+
+#### Prediction contract
+
+- Prediction takes a `CurrentWorldSlice` + `ActionCandidate` and returns a `SimulationResult`.
+- Prediction is ephemeral: not persisted, not stored in any snapshot.
+- Prediction must NOT mutate the current world model or its fragments.
+- Prediction is opt-in: assembly and orchestration do not automatically trigger prediction.
+
+#### LLM backend contract
+
+- Follows the same `TypedPrompt<T>` + `JsonSchema` pattern as `src/memory/summary.rs`.
+- Graceful degradation: returns `SimulationError` when LLM is unavailable, never panics.
+- Both async (`simulate_async`) and sync (`simulate`) entry points.
+
+#### Prompt contract
+
+- Prompt includes: world fragment record_ids, snippets, optional DSL claims, and full action details (kind, summary, intent, expected_effects).
+- Prompt is self-contained and deterministic given the same inputs.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| LLM config missing or incomplete | `SimulationError::LlmUnconfigured` |
+| LLM request fails (network, timeout) | `SimulationError::LlmRequestFailed` |
+| World fragments empty | Prompt still valid, prediction covers only action consequences |
+| Action has no expected_effects | Prompt omits expected effects section |
+| Action has no intent | Prompt uses fallback "no explicit intent provided" |
+
+### 5. Good / Base / Bad Cases
+
+- Good:
+  - Structured prediction with confidence score and traceable fragment changes.
+  - Prompt is self-contained and reproducible.
+- Base:
+  - Without calling `simulate()`, system behaves identically to before.
+- Bad:
+  - Persisting predictions into the current world snapshot.
+  - Auto-triggering prediction on every assembly call.
+  - Letting prediction output bypass the evidence fragment contract.
+
+### 6. Tests Required
+
+- `src/cognition/world_model.rs` (inline tests)
+  - Assert prompt includes all world fragments and action fields
+  - Assert prompt handles empty expected_effects and missing intent
+  - Assert SimulationStructuredOutput converts to SimulationResult
+  - Assert PredictedWorldSlice serialization round-trip
+  - Assert end-to-end simulation with stub backend
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Auto-predict on every assembly call without explicit opt-in.
+- Persist predictions into world_model_snapshots.
+- Return unstructured text instead of structured prediction types.
+
+#### Correct
+
+- Prediction is opt-in, ephemeral, and returns structured types.
+- Follow the same rig TypedPrompt pattern as summary generation.
+- Gracefully degrade when LLM is unavailable.

@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"Load backend spec index and pre-development checklist context for any delegated implementation or audit support."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Review quality expectations and audit standards if an implement/check sub-agent is needed during this task."}
+{"file":"doc/理论实现对应.md","reason":"Primary audit target: claimed theory-to-implementation mapping."}
+{"file":"doc/0415-00记忆认知架构.md","reason":"Primary architecture source to compare against current implementation coverage."}
+{"file":".trellis/tasks/04-30-audit-theory-implementation-coverage/prd.md","reason":"Task scope and audit criteria for this review."}

@@ -1,5 +1,6 @@
 pub mod classifier;
 pub mod dsl;
+pub mod embedding;
 pub mod governance;
 pub mod pipeline;
 pub mod record;
