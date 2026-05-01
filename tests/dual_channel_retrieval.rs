@@ -119,6 +119,7 @@ fn mode_specific_search_behaviors_match_generated_configs() {
                     .clone(),
             ),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -197,6 +198,7 @@ fn hybrid_search_merges_lexical_and_embedding_candidates_by_record_identity() {
                     .clone(),
             ),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -252,6 +254,7 @@ fn result_trace_reports_channel_contribution() {
                     .clone(),
             ),
             endpoint: None,
+            api_key: None,
         },
     );
 

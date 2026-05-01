@@ -3,7 +3,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memory_records_fts USING fts5(
     content_text,
     content = 'memory_records',
     content_rowid = 'rowid',
-    tokenize = 'simple'
+    tokenize = 'unicode61'
 );
 
 CREATE TRIGGER IF NOT EXISTS memory_records_ai AFTER INSERT ON memory_records BEGIN

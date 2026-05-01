@@ -290,7 +290,7 @@ fn init_command(app: &AppContext) -> Result<ExitCode> {
         return Ok(ExitCode::FAILURE);
     }
 
-    let db = Database::open(app.db_path())?;
+    let db = Database::open_with_dict(app.db_path(), app.dict_path())?;
     let post_init_status = StatusReport::collect(app)?;
     let post_init_doctor = DoctorReport::evaluate(&post_init_status, CommandPath::Init);
     println!("initialized: true");
@@ -330,7 +330,7 @@ fn ingest_command(app: &AppContext, command: IngestCommand) -> Result<ExitCode> 
         return Ok(exit_code);
     }
 
-    let db = Database::open(app.db_path())?;
+    let db = Database::open_with_dict(app.db_path(), app.dict_path())?;
     let ingest = IngestService::with_config(db.conn(), &app.config);
     let content = match (command.path.as_ref(), command.content) {
         (Some(path), None) => std::fs::read_to_string(path)?,
@@ -382,7 +382,7 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
         return Ok(exit_code);
     }
 
-    let db = Database::open(app.db_path())?;
+    let db = Database::open_with_dict(app.db_path(), app.dict_path())?;
     let service = SearchService::with_runtime_config(db.conn(), &gate_app.config, None);
     let response = service.search(
         &SearchRequest::new(command.query)
@@ -524,7 +524,7 @@ fn agent_search_command(app: &AppContext, command: AgentSearchCommand) -> Result
         return Ok(exit_code);
     }
 
-    let db = Database::open(app.db_path())?;
+    let db = Database::open_with_dict(app.db_path(), app.dict_path())?;
     request.working_memory = request.working_memory.with_filters(filters);
     for query in command.follow_up_queries {
         request = request.with_follow_up_query(query);

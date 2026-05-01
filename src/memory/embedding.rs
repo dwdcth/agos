@@ -1,15 +1,13 @@
-use rig::providers::openai;
-use rig::embeddings::EmbeddingsBuilder;
-use rig::client::EmbeddingsClient;
-use rig::http_client::{HeaderMap, HeaderValue};
+use rig::{client::EmbeddingsClient, embeddings::EmbeddingModel};
 use thiserror::Error;
 
 use crate::core::config::RootEmbeddingRuntimeConfig;
+use crate::core::rig_client::build_embedding_client;
 
 #[derive(Debug, Error)]
 pub enum EmbeddingError {
-    #[error("failed to build openai-compatible rig client: {0}")]
-    ClientBuild(String),
+    #[error("failed to build embedding request: {0}")]
+    RequestBuild(String),
     #[error("embedding provider error: {0}")]
     Provider(String),
 }
@@ -25,76 +23,45 @@ impl RigEmbeddingGenerator {
 
     pub async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>, EmbeddingError> {
         let api_key = self.config.api_key.as_deref().ok_or_else(|| {
-            EmbeddingError::ClientBuild("api_key is missing for openai embedding provider".to_string())
+            EmbeddingError::RequestBuild("api_key is missing for embedding provider".to_string())
         })?;
 
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "User-Agent",
-            HeaderValue::from_static("agent-memos/0.1.0"),
-        );
+        let client = build_embedding_client(api_key, self.config.api_base.as_deref())
+            .map_err(EmbeddingError::Provider)?;
 
-        let mut builder = openai::Client::builder()
-            .api_key(api_key)
-            .http_headers(headers);
+        let ndims = self.config.dimensions.unwrap_or(0) as usize;
+        let model = client.embedding_model_with_ndims(&self.config.model, ndims);
 
-        if let Some(api_base) = &self.config.api_base {
-            builder = builder.base_url(api_base);
-        }
-
-        let client = builder.build().map_err(|e| EmbeddingError::ClientBuild(e.to_string()))?;
-        let model = client.embedding_model(&self.config.model);
-
-        let embeddings = EmbeddingsBuilder::new(model)
-            .document(text.to_string())
-            .map_err(|e| EmbeddingError::Provider(e.to_string()))?
-            .build()
+        let mut results = model
+            .embed_texts(vec![text.to_string()])
             .await
             .map_err(|e| EmbeddingError::Provider(e.to_string()))?;
 
-        // Extract the first embedding vector from (String, OneOrMany<Embedding>)
-        let (_, one_or_many) = embeddings.into_iter().next().ok_or_else(|| {
-            EmbeddingError::Provider("empty embedding data in response".to_string())
-        })?;
-        
-        Ok(one_or_many.first().vec.into_iter().map(|v| v as f32).collect())
+        results
+            .pop()
+            .map(|emb| emb.vec.into_iter().map(|v| v as f32).collect())
+            .ok_or_else(|| EmbeddingError::Provider("empty embedding data".to_string()))
     }
 
     pub async fn generate_embeddings(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>, EmbeddingError> {
         let api_key = self.config.api_key.as_deref().ok_or_else(|| {
-            EmbeddingError::ClientBuild("api_key is missing for openai embedding provider".to_string())
+            EmbeddingError::RequestBuild("api_key is missing for embedding provider".to_string())
         })?;
 
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "User-Agent",
-            HeaderValue::from_static("agent-memos/0.1.0"),
-        );
+        let client = build_embedding_client(api_key, self.config.api_base.as_deref())
+            .map_err(EmbeddingError::Provider)?;
 
-        let mut builder = openai::Client::builder()
-            .api_key(api_key)
-            .http_headers(headers);
+        let ndims = self.config.dimensions.unwrap_or(0) as usize;
+        let model = client.embedding_model_with_ndims(&self.config.model, ndims);
 
-        if let Some(api_base) = &self.config.api_base {
-            builder = builder.base_url(api_base);
-        }
-
-        let client = builder.build().map_err(|e| EmbeddingError::ClientBuild(e.to_string()))?;
-        let model = client.embedding_model(&self.config.model);
-
-        let mut builder = EmbeddingsBuilder::new(model);
-        for text in texts {
-            builder = builder.document(text).map_err(|e| EmbeddingError::Provider(e.to_string()))?;
-        }
-
-        let embeddings = builder
-            .build()
+        let results = model
+            .embed_texts(texts)
             .await
             .map_err(|e| EmbeddingError::Provider(e.to_string()))?;
 
-        Ok(embeddings
+        Ok(results
             .into_iter()
-            .map(|(_, one_or_many)| one_or_many.first().vec.into_iter().map(|v| v as f32).collect())
+            .map(|emb| emb.vec.into_iter().map(|v| v as f32).collect())
             .collect())
     }
 }

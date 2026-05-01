@@ -1,15 +1,17 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use rig::{client::CompletionClient, completion::TypedPrompt, providers::openai};
+use rig::{client::CompletionClient, completion::TypedPrompt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing;
 
 use crate::{
     cognition::action::ActionCandidate,
     cognition::working_memory::{EvidenceFragment, TruthContext},
     core::config::RootLlmConfig,
+    core::rig_client::build_completions_client,
     memory::{
         dsl::FlatFactDslRecordV1,
         record::Provenance,
@@ -503,16 +505,12 @@ impl RigWorldSimulationBackend for OpenAiCompatibleSimulationBackend {
                 SimulationError::LlmUnconfigured("missing api_key for world simulation".to_string())
             })?;
 
-            let mut builder = openai::Client::builder().api_key(api_key);
-            if let Some(api_base) = self.config.api_base.as_deref() {
-                builder = builder.base_url(api_base);
-            }
-
-            let client = builder.build().map_err(|error| {
-                SimulationError::LlmRequestFailed(format!(
-                    "failed to build openai-compatible rig client: {error}"
-                ))
-            })?;
+            let (client, custom_client) = build_completions_client(
+                api_key,
+                self.config.api_base.as_deref(),
+                self.config.timeout_seconds,
+            )
+            .map_err(|e| SimulationError::LlmRequestFailed(e.to_string()))?;
 
             let mut agent = client
                 .agent(self.config.model.clone())
@@ -523,8 +521,11 @@ impl RigWorldSimulationBackend for OpenAiCompatibleSimulationBackend {
             if let Some(max_tokens) = self.config.max_tokens {
                 agent = agent.max_tokens(u64::from(max_tokens));
             }
+            if self.config.enable_thinking.unwrap_or(false) {
+                agent = agent.additional_params(serde_json::json!({"enable_thinking": true}));
+            }
 
-            agent
+            let result = agent
                 .build()
                 .prompt_typed::<SimulationStructuredOutput>(prompt)
                 .await
@@ -532,7 +533,17 @@ impl RigWorldSimulationBackend for OpenAiCompatibleSimulationBackend {
                     SimulationError::LlmRequestFailed(format!(
                         "rig world simulation request failed: {error}"
                     ))
-                })
+                })?;
+
+            if let Some(reasoning) = custom_client.take_reasoning() {
+                tracing::debug!(
+                    target: "agent_memos::world_model",
+                    reasoning_len = reasoning.len(),
+                    "LLM reasoning content captured during world simulation"
+                );
+            }
+
+            Ok(result)
         })
     }
 }

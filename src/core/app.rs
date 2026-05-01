@@ -12,19 +12,26 @@ pub struct AppContext {
     pub config: Config,
     pub readiness: RuntimeReadiness,
     db_path: PathBuf,
+    dict_path: Option<String>,
 }
 
 impl AppContext {
     pub fn load(config: Config) -> Result<Self> {
+        let dict_path = config.dict_path.clone();
         Ok(Self {
             readiness: RuntimeReadiness::from_config(&config),
             db_path: resolve_home_path(&config.db_path),
             config,
+            dict_path,
         })
     }
 
     pub fn db_path(&self) -> &Path {
         &self.db_path
+    }
+
+    pub fn dict_path(&self) -> Option<&str> {
+        self.dict_path.as_deref()
     }
 }
 
@@ -189,6 +196,7 @@ mod tests {
                 backend: EmbeddingBackend::Disabled,
                 model: None,
                 endpoint: None,
+                api_key: None,
             },
             vector: RootVectorConfig {
                 backend: VectorBackend::None,
@@ -229,6 +237,7 @@ mod tests {
                 backend: EmbeddingBackend::Builtin,
                 model: Some("hash-64".to_string()),
                 endpoint: None,
+                api_key: None,
             },
             vector: RootVectorConfig {
                 backend: VectorBackend::SqliteVec,
@@ -267,6 +276,7 @@ mod tests {
                 backend: EmbeddingBackend::Builtin,
                 model: Some("hash-64".to_string()),
                 endpoint: None,
+                api_key: None,
             },
             vector: RootVectorConfig {
                 backend: VectorBackend::SqliteVec,

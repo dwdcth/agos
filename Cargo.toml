@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+bytes = "1"
 clap = { version = "4", features = ["derive"] }
 directories = "6"
 libsimple = { version = "~0.9", optional = true }
@@ -30,5 +31,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
-default = []
+default = ["chinese-tokenizer"]
 chinese-tokenizer = ["dep:libsimple"]

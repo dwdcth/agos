@@ -3,7 +3,10 @@ use rusqlite_migration::{M, Migrations};
 
 const FOUNDATION_SCHEMA_SQL: &str = include_str!("../../migrations/0001_foundation.sql");
 const INGEST_FOUNDATION_SQL: &str = include_str!("../../migrations/0002_ingest_foundation.sql");
+#[cfg(not(feature = "chinese-tokenizer"))]
 const LEXICAL_SIDECAR_SQL: &str = include_str!("../../migrations/0003_lexical_sidecar.sql");
+#[cfg(feature = "chinese-tokenizer")]
+const LEXICAL_SIDECAR_SQL: &str = include_str!("../../migrations/0003_lexical_sidecar_jieba.sql");
 const TRUTH_LAYER_GOVERNANCE_SQL: &str =
     include_str!("../../migrations/0004_truth_layer_governance.sql");
 const RUMINATION_WRITEBACK_SQL: &str =

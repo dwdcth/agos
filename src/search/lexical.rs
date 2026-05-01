@@ -16,6 +16,7 @@ use crate::{
 
 pub const MAX_RECALL_LIMIT: usize = 25;
 
+#[cfg(feature = "chinese-tokenizer")]
 const JIEBA_SQL: &str = r#"
     SELECT
         mr.id,
@@ -52,6 +53,7 @@ const JIEBA_SQL: &str = r#"
     LIMIT ?2
 "#;
 
+#[cfg(feature = "chinese-tokenizer")]
 const SIMPLE_SQL: &str = r#"
     SELECT
         mr.id,
@@ -77,6 +79,43 @@ const SIMPLE_SQL: &str = r#"
     FROM memory_records_fts
     JOIN memory_records AS mr ON mr.rowid = memory_records_fts.rowid
     WHERE memory_records_fts MATCH simple_query(?1)
+      AND (?3 IS NULL OR mr.scope = ?3)
+      AND (?4 IS NULL OR mr.record_type = ?4)
+      AND (?5 IS NULL OR mr.truth_layer = ?5)
+      AND (?6 IS NULL OR mr.valid_from IS NULL OR mr.valid_from <= ?6)
+      AND (?6 IS NULL OR mr.valid_to IS NULL OR mr.valid_to >= ?6)
+      AND (?7 IS NULL OR mr.recorded_at >= ?7)
+      AND (?8 IS NULL OR mr.recorded_at <= ?8)
+    ORDER BY bm25(memory_records_fts), mr.recorded_at DESC, mr.id ASC
+    LIMIT ?2
+"#;
+
+#[cfg(not(feature = "chinese-tokenizer"))]
+const PLAIN_SQL: &str = r#"
+    SELECT
+        mr.id,
+        mr.source_uri,
+        mr.source_kind,
+        mr.source_label,
+        mr.recorded_at,
+        mr.scope,
+        mr.record_type,
+        mr.truth_layer,
+        mr.provenance_json,
+        mr.content_text,
+        mr.chunk_index,
+        mr.chunk_count,
+        mr.chunk_anchor_json,
+        mr.content_hash,
+        mr.valid_from,
+        mr.valid_to,
+        mr.created_at,
+        mr.updated_at,
+        bm25(memory_records_fts) AS lexical_raw,
+        snippet(memory_records_fts, 1, '[', ']', '...', 12) AS snippet
+    FROM memory_records_fts
+    JOIN memory_records AS mr ON mr.rowid = memory_records_fts.rowid
+    WHERE memory_records_fts MATCH ?1
       AND (?3 IS NULL OR mr.scope = ?3)
       AND (?4 IS NULL OR mr.record_type = ?4)
       AND (?5 IS NULL OR mr.truth_layer = ?5)
@@ -174,22 +213,40 @@ impl<'db> LexicalSearch<'db> {
             },
         };
 
-        self.collect_candidates(
-            query,
-            limit,
-            QueryStrategy::Jieba,
-            JIEBA_SQL,
-            filters,
-            &mut candidates,
-        )?;
-        self.collect_candidates(
-            query,
-            limit,
-            QueryStrategy::Simple,
-            SIMPLE_SQL,
-            filters,
-            &mut candidates,
-        )?;
+        #[cfg(not(feature = "chinese-tokenizer"))]
+        {
+            let fts_query = sanitize_fts_query(query);
+            if !fts_query.is_empty() {
+                self.collect_candidates(
+                    &fts_query,
+                    limit,
+                    QueryStrategy::Structured,
+                    PLAIN_SQL,
+                    filters,
+                    &mut candidates,
+                )?;
+            }
+        }
+
+        #[cfg(feature = "chinese-tokenizer")]
+        {
+            self.collect_candidates(
+                query,
+                limit,
+                QueryStrategy::Jieba,
+                JIEBA_SQL,
+                filters,
+                &mut candidates,
+            )?;
+            self.collect_candidates(
+                query,
+                limit,
+                QueryStrategy::Simple,
+                SIMPLE_SQL,
+                filters,
+                &mut candidates,
+            )?;
+        }
 
         if apply_temporal_filters {
             candidates.retain(|candidate| matches_temporal_filters(&candidate.record, request));
@@ -447,4 +504,16 @@ fn parse_truth_layer(value: &str) -> Result<TruthLayer, LexicalSearchError> {
         field: "truth_layer",
         value: value.to_string(),
     })
+}
+
+#[cfg(not(feature = "chinese-tokenizer"))]
+fn sanitize_fts_query(query: &str) -> String {
+    let tokens: Vec<&str> = query
+        .split(|c: char| !c.is_alphanumeric() && !('\u{4e00}'..='\u{9fff}').contains(&c))
+        .filter(|t| !t.is_empty())
+        .collect();
+    if tokens.is_empty() {
+        return String::new();
+    }
+    format!("\"{}\"", tokens.join(" "))
 }

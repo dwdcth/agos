@@ -67,9 +67,16 @@ jobs:
           BIN_NAME="${{ matrix.platform.bin }}"
           TARGET_DIR="target/${{ matrix.platform.target }}/release"
           PKG_NAME="agent-memos-${{ github.ref_name }}-${{ matrix.platform.target }}.tar.gz"
-          
-          cd "$TARGET_DIR"
-          tar -czf "../../../$PKG_NAME" "$BIN_NAME"
+
+          STAGING="staging/${{ matrix.platform.target }}"
+          mkdir -p "$STAGING"
+
+          cp "$TARGET_DIR/$BIN_NAME" "$STAGING/"
+          cp -r dict "$STAGING/"
+          cp config.toml.example "$STAGING/"
+          cp README.md "$STAGING/" 2>/dev/null || true
+
+          tar -czf "$PKG_NAME" -C "$STAGING" .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

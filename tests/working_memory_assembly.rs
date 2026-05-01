@@ -226,6 +226,7 @@ fn ready_embedding_config(mode: RetrievalMode) -> Config {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -8682,6 +8683,7 @@ fn assembler_preserves_embedding_only_trace_on_fragments() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -8740,6 +8742,7 @@ fn assembler_preserves_embedding_only_truncated_snippet_on_fragments() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -8794,6 +8797,7 @@ fn assembler_preserves_hybrid_trace_on_fragments() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 

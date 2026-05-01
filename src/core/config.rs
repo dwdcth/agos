@@ -83,6 +83,7 @@ impl MemoryConfig {
 #[serde(default)]
 pub struct Config {
     pub db_path: String,
+    pub dict_path: Option<String>,
     pub retrieval: RetrievalConfig,
     pub embedding: EmbeddingConfig,
     pub llm: RootLlmConfig,
@@ -111,6 +112,7 @@ impl RootRuntimeConfig {
     pub fn to_config(&self) -> Config {
         Config {
             db_path: self.store.sqlite_path.clone(),
+            dict_path: self.store.dict_path.clone(),
             retrieval: RetrievalConfig {
                 mode: RetrievalMode::LexicalOnly, // Default to lexical for safety
             },
@@ -170,6 +172,7 @@ pub struct RootStoreConfig {
     pub backend: String,
     pub sqlite_path: String,
     pub wal_mode: bool,
+    pub dict_path: Option<String>,
 }
 
 impl Default for RootStoreConfig {
@@ -178,6 +181,7 @@ impl Default for RootStoreConfig {
             backend: "sqlite".to_string(),
             sqlite_path: DEFAULT_DB_PATH.to_string(),
             wal_mode: true,
+            dict_path: None,
         }
     }
 }
@@ -192,6 +196,7 @@ pub struct RootLlmConfig {
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
     pub timeout_seconds: Option<u64>,
+    pub enable_thinking: Option<bool>,
 }
 
 impl RootLlmConfig {
@@ -248,6 +253,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             db_path: DEFAULT_DB_PATH.to_string(),
+            dict_path: None,
             retrieval: RetrievalConfig::default(),
             embedding: EmbeddingConfig::default(),
             llm: RootLlmConfig::default(),

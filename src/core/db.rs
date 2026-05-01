@@ -49,6 +49,10 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: &Path) -> Result<Self, DbError> {
+        Self::open_with_dict(path, None)
+    }
+
+    pub fn open_with_dict(path: &Path, dict_path: Option<&str>) -> Result<Self, DbError> {
         if let Some(parent) = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -59,6 +63,12 @@ impl Database {
             })?;
         }
 
+        // Register the auto-extension BEFORE opening the connection so it loads automatically.
+        #[cfg(feature = "chinese-tokenizer")]
+        let dict_dir = prepare_lexical_support(dict_path)?;
+        #[cfg(not(feature = "chinese-tokenizer"))]
+        let _: Option<&str> = dict_path;
+
         let mut conn = Connection::open(path).map_err(|source| DbError::Open {
             path: path.to_path_buf(),
             source,
@@ -66,7 +76,6 @@ impl Database {
 
         #[cfg(feature = "chinese-tokenizer")]
         {
-            let dict_dir = prepare_lexical_support()?;
             libsimple::set_jieba_dict(&conn, dict_dir).map_err(|source| {
                 DbError::LexicalDictionary {
                     source: anyhow::Error::new(source)
@@ -102,23 +111,30 @@ impl Database {
 }
 
 #[cfg(feature = "chinese-tokenizer")]
-fn prepare_lexical_support() -> Result<&'static PathBuf, DbError> {
+fn prepare_lexical_support(configured_path: Option<&str>) -> Result<&'static PathBuf, DbError> {
     let result = LIBSIMPLE_DICT_DIR.get_or_init(|| {
         libsimple::enable_auto_extension()
             .map_err(|error| format!("enable_auto_extension failed: {error}"))?;
 
-        let dict_dir = std::env::temp_dir()
-            .join("agent-memos")
-            .join("libsimple-jieba");
-        fs::create_dir_all(&dict_dir).map_err(|error| {
-            format!("failed to create dict dir {}: {error}", dict_dir.display())
-        })?;
-        libsimple::release_jieba_dict(&dict_dir).map_err(|error| {
-            format!(
-                "release_jieba_dict failed for {}: {error}",
-                dict_dir.display()
-            )
-        })?;
+        let dict_dir = if let Some(path) = configured_path {
+            let p = PathBuf::from(path);
+            if !p.exists() {
+                return Err(format!("configured dict_path does not exist: {}", p.display()));
+            }
+            p
+        } else {
+            // Default: extract bundled dict to temp
+            let dir = std::env::temp_dir()
+                .join("agent-memos")
+                .join("libsimple-jieba");
+            fs::create_dir_all(&dir).map_err(|error| {
+                format!("failed to create dict dir {}: {error}", dir.display())
+            })?;
+            libsimple::release_jieba_dict(&dir).map_err(|error| {
+                format!("release_jieba_dict failed for {}: {error}", dir.display())
+            })?;
+            dir
+        };
 
         Ok(dict_dir)
     });

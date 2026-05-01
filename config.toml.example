@@ -10,22 +10,24 @@ timezone = "Asia/Shanghai"
 backend = "sqlite"                      # sqlite | postgres (future)
 sqlite_path = "~/.memos/memos.db"
 wal_mode = true
+dict_path = "dict"                      # jieba tokenizer dict directory (for chinese-tokenizer feature)
 
 
 [llm]
 provider = "openai"                     # openai | anthropic | azure_openai | ollama | openrouter
-model = "deepseek-ai/DeepSeek-V3.2"
-api_base = "https://api.siliconflow.cn/v1"                            # 自定义网关时填写，如 https://api.openai.com/v1
+model = "Qwen/Qwen3.6-35B-A3B"
+api_base = "http://localhost:8000/v1"    # must include /v1 prefix (OpenAI-compatible API)
 api_key = "sk-..."                                                   # 填入你的 API Key
 temperature = 0.2
 max_tokens = 1200
 timeout_seconds = 60
+enable_thinking = false                  # true to enable Qwen/DeepSeek thinking mode (reasoning_content)
 
 
 [embedding]
 provider = "openai"                     # openai | jina | voyage | ollama
 model = "BAAI/bge-m3"
-api_base = "https://api.siliconflow.cn/v1"
+api_base = "http://localhost:8000/v1"    # must include /v1 prefix
 api_key = "sk-..."                                                   # 填入你的 API Key
 dimensions = 1024
 batch_size = 64

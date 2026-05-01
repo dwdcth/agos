@@ -251,6 +251,7 @@ fn ingest_persists_chunk_aligned_embedding_sidecars() {
             backend: EmbeddingBackend::Builtin,
             model: Some("hash-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 

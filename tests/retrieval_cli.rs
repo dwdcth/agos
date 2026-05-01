@@ -6938,6 +6938,7 @@ fn search_surface_respects_dual_channel_mode_selection() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7036,6 +7037,7 @@ fn cli_search_json_exposes_dsl_sidecar_for_embedding_only_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7109,6 +7111,7 @@ fn cli_search_json_exposes_dsl_sidecar_for_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7176,6 +7179,7 @@ fn cli_search_json_embedding_only_applies_taxonomy_filters_before_top_k_when_rea
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7266,6 +7270,7 @@ fn cli_search_json_hybrid_applies_taxonomy_filters_before_top_k_when_ready() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7356,6 +7361,7 @@ fn cli_search_json_embedding_only_applies_temporal_filters_before_top_k_when_rea
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7453,6 +7459,7 @@ fn cli_search_json_hybrid_applies_temporal_filters_before_top_k_when_ready() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7550,6 +7557,7 @@ fn cli_search_json_configured_embedding_only_applies_temporal_filters_before_top
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7645,6 +7653,7 @@ fn cli_search_json_configured_hybrid_applies_temporal_filters_before_top_k() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7740,6 +7749,7 @@ fn cli_search_json_preserves_record_and_citation_shape_for_embedding_only_ready_
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7825,6 +7835,7 @@ fn cli_search_json_preserves_record_and_citation_shape_for_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7904,6 +7915,7 @@ fn cli_search_json_preserves_source_metadata_for_embedding_only_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -7983,6 +7995,7 @@ fn cli_search_json_preserves_source_metadata_for_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8056,6 +8069,7 @@ fn cli_search_text_preserves_source_metadata_for_embedding_only_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8113,6 +8127,7 @@ fn cli_search_text_preserves_source_metadata_for_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8170,6 +8185,7 @@ fn cli_search_text_embedding_only_applies_temporal_filters_before_top_k_when_rea
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8258,6 +8274,7 @@ fn cli_search_text_hybrid_applies_temporal_filters_before_top_k_when_ready() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8346,6 +8363,7 @@ fn cli_search_json_uses_configured_embedding_only_mode_when_second_channel_is_re
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8409,6 +8427,7 @@ fn cli_search_json_exposes_dsl_sidecar_for_configured_embedding_only_ready_path(
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8473,6 +8492,7 @@ fn cli_search_json_uses_configured_hybrid_mode_when_second_channel_is_ready() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8536,6 +8556,7 @@ fn cli_search_json_exposes_dsl_sidecar_for_configured_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8600,6 +8621,7 @@ fn cli_search_json_preserves_record_and_citation_shape_for_configured_embedding_
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8676,6 +8698,7 @@ fn cli_search_json_preserves_record_and_citation_shape_for_configured_hybrid_rea
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8752,6 +8775,7 @@ fn cli_search_json_preserves_source_metadata_for_configured_embedding_only_ready
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8822,6 +8846,7 @@ fn cli_search_json_preserves_source_metadata_for_configured_hybrid_ready_path() 
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8892,6 +8917,7 @@ fn cli_search_text_preserves_record_and_citation_shape_for_configured_embedding_
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -8948,6 +8974,7 @@ fn cli_search_text_preserves_record_and_citation_shape_for_configured_hybrid_rea
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9004,6 +9031,7 @@ fn cli_search_text_preserves_source_metadata_for_configured_embedding_only_ready
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9058,6 +9086,7 @@ fn cli_search_text_preserves_source_metadata_for_configured_hybrid_ready_path() 
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9112,6 +9141,7 @@ fn cli_search_text_configured_embedding_only_applies_temporal_filters_before_top
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9198,6 +9228,7 @@ fn cli_search_text_configured_hybrid_applies_temporal_filters_before_top_k() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9284,6 +9315,7 @@ fn cli_search_text_reports_embedding_only_channel_and_strategy_when_ready() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9346,6 +9378,7 @@ fn cli_search_text_reports_hybrid_channel_and_embedding_strategy_when_ready() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9408,6 +9441,7 @@ fn cli_search_text_renders_dsl_summary_for_embedding_only_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9474,6 +9508,7 @@ fn cli_search_text_renders_dsl_summary_for_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9540,6 +9575,7 @@ fn cli_search_text_renders_dsl_summary_for_configured_embedding_only_ready_path(
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9594,6 +9630,7 @@ fn cli_search_text_renders_dsl_summary_for_configured_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9634,6 +9671,7 @@ fn library_search_with_runtime_config_embedding_only_applies_taxonomy_filters_be
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -9674,6 +9712,7 @@ fn library_search_with_runtime_config_embedding_only_applies_taxonomy_filters_be
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -9716,6 +9755,7 @@ fn library_search_with_runtime_config_hybrid_applies_taxonomy_filters_before_top
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -9756,6 +9796,7 @@ fn library_search_with_runtime_config_hybrid_applies_taxonomy_filters_before_top
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -9812,6 +9853,7 @@ fn cli_search_text_reports_exact_embedding_only_strategy_summary_when_ready() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9870,6 +9912,7 @@ fn cli_search_text_reports_exact_hybrid_strategy_summary_when_ready() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9928,6 +9971,7 @@ fn cli_search_json_keeps_lexical_only_when_ready_embedding_channel_is_configured
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -9994,6 +10038,7 @@ fn cli_search_json_reports_exact_lexical_only_strategy_order_when_ready_embeddin
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -10053,6 +10098,7 @@ fn cli_search_json_reports_exact_hybrid_strategy_order_when_ready() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -10116,6 +10162,7 @@ fn cli_search_text_keeps_lexical_only_when_ready_embedding_channel_is_configured
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -10180,6 +10227,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
             backend: EmbeddingBackend::Disabled,
             model: None,
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::None,
@@ -10233,6 +10281,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
             backend: EmbeddingBackend::Disabled,
             model: None,
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::None,
@@ -10288,6 +10337,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
             backend: EmbeddingBackend::Builtin,
             model: None,
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -10342,6 +10392,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
             backend: EmbeddingBackend::Builtin,
             model: None,
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -10397,6 +10448,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_vec
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::None,
@@ -10448,6 +10500,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_vector_b
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::None,
@@ -10502,6 +10555,7 @@ fn library_search_with_runtime_config_uses_configured_embedding_only_mode_when_m
             backend: EmbeddingBackend::Builtin,
             model: None,
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -10549,6 +10603,7 @@ fn library_search_with_runtime_config_uses_configured_hybrid_mode_when_model_is_
             backend: EmbeddingBackend::Builtin,
             model: None,
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -10587,6 +10642,7 @@ fn library_search_with_runtime_config_uses_configured_embedding_only_mode_when_e
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -10613,6 +10669,7 @@ fn library_search_with_runtime_config_uses_configured_embedding_only_mode_when_e
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -10649,6 +10706,7 @@ fn library_search_preserves_record_and_citation_shape_for_embedding_only_ready_p
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -10675,6 +10733,7 @@ fn library_search_preserves_record_and_citation_shape_for_embedding_only_ready_p
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -10719,6 +10778,7 @@ fn library_search_preserves_dsl_sidecar_for_embedding_only_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -10745,6 +10805,7 @@ fn library_search_preserves_dsl_sidecar_for_embedding_only_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -10783,6 +10844,7 @@ fn library_search_with_runtime_config_uses_unsuffixed_builtin_model_as_16_dimens
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -10809,6 +10871,7 @@ fn library_search_with_runtime_config_uses_unsuffixed_builtin_model_as_16_dimens
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -10844,6 +10907,7 @@ fn library_search_with_runtime_config_uses_unsuffixed_builtin_model_for_hybrid_r
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -10870,6 +10934,7 @@ fn library_search_with_runtime_config_uses_unsuffixed_builtin_model_for_hybrid_r
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -10911,6 +10976,7 @@ fn library_search_with_runtime_config_mode_override_can_force_lexical_only_when_
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -10937,6 +11003,7 @@ fn library_search_with_runtime_config_mode_override_can_force_lexical_only_when_
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -10978,6 +11045,7 @@ fn library_search_with_runtime_config_mode_override_can_force_hybrid_when_embedd
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11004,6 +11072,7 @@ fn library_search_with_runtime_config_mode_override_can_force_hybrid_when_embedd
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11044,6 +11113,7 @@ fn library_search_with_runtime_config_mode_override_preserves_source_metadata_fo
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11070,6 +11140,7 @@ fn library_search_with_runtime_config_mode_override_preserves_source_metadata_fo
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11114,6 +11185,7 @@ fn library_search_with_runtime_config_mode_override_can_force_embedding_only_whe
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11140,6 +11212,7 @@ fn library_search_with_runtime_config_mode_override_can_force_embedding_only_whe
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11180,6 +11253,7 @@ fn library_search_with_runtime_config_mode_override_preserves_source_metadata_fo
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11206,6 +11280,7 @@ fn library_search_with_runtime_config_mode_override_preserves_source_metadata_fo
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11249,6 +11324,7 @@ fn library_search_with_runtime_config_embedding_only_uses_truncated_raw_snippet_
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11278,6 +11354,7 @@ fn library_search_with_runtime_config_embedding_only_uses_truncated_raw_snippet_
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11306,6 +11383,7 @@ fn library_search_with_runtime_config_preserves_source_metadata_for_embedding_on
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11332,6 +11410,7 @@ fn library_search_with_runtime_config_preserves_source_metadata_for_embedding_on
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11374,6 +11453,7 @@ fn library_search_with_runtime_config_uses_configured_hybrid_mode_when_embedding
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11400,6 +11480,7 @@ fn library_search_with_runtime_config_uses_configured_hybrid_mode_when_embedding
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11438,6 +11519,7 @@ fn library_search_with_runtime_config_preserves_source_metadata_for_hybrid_ready
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11464,6 +11546,7 @@ fn library_search_with_runtime_config_preserves_source_metadata_for_hybrid_ready
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11506,6 +11589,7 @@ fn library_search_preserves_record_and_citation_shape_for_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11532,6 +11616,7 @@ fn library_search_preserves_record_and_citation_shape_for_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11575,6 +11660,7 @@ fn library_search_preserves_dsl_sidecar_for_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11601,6 +11687,7 @@ fn library_search_preserves_dsl_sidecar_for_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11635,6 +11722,7 @@ fn library_search_with_runtime_config_reports_exact_hybrid_strategies_when_embed
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -11661,6 +11749,7 @@ fn library_search_with_runtime_config_reports_exact_hybrid_strategies_when_embed
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11715,6 +11804,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
             backend: EmbeddingBackend::Reserved,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11769,6 +11859,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
             backend: EmbeddingBackend::Reserved,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11824,6 +11915,7 @@ fn library_search_with_runtime_config_uses_configured_lexical_only_mode_when_emb
             backend: EmbeddingBackend::Reserved,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -11878,6 +11970,7 @@ fn library_search_with_runtime_config_uses_configured_lexical_only_mode_when_vec
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::None,
@@ -12409,6 +12502,7 @@ fn library_search_with_runtime_config_keeps_lexical_only_when_embedding_channel_
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -12435,6 +12529,7 @@ fn library_search_with_runtime_config_keeps_lexical_only_when_embedding_channel_
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -12473,6 +12568,7 @@ fn library_search_with_variant_keeps_lexical_only_when_embedding_channel_is_read
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -12539,6 +12635,7 @@ fn library_search_with_variant_uses_embedding_only_when_embedding_channel_is_rea
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -12601,6 +12698,7 @@ fn library_search_with_variant_preserves_source_metadata_for_embedding_only_read
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -12669,6 +12767,7 @@ fn library_search_with_variant_uses_unsuffixed_builtin_model_as_16_dimensions() 
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -12730,6 +12829,7 @@ fn library_search_with_variant_preserves_dsl_sidecar_for_embedding_only_ready_pa
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -12793,6 +12893,7 @@ fn library_search_with_variant_preserves_record_and_citation_shape_for_embedding
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -12864,6 +12965,7 @@ fn library_search_with_variant_uses_unsuffixed_builtin_model_for_hybrid_ready_pa
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -12930,6 +13032,7 @@ fn library_search_with_variant_preserves_dsl_sidecar_for_hybrid_ready_path() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -12990,6 +13093,7 @@ fn library_search_with_variant_preserves_record_and_citation_shape_for_hybrid_re
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13059,6 +13163,7 @@ fn library_search_with_variant_uses_hybrid_mode_when_embedding_channel_is_ready(
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13123,6 +13228,7 @@ fn library_search_with_variant_preserves_source_metadata_for_hybrid_ready_path()
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13191,6 +13297,7 @@ fn library_search_with_variant_reports_exact_hybrid_strategies_when_embedding_ch
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13252,6 +13359,7 @@ fn library_search_with_variant_embedding_only_applies_taxonomy_filters_before_to
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13334,6 +13442,7 @@ fn library_search_with_variant_hybrid_applies_taxonomy_filters_before_top_k() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13416,6 +13525,7 @@ fn library_search_with_runtime_config_embedding_only_applies_temporal_filters_be
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13456,6 +13566,7 @@ fn library_search_with_runtime_config_embedding_only_applies_temporal_filters_be
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -13503,6 +13614,7 @@ fn library_search_with_runtime_config_hybrid_applies_temporal_filters_before_top
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13543,6 +13655,7 @@ fn library_search_with_runtime_config_hybrid_applies_temporal_filters_before_top
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -13590,6 +13703,7 @@ fn library_search_with_variant_embedding_only_applies_temporal_filters_before_to
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13677,6 +13791,7 @@ fn library_search_with_variant_hybrid_applies_temporal_filters_before_top_k() {
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13765,6 +13880,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13791,6 +13907,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-32".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -13825,6 +13942,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13851,6 +13969,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-32".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -13890,6 +14009,7 @@ fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -13946,6 +14066,7 @@ fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_model
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -14011,6 +14132,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -14050,6 +14172,7 @@ fn library_search_with_runtime_config_embedding_only_returns_no_results_when_emb
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -14084,6 +14207,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -14123,6 +14247,7 @@ fn library_search_with_runtime_config_hybrid_falls_back_to_lexical_when_embeddin
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
         vector: RootVectorConfig {
             backend: VectorBackend::SqliteVec,
@@ -14162,6 +14287,7 @@ fn library_search_with_variant_embedding_only_returns_no_results_when_embedding_
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
@@ -14230,6 +14356,7 @@ fn library_search_with_variant_hybrid_falls_back_to_lexical_when_embedding_dimen
             backend: EmbeddingBackend::Builtin,
             model: Some("builtin-16".to_string()),
             endpoint: None,
+            api_key: None,
         },
     );
 
