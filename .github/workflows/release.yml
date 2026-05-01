@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          # Linux (使用 Zig 提升兼容性)
+          # Linux
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             bin: agent-memos
@@ -26,8 +26,8 @@ jobs:
           - os: ubuntu-latest
             target: loongarch64-unknown-linux-gnu
             bin: agent-memos
-            use-zig: true
-            features: "" # LoongArch 的 Zig 支持尚不稳健，暂不开启中文分词
+            use-zig: false # LoongArch using cross is more reliable
+            features: "" 
           # macOS
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -39,7 +39,7 @@ jobs:
             bin: agent-memos
             use-zig: false
             features: "chinese-tokenizer"
-          # Windows (由于 patch 工具限制，暂不开启中文分词)
+          # Windows
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bin: agent-memos.exe
@@ -75,8 +75,20 @@ jobs:
         run: cargo zigbuild --release --target ${{ matrix.platform.target }} --features "${{ matrix.platform.features }}"
 
       - name: Build (Native)
-        if: matrix.platform.use-zig == false
-        run: cargo build --release --target ${{ matrix.platform.target }} --features "${{ matrix.platform.features }}"
+        if: matrix.platform.use-zig == false && matrix.platform.os != 'ubuntu-latest'
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.platform.features }}" ]; then
+            cargo build --release --target ${{ matrix.platform.target }} --features "${{ matrix.platform.features }}"
+          else
+            cargo build --release --target ${{ matrix.platform.target }}
+          fi
+
+      - name: Build (Cross for LoongArch)
+        if: matrix.platform.use-zig == false && matrix.platform.os == 'ubuntu-latest'
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross.git
+          cross build --release --target ${{ matrix.platform.target }}
 
       - name: Package
         shell: bash
@@ -85,6 +97,8 @@ jobs:
           TARGET_DIR="target/${{ matrix.platform.target }}/release"
           PKG_NAME="agent-memos-${{ github.ref_name }}-${{ matrix.platform.target }}.tar.gz"
           
+          # For cross, the binary might be in a different place depending on how cross is configured, 
+          # but usually it mirrors target/
           cd "$TARGET_DIR"
           tar -czf "../../../$PKG_NAME" "$BIN_NAME"
 
