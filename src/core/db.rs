@@ -59,17 +59,22 @@ impl Database {
             })?;
         }
 
-        let dict_dir = prepare_lexical_support()?;
         let mut conn = Connection::open(path).map_err(|source| DbError::Open {
             path: path.to_path_buf(),
             source,
         })?;
-        libsimple::set_jieba_dict(&conn, dict_dir).map_err(|source| {
-            DbError::LexicalDictionary {
-                source: anyhow::Error::new(source)
-                    .context(format!("dictionary dir: {}", dict_dir.display())),
-            }
-        })?;
+
+        #[cfg(feature = "chinese-tokenizer")]
+        {
+            let dict_dir = prepare_lexical_support()?;
+            libsimple::set_jieba_dict(&conn, dict_dir).map_err(|source| {
+                DbError::LexicalDictionary {
+                    source: anyhow::Error::new(source)
+                        .context(format!("dictionary dir: {}", dict_dir.display())),
+                }
+            })?;
+        }
+
         apply_migrations(&mut conn)?;
 
         Ok(Self {
@@ -96,6 +101,7 @@ impl Database {
     }
 }
 
+#[cfg(feature = "chinese-tokenizer")]
 fn prepare_lexical_support() -> Result<&'static PathBuf, DbError> {
     let result = LIBSIMPLE_DICT_DIR.get_or_init(|| {
         libsimple::enable_auto_extension()

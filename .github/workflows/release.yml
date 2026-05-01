@@ -57,7 +57,12 @@ jobs:
 
       - name: Build (Native)
         if: matrix.platform.cross == false
-        run: cargo build --release --target ${{ matrix.platform.target }}
+        run: |
+          if [ "${{ matrix.platform.target }}" = "x86_64-unknown-linux-gnu" ]; then
+            cargo build --release --target ${{ matrix.platform.target }} --features chinese-tokenizer
+          else
+            cargo build --release --target ${{ matrix.platform.target }}
+          fi
 
       - name: Build (Cross)
         if: matrix.platform.cross == true
