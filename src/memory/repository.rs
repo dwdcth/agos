@@ -2213,7 +2213,10 @@ impl<'db> MemoryRepository<'db> {
 
     pub fn count_records(&self) -> Result<u64, RepositoryError> {
         self.conn
-            .query_row("SELECT COUNT(*) FROM memory_records", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM memory_records", [], |row| {
+                // rusqlite 0.38+ 不再为 u64 实现 FromSql（SQLite INTEGER 是 i64）
+                Ok(row.get::<_, i64>(0)? as u64)
+            })
             .map_err(Into::into)
     }
 
@@ -2228,7 +2231,7 @@ impl<'db> MemoryRepository<'db> {
         )?;
         let rows = statement.query_map([], |row| {
             let scope = row.get::<_, String>(0)?;
-            let count = row.get::<_, u64>(1)?;
+            let count = row.get::<_, i64>(1)? as u64;
             Ok((scope, count))
         })?;
 

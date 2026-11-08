@@ -1,4 +1,4 @@
-use rig::{client::EmbeddingsClient, embeddings::EmbeddingModel};
+use rig_core::{client::EmbeddingsClient, embeddings::EmbeddingModel};
 use thiserror::Error;
 
 use crate::core::config::RootEmbeddingRuntimeConfig;

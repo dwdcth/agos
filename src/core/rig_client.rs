@@ -1,9 +1,10 @@
 use bytes::Bytes;
-use rig::http_client::{
+use rig_core::http_client::{
     Error as HttpError, HttpClientExt, LazyBody, MultipartForm, Response as HttpResponse,
     Result as HttpResult, StreamingResponse,
 };
-use rig::providers::openai;
+use rig_core::providers::openai;
+use rig_core::wasm_compat::WasmCompatSend;
 use std::sync::{Arc, Mutex};
 
 /// Custom HTTP client for OpenAI-compatible APIs.
@@ -34,11 +35,11 @@ impl CustomClient {
 impl HttpClientExt for CustomClient {
     fn send<T, U>(
         &self,
-        req: rig::http_client::Request<T>,
-    ) -> impl Future<Output = HttpResult<HttpResponse<LazyBody<U>>>> + Send + 'static
+        req: rig_core::http_client::Request<T>,
+    ) -> impl Future<Output = HttpResult<HttpResponse<LazyBody<U>>>> + WasmCompatSend + 'static
     where
-        T: Into<Bytes> + Send,
-        U: From<Bytes> + Send + 'static,
+        T: Into<Bytes> + WasmCompatSend,
+        U: From<Bytes> + WasmCompatSend + 'static,
     {
         let (parts, body) = req.into_parts();
         let req = self
@@ -106,20 +107,20 @@ impl HttpClientExt for CustomClient {
 
     fn send_multipart<U>(
         &self,
-        req: rig::http_client::Request<MultipartForm>,
-    ) -> impl Future<Output = HttpResult<HttpResponse<LazyBody<U>>>> + Send + 'static
+        req: rig_core::http_client::Request<MultipartForm>,
+    ) -> impl Future<Output = HttpResult<HttpResponse<LazyBody<U>>>> + WasmCompatSend + 'static
     where
-        U: From<Bytes> + Send + 'static,
+        U: From<Bytes> + WasmCompatSend + 'static,
     {
         <reqwest::Client as HttpClientExt>::send_multipart(&self.inner, req)
     }
 
     fn send_streaming<T>(
         &self,
-        req: rig::http_client::Request<T>,
-    ) -> impl Future<Output = HttpResult<StreamingResponse>> + Send
+        req: rig_core::http_client::Request<T>,
+    ) -> impl Future<Output = HttpResult<StreamingResponse>> + WasmCompatSend
     where
-        T: Into<Bytes>,
+        T: Into<Bytes> + WasmCompatSend,
     {
         <reqwest::Client as HttpClientExt>::send_streaming(&self.inner, req)
     }

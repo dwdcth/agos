@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use rig::{client::CompletionClient, completion::TypedPrompt};
+use rig_core::{client::CompletionClient, completion::TypedPrompt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

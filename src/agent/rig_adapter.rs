@@ -1,4 +1,4 @@
-use rig::{agent::AgentBuilder, completion::CompletionModel};
+use rig_core::{agent::AgentBuilder, completion::CompletionModel};
 use thiserror::Error;
 
 use crate::agent::orchestration::{
