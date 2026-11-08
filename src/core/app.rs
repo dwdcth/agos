@@ -84,7 +84,11 @@ impl RuntimeReadiness {
                         config.embedding.model.as_deref(),
                         config.vector.backend
                     ),
-                    (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(_), VectorBackend::SqliteVec)
+                    (
+                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+                        Some(_),
+                        VectorBackend::SqliteVec
+                    )
                 ),
                 notes: vec![
                     embedding_only_note(config),
@@ -101,7 +105,11 @@ impl RuntimeReadiness {
                         config.embedding.model.as_deref(),
                         config.vector.backend
                     ),
-                    (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(_), VectorBackend::SqliteVec)
+                    (
+                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+                        Some(_),
+                        VectorBackend::SqliteVec
+                    )
                 ),
                 notes: vec![
                     "hybrid is configured with lexical as the primary explanation channel"
@@ -154,15 +162,22 @@ fn hybrid_note(config: &Config) -> String {
             "embedding backend Reserved remains foundation-only until dual-channel retrieval lands"
                 .to_string()
         }
-        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(model), VectorBackend::SqliteVec) => format!(
+        (
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            Some(model),
+            VectorBackend::SqliteVec,
+        ) => format!(
             "embedding model '{model}' is configured; operational readiness still depends on the lexical path plus the embedding vector backend and sidecar/index state"
         ),
-        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(model), VectorBackend::None) => format!(
+        (
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            Some(model),
+            VectorBackend::None,
+        ) => format!(
             "embedding model '{model}' is configured, but vector.backend=none disables the hybrid secondary path"
         ),
         (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, None, _) => {
-            "hybrid is configured for the backend, but no embedding model is set"
-                .to_string()
+            "hybrid is configured for the backend, but no embedding model is set".to_string()
         }
     }
 }

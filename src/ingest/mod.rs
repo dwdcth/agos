@@ -238,7 +238,11 @@ impl IngestService<'_> {
             .into_summary_input(record.truth_layer, &record.source.uri, &record.content_text)
             .map_err(MemoryPipelineError::Classification)?;
         let draft = self.block_on_summary(
-            RigSummaryGenerator::from_llm_config_with_preamble(self.llm_config.clone(), self.summary_preamble.clone()).summarize(&summary_input),
+            RigSummaryGenerator::from_llm_config_with_preamble(
+                self.llm_config.clone(),
+                self.summary_preamble.clone(),
+            )
+            .summarize(&summary_input),
         )?;
         let built = summary_input
             .into_record(draft)

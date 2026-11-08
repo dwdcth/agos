@@ -1,10 +1,14 @@
 use bytes::Bytes;
+use rig_core::completion::{AssistantContent, CompletionRequest};
 use rig_core::http_client::{
     Error as HttpError, HttpClientExt, LazyBody, MultipartForm, Response as HttpResponse,
     Result as HttpResult, StreamingResponse,
 };
-use rig_core::providers::openai;
+use rig_core::providers::openai::{self, OpenAI};
 use rig_core::wasm_compat::WasmCompatSend;
+use rig_reqwest::ReqwestClient;
+use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
 use std::sync::{Arc, Mutex};
 
 /// Custom HTTP client for OpenAI-compatible APIs.
@@ -12,15 +16,20 @@ use std::sync::{Arc, Mutex};
 /// Handles provider quirks at the HTTP response level:
 /// - Fixes empty `role` (some APIs return `""` instead of `"assistant"`)
 /// - Extracts `reasoning_content` (Qwen/DeepSeek thinking mode)
+///
+/// `send` carries the interception logic; multipart and streaming requests
+/// (unused by agent-memos) delegate to the stock reqwest transport.
 #[derive(Clone, Debug, Default)]
 pub struct CustomClient {
     inner: reqwest::Client,
+    transport: Option<ReqwestClient>,
     last_reasoning: Arc<Mutex<Option<String>>>,
 }
 
 impl CustomClient {
     pub fn new(inner: reqwest::Client) -> Self {
         Self {
+            transport: Some(ReqwestClient::from(inner.clone())),
             inner,
             last_reasoning: Arc::new(Mutex::new(None)),
         }
@@ -56,10 +65,10 @@ impl HttpClientExt for CustomClient {
                 .await
                 .map_err(|e| HttpError::Instance(Box::new(e)))?;
             if !response.status().is_success() {
-                return Err(HttpError::InvalidStatusCodeWithMessage(
-                    response.status(),
-                    response.text().await.unwrap(),
-                ));
+                let status = response.status();
+                let headers = response.headers().clone();
+                let body = response.text().await.unwrap_or_default();
+                return Err(HttpError::non_success_with_details(status, headers, body));
             }
 
             let mut res = HttpResponse::builder().status(response.status());
@@ -73,8 +82,8 @@ impl HttpClientExt for CustomClient {
                     .await
                     .map_err(|e| HttpError::Instance(Box::new(e)))?;
 
-                let mut json: serde_json::Value = serde_json::from_slice(&bytes)
-                    .unwrap_or(serde_json::Value::Null);
+                let mut json: serde_json::Value =
+                    serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
 
                 if let Some(choices) = json.get_mut("choices").and_then(|c| c.as_array_mut()) {
                     let mut reasoning_text: Option<String> = None;
@@ -96,8 +105,8 @@ impl HttpClientExt for CustomClient {
                     }
                 }
 
-                let fixed = serde_json::to_vec(&json)
-                    .map_err(|e| HttpError::Instance(Box::new(e)))?;
+                let fixed =
+                    serde_json::to_vec(&json).map_err(|e| HttpError::Instance(Box::new(e)))?;
                 Ok(U::from(Bytes::from(fixed)))
             });
 
@@ -112,7 +121,8 @@ impl HttpClientExt for CustomClient {
     where
         U: From<Bytes> + WasmCompatSend + 'static,
     {
-        <reqwest::Client as HttpClientExt>::send_multipart(&self.inner, req)
+        // multipart 无需 role/reasoning 拦截，直接走标准 reqwest 传输
+        <ReqwestClient as HttpClientExt>::send_multipart(self.transport.as_ref().unwrap(), req)
     }
 
     fn send_streaming<T>(
@@ -122,18 +132,98 @@ impl HttpClientExt for CustomClient {
     where
         T: Into<Bytes> + WasmCompatSend,
     {
-        <reqwest::Client as HttpClientExt>::send_streaming(&self.inner, req)
+        // 流式同样无需拦截，走标准 reqwest 传输
+        <ReqwestClient as HttpClientExt>::send_streaming(self.transport.as_ref().unwrap(), req)
     }
 }
 
-/// Build a rig completions client (Chat Completions API) with CustomClient.
-///
-/// Returns `(CompletionsClient, CustomClient)` so callers can extract reasoning.
+/// One structured completion: prompt + preamble + sampling parameters.
+#[derive(Debug, Clone)]
+pub struct StructuredCompletion {
+    pub model: String,
+    pub preamble: String,
+    pub prompt: String,
+    pub temperature: Option<f64>,
+    pub max_tokens: Option<u64>,
+    /// Provider-specific passthrough（如 Qwen 的 enable_thinking）
+    pub additional_params: Option<serde_json::Value>,
+}
+
+/// A completions endpoint: provider client + the custom transport that
+/// captures `reasoning_content` and fixes empty roles.
+#[derive(Clone, Debug)]
+pub struct CompletionsHandle {
+    client: OpenAI,
+    custom: CustomClient,
+}
+
+impl CompletionsHandle {
+    /// Run a structured (JSON-schema-constrained) completion and parse the
+    /// reply into `T`. The schema is sent via `output_schema` when the
+    /// provider supports it; the reply text is parsed leniently regardless.
+    pub async fn complete_json<T>(&self, params: StructuredCompletion) -> Result<T, String>
+    where
+        T: DeserializeOwned + JsonSchema,
+    {
+        let model = self.client.chat(&params.model);
+
+        let mut request =
+            CompletionRequest::new(params.prompt.clone()).preamble(params.preamble.clone());
+        request.temperature = params.temperature;
+        request.max_tokens = params.max_tokens;
+        request.additional_params = params.additional_params;
+        request.output_schema = Some(schemars::schema_for!(T));
+
+        let response = model
+            .call(request)
+            .await
+            .map_err(|e| format!("rig completion request failed: {e}"))?;
+
+        let text = response
+            .choice
+            .iter()
+            .filter_map(|content| match content {
+                AssistantContent::Text(t) => Some(t.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        parse_json_output(&text)
+    }
+
+    /// Take the reasoning_content captured by the custom transport.
+    pub fn take_reasoning(&self) -> Option<String> {
+        self.custom.take_reasoning()
+    }
+}
+
+/// Parse a model reply into `T`, tolerating markdown code fences.
+fn parse_json_output<T: DeserializeOwned>(text: &str) -> Result<T, String> {
+    let trimmed = text.trim();
+    if let Ok(value) = serde_json::from_str(trimmed) {
+        return Ok(value);
+    }
+    // 剥离 ```json ... ``` 围栏后再试
+    let stripped = trimmed
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+    serde_json::from_str(stripped).map_err(|e| {
+        let snippet: String = trimmed.chars().take(200).collect();
+        format!("failed to parse structured completion output: {e}; output head: {snippet}")
+    })
+}
+
+/// Build a rig completions endpoint (Chat Completions route) over the
+/// CustomClient transport. Use [`CompletionsHandle::complete_json`] for
+/// structured requests; `take_reasoning` extracts Qwen/DeepSeek thinking.
 pub fn build_completions_client(
     api_key: &str,
     api_base: Option<&str>,
     timeout_seconds: Option<u64>,
-) -> Result<(openai::CompletionsClient<CustomClient>, CustomClient), String> {
+) -> Result<CompletionsHandle, String> {
     let mut reqwest_builder = reqwest::Client::builder();
     if let Some(secs) = timeout_seconds {
         reqwest_builder = reqwest_builder.timeout(std::time::Duration::from_secs(secs));
@@ -144,34 +234,24 @@ pub fn build_completions_client(
 
     let custom = CustomClient::new(reqwest_client);
 
-    let mut builder = openai::Client::builder()
-        .api_key(api_key)
-        .http_client(custom.clone());
-
+    let mut config = openai::OpenAIConfig::new(api_key);
     if let Some(base) = api_base {
-        builder = builder.base_url(base.trim_end_matches('/'));
+        config = config.with_base_url(base.trim_end_matches('/'));
     }
+    let client = config.connect(custom.clone());
 
-    let client = builder
-        .build()
-        .map_err(|e| format!("rig client build: {e}"))?
-        .completions_api();
-
-    Ok((client, custom))
+    Ok(CompletionsHandle { client, custom })
 }
 
 /// Build a rig client for embedding requests.
 ///
-/// Uses a plain openai::Client (no CustomClient needed — embeddings don't have role/reasoning issues).
-pub fn build_embedding_client(
-    api_key: &str,
-    api_base: Option<&str>,
-) -> Result<openai::Client, String> {
-    let mut builder = openai::Client::builder().api_key(api_key);
-
+/// Uses a plain `reqwest` transport (no CustomClient needed — embeddings
+/// don't have role/reasoning issues), default route.
+pub fn build_embedding_client(api_key: &str, api_base: Option<&str>) -> Result<OpenAI, String> {
+    let custom = CustomClient::new(reqwest::Client::new());
+    let mut config = openai::OpenAIConfig::new(api_key);
     if let Some(base) = api_base {
-        builder = builder.base_url(base.trim_end_matches('/'));
+        config = config.with_base_url(base.trim_end_matches('/'));
     }
-
-    builder.build().map_err(|e| format!("rig embedding client build: {e}"))
+    Ok(config.connect(custom))
 }

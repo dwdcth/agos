@@ -1,7 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use rig_core::{client::CompletionClient, completion::TypedPrompt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -11,7 +10,7 @@ use crate::{
     cognition::action::ActionCandidate,
     cognition::working_memory::{EvidenceFragment, TruthContext},
     core::config::RootLlmConfig,
-    core::rig_client::build_completions_client,
+    core::rig_client::{StructuredCompletion, build_completions_client},
     memory::{
         dsl::FlatFactDslRecordV1,
         record::Provenance,
@@ -513,29 +512,27 @@ impl RigWorldSimulationBackend for OpenAiCompatibleSimulationBackend {
                 SimulationError::LlmUnconfigured("missing api_key for world simulation".to_string())
             })?;
 
-            let (client, custom_client) = build_completions_client(
+            let handle = build_completions_client(
                 api_key,
                 self.config.api_base.as_deref(),
                 self.config.timeout_seconds,
             )
             .map_err(|e| SimulationError::LlmRequestFailed(e.to_string()))?;
 
-            let mut agent = client
-                .agent(self.config.model.clone())
-                .preamble(&self.preamble);
-            if let Some(temperature) = self.config.temperature {
-                agent = agent.temperature(f64::from(temperature));
-            }
-            if let Some(max_tokens) = self.config.max_tokens {
-                agent = agent.max_tokens(u64::from(max_tokens));
-            }
+            let mut additional_params = None;
             if self.config.enable_thinking.unwrap_or(false) {
-                agent = agent.additional_params(serde_json::json!({"enable_thinking": true}));
+                additional_params = Some(serde_json::json!({"enable_thinking": true}));
             }
 
-            let result = agent
-                .build()
-                .prompt_typed::<SimulationStructuredOutput>(prompt)
+            let result: SimulationStructuredOutput = handle
+                .complete_json(StructuredCompletion {
+                    model: self.config.model.clone(),
+                    preamble: self.preamble.clone(),
+                    prompt,
+                    temperature: self.config.temperature.map(f64::from),
+                    max_tokens: self.config.max_tokens.map(u64::from),
+                    additional_params,
+                })
                 .await
                 .map_err(|error| {
                     SimulationError::LlmRequestFailed(format!(
@@ -543,7 +540,7 @@ impl RigWorldSimulationBackend for OpenAiCompatibleSimulationBackend {
                     ))
                 })?;
 
-            if let Some(reasoning) = custom_client.take_reasoning() {
+            if let Some(reasoning) = handle.take_reasoning() {
                 tracing::debug!(
                     target: "agent_memos::world_model",
                     reasoning_len = reasoning.len(),
@@ -574,7 +571,9 @@ impl WorldSimulator<OpenAiCompatibleSimulationBackend> {
     }
 
     pub fn from_llm_config_with_preamble(config: RootLlmConfig, preamble: Option<String>) -> Self {
-        Self::new(OpenAiCompatibleSimulationBackend::with_preamble(config, preamble))
+        Self::new(OpenAiCompatibleSimulationBackend::with_preamble(
+            config, preamble,
+        ))
     }
 }
 

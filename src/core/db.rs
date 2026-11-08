@@ -119,7 +119,10 @@ fn prepare_lexical_support(configured_path: Option<&str>) -> Result<&'static Pat
         let dict_dir = if let Some(path) = configured_path {
             let p = PathBuf::from(path);
             if !p.exists() {
-                return Err(format!("configured dict_path does not exist: {}", p.display()));
+                return Err(format!(
+                    "configured dict_path does not exist: {}",
+                    p.display()
+                ));
             }
             p
         } else {
@@ -127,9 +130,8 @@ fn prepare_lexical_support(configured_path: Option<&str>) -> Result<&'static Pat
             let dir = std::env::temp_dir()
                 .join("agent-memos")
                 .join("libsimple-jieba");
-            fs::create_dir_all(&dir).map_err(|error| {
-                format!("failed to create dict dir {}: {error}", dir.display())
-            })?;
+            fs::create_dir_all(&dir)
+                .map_err(|error| format!("failed to create dict dir {}: {error}", dir.display()))?;
             libsimple::release_jieba_dict(&dir).map_err(|error| {
                 format!("release_jieba_dict failed for {}: {error}", dir.display())
             })?;

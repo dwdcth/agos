@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Local-first cognitive memory kernel for agents."
-rust-version = "1.85"
+rust-version = "1.97.1"
 
 [[bin]]
 name = "agent-memos"
@@ -16,7 +16,8 @@ bytes = "1"
 clap = { version = "4", features = ["derive"] }
 directories = "6"
 libsimple = { version = "0.10", optional = true }
-rig-core = { version = "0.37", default-features = false }
+rig-core = { version = "0.46", default-features = false }
+rig-reqwest = "0.46"
 reqwest = { version = "0.13", features = ["json"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 rusqlite_migration = "2.6"

@@ -128,8 +128,14 @@ impl<'db> SearchService<'db> {
             mode: variant.mode,
             embedding_backend: variant.embedding_backend,
             embedding_model: variant.embedding.as_ref().map(|cfg| cfg.model.clone()),
-            embedding_endpoint: variant.embedding.as_ref().and_then(|cfg| cfg.api_base.clone()),
-            embedding_api_key: variant.embedding.as_ref().and_then(|cfg| cfg.api_key.clone()),
+            embedding_endpoint: variant
+                .embedding
+                .as_ref()
+                .and_then(|cfg| cfg.api_base.clone()),
+            embedding_api_key: variant
+                .embedding
+                .as_ref()
+                .and_then(|cfg| cfg.api_key.clone()),
             vector_backend: variant
                 .vector
                 .as_ref()

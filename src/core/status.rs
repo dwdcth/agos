@@ -113,7 +113,9 @@ impl StatusReport {
         let embedding_index_readiness = match app.config.embedding.backend {
             EmbeddingBackend::Disabled => CapabilityState::NotApplicable,
             EmbeddingBackend::Reserved => CapabilityState::Deferred,
-            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi => inspection.embedding_index_state,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi => {
+                inspection.embedding_index_state
+            }
         };
 
         let mut readiness_notes = app.readiness.notes.clone();
@@ -375,12 +377,18 @@ fn embedding_dependency_state(
             Some(_),
             VectorBackend::SqliteVec,
         ) => CapabilityState::Ready,
-        (RetrievalMode::LexicalOnly, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(_), VectorBackend::None) => {
-            CapabilityState::Deferred
-        }
-        (RetrievalMode::LexicalOnly, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, None, _) => {
-            CapabilityState::Deferred
-        }
+        (
+            RetrievalMode::LexicalOnly,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            Some(_),
+            VectorBackend::None,
+        ) => CapabilityState::Deferred,
+        (
+            RetrievalMode::LexicalOnly,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            None,
+            _,
+        ) => CapabilityState::Deferred,
         (
             RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
             EmbeddingBackend::Disabled,

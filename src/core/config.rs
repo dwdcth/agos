@@ -287,7 +287,7 @@ impl Config {
                 return Err(ConfigError::Read {
                     path: path.to_path_buf(),
                     source,
-                })
+                });
             }
         };
 

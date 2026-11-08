@@ -1,4 +1,3 @@
-use rig_core::{agent::AgentBuilder, completion::CompletionModel};
 use thiserror::Error;
 
 use crate::agent::orchestration::{
@@ -59,22 +58,19 @@ impl<O> RigAgentSearchAdapter<O> {
         &self.static_context
     }
 
-    pub fn prepare_builder<M>(&self, builder: AgentBuilder<M>) -> AgentBuilder<M>
-    where
-        M: CompletionModel,
-    {
-        const DEFAULT_AGENT_PREAMBLE: &str =
-            "Delegate all cognition to the internal agent-search orchestrator and preserve gate diagnostics.";
-
-        self.static_context
-            .iter()
-            .fold(
-                builder
-                    .description("Thin Rig adapter for cited agent-search orchestration")
-                    .preamble(DEFAULT_AGENT_PREAMBLE)
-                    .default_max_turns(self.boundary.default_max_turns),
-                |builder, doc| builder.context(doc),
-            )
+    /// The system prompt for external LLM callers that delegate cognition to
+    /// the internal orchestrator (rig-core 0.46 no longer builds Agents;
+    /// callers prepend this to their own CompletionRequest preamble).
+    pub fn delegation_preamble(&self) -> String {
+        const DEFAULT_AGENT_PREAMBLE: &str = "Delegate all cognition to the internal agent-search orchestrator and preserve gate diagnostics.";
+        let mut preamble = format!(
+            "Thin Rig adapter for cited agent-search orchestration. {DEFAULT_AGENT_PREAMBLE}"
+        );
+        for doc in &self.static_context {
+            preamble.push_str("\n");
+            preamble.push_str(doc);
+        }
+        preamble
     }
 }
 

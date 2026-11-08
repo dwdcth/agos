@@ -1,6 +1,5 @@
 use std::{future::Future, pin::Pin};
 
-use rig_core::{client::CompletionClient, completion::TypedPrompt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -8,7 +7,7 @@ use tracing;
 
 use crate::{
     core::config::RootLlmConfig,
-    core::rig_client::build_completions_client,
+    core::rig_client::{StructuredCompletion, build_completions_client},
     memory::{
         dsl::{FactDslDraft, FactDslError, FactDslRecord, KindFieldPolicyV1},
         record::TruthLayer,
@@ -172,29 +171,27 @@ impl RigStructuredSummaryBackend for OpenAiCompatibleRigSummaryBackend {
                 )
             })?;
 
-            let (client, custom_client) = build_completions_client(
+            let handle = build_completions_client(
                 api_key,
                 self.config.api_base.as_deref(),
                 self.config.timeout_seconds,
             )
             .map_err(FactSummaryError::Generator)?;
 
-            let mut agent = client
-                .agent(self.config.model.clone())
-                .preamble(&self.preamble);
-            if let Some(temperature) = self.config.temperature {
-                agent = agent.temperature(f64::from(temperature));
-            }
-            if let Some(max_tokens) = self.config.max_tokens {
-                agent = agent.max_tokens(u64::from(max_tokens));
-            }
+            let mut additional_params = None;
             if self.config.enable_thinking.unwrap_or(false) {
-                agent = agent.additional_params(serde_json::json!({"enable_thinking": true}));
+                additional_params = Some(serde_json::json!({"enable_thinking": true}));
             }
 
-            let result = agent
-                .build()
-                .prompt_typed::<RigSummaryStructuredOutput>(prompt)
+            let result: RigSummaryStructuredOutput = handle
+                .complete_json(StructuredCompletion {
+                    model: self.config.model.clone(),
+                    preamble: self.preamble.clone(),
+                    prompt,
+                    temperature: self.config.temperature.map(f64::from),
+                    max_tokens: self.config.max_tokens.map(u64::from),
+                    additional_params,
+                })
                 .await
                 .map_err(|error| {
                     FactSummaryError::Generator(format!(
@@ -202,7 +199,7 @@ impl RigStructuredSummaryBackend for OpenAiCompatibleRigSummaryBackend {
                     ))
                 })?;
 
-            if let Some(reasoning) = custom_client.take_reasoning() {
+            if let Some(reasoning) = handle.take_reasoning() {
                 tracing::debug!(
                     target: "agent_memos::summary",
                     reasoning_len = reasoning.len(),
@@ -232,7 +229,9 @@ impl RigSummaryGenerator<OpenAiCompatibleRigSummaryBackend> {
     }
 
     pub fn from_llm_config_with_preamble(config: RootLlmConfig, preamble: Option<String>) -> Self {
-        Self::new(OpenAiCompatibleRigSummaryBackend::with_preamble(config, preamble))
+        Self::new(OpenAiCompatibleRigSummaryBackend::with_preamble(
+            config, preamble,
+        ))
     }
 }
 

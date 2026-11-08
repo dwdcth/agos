@@ -59,7 +59,10 @@ impl DoctorReport {
         }
 
         if matches!(status.configured_mode, RetrievalMode::LexicalOnly)
-            && matches!(status.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi)
+            && matches!(
+                status.embedding_backend,
+                EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi
+            )
             && matches!(status.embedding_dependency_state, CapabilityState::Ready)
             && matches!(status.embedding_index_readiness, CapabilityState::Ready)
         {
@@ -155,12 +158,13 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
         RetrievalMode::EmbeddingOnly => {
             if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
                 failures.push(
-                    if matches!(status.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi)
-                        && matches!(
-                            status.vector_backend,
-                            crate::core::config::VectorBackend::None
-                        )
-                    {
+                    if matches!(
+                        status.embedding_backend,
+                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi
+                    ) && matches!(
+                        status.vector_backend,
+                        crate::core::config::VectorBackend::None
+                    ) {
                         "vector backend is not ready for embedding_only retrieval".to_string()
                     } else {
                         "embedding backend is not ready for embedding_only retrieval".to_string()
@@ -180,12 +184,13 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
             }
             if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
                 failures.push(
-                    if matches!(status.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi)
-                        && matches!(
-                            status.vector_backend,
-                            crate::core::config::VectorBackend::None
-                        )
-                    {
+                    if matches!(
+                        status.embedding_backend,
+                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi
+                    ) && matches!(
+                        status.vector_backend,
+                        crate::core::config::VectorBackend::None
+                    ) {
                         "vector backend is not ready for hybrid retrieval".to_string()
                     } else {
                         "embedding backend is not ready for hybrid retrieval".to_string()
@@ -218,12 +223,13 @@ fn doctor_mode_readiness_failures(status: &StatusReport) -> Vec<String> {
         RetrievalMode::EmbeddingOnly => {
             if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
                 failures.push(
-                    if matches!(status.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi)
-                        && matches!(
-                            status.vector_backend,
-                            crate::core::config::VectorBackend::None
-                        )
-                    {
+                    if matches!(
+                        status.embedding_backend,
+                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi
+                    ) && matches!(
+                        status.vector_backend,
+                        crate::core::config::VectorBackend::None
+                    ) {
                         "vector backend is not ready for embedding_only retrieval".to_string()
                     } else {
                         "embedding backend is not ready for embedding_only retrieval".to_string()
@@ -240,12 +246,13 @@ fn doctor_mode_readiness_failures(status: &StatusReport) -> Vec<String> {
         RetrievalMode::Hybrid => {
             if !matches!(status.embedding_dependency_state, CapabilityState::Ready) {
                 failures.push(
-                    if matches!(status.embedding_backend, EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi)
-                        && matches!(
-                            status.vector_backend,
-                            crate::core::config::VectorBackend::None
-                        )
-                    {
+                    if matches!(
+                        status.embedding_backend,
+                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi
+                    ) && matches!(
+                        status.vector_backend,
+                        crate::core::config::VectorBackend::None
+                    ) {
                         "vector backend is not ready for hybrid retrieval".to_string()
                     } else {
                         "embedding backend is not ready for hybrid retrieval".to_string()

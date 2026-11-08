@@ -871,6 +871,7 @@ fn agent_search_reuses_ordinary_retrieval_under_dual_channel_modes() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
@@ -981,6 +982,7 @@ fn dual_channel_mode_selection_preserves_agent_report_contract() {
             backend: EmbeddingBackend::Builtin,
             model: Some(config.embedding.model.clone()),
             endpoint: None,
+            api_key: None,
         },
     );
     ingest_record(
