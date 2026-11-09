@@ -210,10 +210,63 @@ fn parse_json_output<T: DeserializeOwned>(text: &str) -> Result<T, String> {
         .trim_start_matches("```")
         .trim_end_matches("```")
         .trim();
-    serde_json::from_str(stripped).map_err(|e| {
-        let snippet: String = trimmed.chars().take(200).collect();
-        format!("failed to parse structured completion output: {e}; output head: {snippet}")
-    })
+    if let Ok(value) = serde_json::from_str(stripped) {
+        return Ok(value);
+    }
+    // 取第一个能配平且可解析的 JSON 对象再试：思维链模型的 content 常带
+    // 残渣（spark 思考模式泄漏 </think> 与原生 <tool_call> 伪 XML，Qwen 系
+    // 泄漏 }{ 片段）——首尾垃圾不应连累完全合法的主体 JSON。逐个 `{`
+    // 起点尝试（孤立泄漏花括号不是合法起点）。
+    for (start, b) in stripped.bytes().enumerate() {
+        if b != b'{' {
+            continue;
+        }
+        if let Some(end) = balanced_end(stripped, start) {
+            if let Ok(value) = serde_json::from_str::<T>(&stripped[start..=end]) {
+                return Ok(value);
+            }
+        }
+    }
+    let snippet: String = trimmed.chars().take(200).collect();
+    Err(format!(
+        "failed to parse structured completion output: output head: {snippet}"
+    ))
+}
+
+/// 从 `start`（`{` 的字节下标）出发找配平的结束 `}` 下标（字符串感知：
+/// 跳过字符串字面量内的花括号；不递归修复畸形——那是模型的事）。
+fn balanced_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(start) != Some(&b'{') {
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (i, &b) in bytes.iter().enumerate().skip(start) {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Build a rig completions endpoint (Chat Completions route) over the
@@ -254,4 +307,44 @@ pub fn build_embedding_client(api_key: &str, api_base: Option<&str>) -> Result<O
         config = config.with_base_url(base.trim_end_matches('/'));
     }
     Ok(config.connect(custom))
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::parse_json_output;
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct Decision {
+        action: String,
+    }
+
+    /// 思维链残渣不应连累合法 JSON（spark 思考模式实测泄漏
+    /// </think> 与原生 <tool_call> 伪 XML）。
+    #[test]
+    fn tolerates_thinking_residue() {
+        let out = parse_json_output::<Decision>(
+            r#"{"action":"tool"}</think><tool_call>memory_search</tool_call>"#,
+        )
+        .expect("should parse");
+        assert_eq!(out.action, "tool");
+    }
+
+    /// 前后散文（含围栏外的说明文字与泄漏的 }{ 片段）。
+    #[test]
+    fn tolerates_surrounding_prose() {
+        let out = parse_json_output::<Decision>(
+            "好的，我的判断如下：}{\n{\"action\":\"reply\"}\n以上就是全部。",
+        )
+        .expect("should parse");
+        assert_eq!(out.action, "reply");
+    }
+
+    /// 字符串字面量内的花括号不参与配平。
+    #[test]
+    fn braces_inside_strings_ignored() {
+        let out = parse_json_output::<Decision>(r#"前缀 {"action":"a}b{c"} 后缀"#)
+            .expect("should parse");
+        assert_eq!(out.action, "a}b{c");
+    }
 }
