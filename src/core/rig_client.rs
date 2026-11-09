@@ -147,6 +147,9 @@ pub struct StructuredCompletion {
     pub max_tokens: Option<u64>,
     /// Provider-specific passthrough（如 Qwen 的 enable_thinking）
     pub additional_params: Option<serde_json::Value>,
+    /// 附图（data URL，`data:image/png;base64,...`）：多模态消息——
+    /// 图文混排 user 消息替代纯文本 prompt。None = 纯文本。
+    pub image: Option<String>,
 }
 
 /// A completions endpoint: provider client + the custom transport that
@@ -173,6 +176,24 @@ impl CompletionsHandle {
         request.max_tokens = params.max_tokens;
         request.additional_params = params.additional_params;
         request.output_schema = Some(schemars::schema_for!(T));
+        if let Some(data_url) = &params.image {
+            use rig_core::completion::message::{
+                DocumentSourceKind, Image, UserContent,
+            };
+            use rig_core::completion::Message;
+            let message = Message::User {
+                content: vec![
+                    UserContent::Image(Image {
+                        data: DocumentSourceKind::Url(data_url.clone()),
+                        media_type: None,
+                        detail: None,
+                        native: None,
+                    }),
+                    UserContent::text(params.prompt.clone()),
+                ],
+            };
+            request.chat_history = vec![std::sync::Arc::new(message)];
+        }
 
         let response = model
             .call(request)

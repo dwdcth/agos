@@ -191,6 +191,7 @@ impl RigStructuredSummaryBackend for OpenAiCompatibleRigSummaryBackend {
                     temperature: self.config.temperature.map(f64::from),
                     max_tokens: self.config.max_tokens.map(u64::from),
                     additional_params,
+                    image: None,
                 })
                 .await
                 .map_err(|error| {
