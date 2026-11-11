@@ -152,6 +152,17 @@ pub struct StructuredCompletion {
     pub image: Option<String>,
 }
 
+/// 一次补全的 token 用量快照（成本账本的入账事实源）。
+///
+/// 取自 rig `CompletionResponse.usage`（响应本体携带，随调用返回——
+/// 并发在途调用各自拿到各自的用量，无共享槽串账问题）。provider 未
+/// 上报的字段计 0。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CallUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
 /// A completions endpoint: provider client + the custom transport that
 /// captures `reasoning_content` and fixes empty roles.
 #[derive(Clone, Debug)]
@@ -164,7 +175,23 @@ impl CompletionsHandle {
     /// Run a structured (JSON-schema-constrained) completion and parse the
     /// reply into `T`. The schema is sent via `output_schema` when the
     /// provider supports it; the reply text is parsed leniently regardless.
+    ///
+    /// Usage discarded — callers that need token accounting use
+    /// [`Self::complete_json_with_usage`].
     pub async fn complete_json<T>(&self, params: StructuredCompletion) -> Result<T, String>
+    where
+        T: DeserializeOwned + JsonSchema,
+    {
+        self.complete_json_with_usage(params).await.map(|(v, _)| v)
+    }
+
+    /// [`Self::complete_json`] with the response's token usage alongside:
+    /// 成本账本（daemon 侧 CostLedger）的入账口径——usage 随本次调用的
+    /// 响应值返回，多在途并发调用互不串账。
+    pub async fn complete_json_with_usage<T>(
+        &self,
+        params: StructuredCompletion,
+    ) -> Result<(T, CallUsage), String>
     where
         T: DeserializeOwned + JsonSchema,
     {
@@ -200,6 +227,11 @@ impl CompletionsHandle {
             .await
             .map_err(|e| format!("rig completion request failed: {e}"))?;
 
+        let usage = CallUsage {
+            input_tokens: response.usage.input_tokens.unwrap_or(0),
+            output_tokens: response.usage.output_tokens.unwrap_or(0),
+        };
+
         let text = response
             .choice
             .iter()
@@ -210,7 +242,7 @@ impl CompletionsHandle {
             .collect::<Vec<_>>()
             .join("");
 
-        parse_json_output(&text)
+        parse_json_output(&text).map(|v| (v, usage))
     }
 
     /// Take the reasoning_content captured by the custom transport.
