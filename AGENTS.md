@@ -180,3 +180,18 @@ Keep this managed block so 'trellis update' can refresh the instructions.
   联动流程产出
 - 反向注意：personal_agent 依赖本仓库的 default-features=false，新增
   能力保持 feature 门控与向后兼容（默认关闭不破坏既有调用方）
+
+## 产品形态定位（2026-11-12 用户拍板）
+
+**通用库 + CLI 工具双形态**：
+
+- **通用库（lib crate）是第一公民**：给宿主项目（personal_agent 等）嵌入
+  使用——lib API 的稳定性、feature 门控、向后兼容是硬要求；宿主接线
+  摩擦优先以 lib API 改进消化（先例：latest_valid_record_by_source、
+  vector_table_name 公开暴露均为此类）
+- **CLI（agent-memos 二进制）是独立产品面**：给外部用户独立使用——
+  配置自包含（--config/默认路径）、命令体验、doctor/status 诊断质量
+  面向最终用户；CLI 不承担宿主项目的集成职责
+- 双形态共享同一内核（src/），分歧只在入口层（src/interfaces/cli.rs
+  是 CLI 面；lib.rs 导出面是库面）——lib 导出变更需评估宿主影响，
+  CLI 变更需评估独立用户引导
