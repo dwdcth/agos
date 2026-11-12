@@ -166,3 +166,17 @@ If you're using Codex, project-scoped helpers may also live in:
 Keep this managed block so 'trellis update' can refresh the instructions.
 
 <!-- TRELLIS:END -->
+
+## 作为 submodule 被 personal_agent 联动开发（2026-11-12）
+
+本仓库以 git submodule 挂在 `personal_agent/vendor/agos`，**目的就是方便
+在 personal_agent 开发中同步改进本仓库**——不是只读依赖。协作规则：
+
+- personal_agent 侧接线发现 API 摩擦（需要新入口/参数不合/缺方法）时，
+  在 submodule 内直接修改并 commit（英文风格提交信息）
+- commit 后直接 `git push origin main`（凭证已配置），不必等对方验收
+- 先例：状态键值版本化（latest_valid_record_by_source）、CompletionResponse
+  usage 透出（CallUsage）、remote_http embedding + 反刍自动闭环，均由此
+  联动流程产出
+- 反向注意：personal_agent 依赖本仓库的 default-features=false，新增
+  能力保持 feature 门控与向后兼容（默认关闭不破坏既有调用方）
