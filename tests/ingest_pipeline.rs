@@ -364,6 +364,7 @@ fn ingest_with_auto_summary_backend_uses_rule_based_path_when_llm_is_not_ready()
         &Config {
             memory: MemoryConfig {
                 summary_backend: MemorySummaryBackend::Auto,
+                ..Default::default()
             },
             llm: RootLlmConfig {
                 provider: "openai".to_string(),

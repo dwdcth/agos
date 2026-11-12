@@ -28,7 +28,10 @@ use crate::{
         repository::{LocalAdaptationEntry, MemoryRepository, RepositoryError},
         truth::TruthRecord,
     },
-    search::{SearchError, SearchFilters, SearchRequest, SearchResult, SearchService},
+    search::{
+        AppliedFilters, ChannelContribution, Citation, QueryStrategy, ResultTrace, ScoreBreakdown,
+        SearchError, SearchFilters, SearchRequest, SearchResult, SearchService,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -333,6 +336,10 @@ pub struct WorkingMemoryAssembler<'db, P> {
     search: SearchService<'db>,
     repository: MemoryRepository<'db>,
     self_state_provider: P,
+    /// 世界模型演化查询门控（`[cognition] world_evolution_query`，默认
+    /// 关）：开启后装配世界片段时额外用 `facts_at` 把 DSL 事实视图（按
+    /// filters 的 domain/topic/valid_at 时间窗）并进检索结果。
+    world_evolution_query: bool,
 }
 
 impl<'db, P> WorkingMemoryAssembler<'db, P>
@@ -344,7 +351,14 @@ where
             search: SearchService::new(conn),
             repository: MemoryRepository::new(conn),
             self_state_provider,
+            world_evolution_query: false,
         }
+    }
+
+    /// 开启/关闭世界模型演化查询装配（链式）。
+    pub fn with_world_evolution_query(mut self, enabled: bool) -> Self {
+        self.world_evolution_query = enabled;
+        self
     }
 
     pub fn assemble(
@@ -460,6 +474,20 @@ where
                 }
             }
         }
+
+        // 演化查询门控开启：DSL 事实视图（时间窗语义同 filters.valid_at，
+        // 未给则当前开放版本）并入候选——结构化通道补充，走同一条过滤链
+        if self.world_evolution_query {
+            for result in self.evolution_query_results(request)? {
+                if !merged_results
+                    .iter()
+                    .any(|existing| existing.record.id == result.record.id)
+                {
+                    merged_results.push(result);
+                }
+            }
+        }
+
         let mut seen_record_ids = BTreeSet::new();
         merged_results.retain(|result| seen_record_ids.insert(result.record.id.clone()));
 
@@ -531,6 +559,66 @@ where
         }
 
         Ok(truths)
+    }
+
+    /// 演化查询装配源：`facts_at` 的 DSL 事实视图转检索结果形状（structured
+    /// 通道 trace），后续与普通检索结果走同一条过滤/真值投影链。
+    fn evolution_query_results(
+        &self,
+        request: &WorkingMemoryRequest,
+    ) -> Result<Vec<SearchResult>, WorkingMemoryAssemblyError> {
+        let mut query = crate::cognition::world_model::WorldFactQuery::new()
+            .with_limit(request.bounded_limit());
+        if let Some(domain) = request.filters.domain.as_deref() {
+            query = query.with_domain(domain);
+        }
+        if let Some(topic) = request.filters.topic.as_deref() {
+            query = query.with_topic(topic);
+        }
+        if let Some(as_of) = request.filters.valid_at.as_deref() {
+            query = query.with_as_of(as_of);
+        }
+
+        let facts = crate::cognition::world_model::facts_at(&self.repository, &query)?;
+        let mut results = Vec::with_capacity(facts.len());
+        for fact in facts {
+            let Ok(citation) = Citation::from_record(&fact.record) else {
+                continue; // 无 chunk 元数据不可引用（如宿主状态记录）
+            };
+            results.push(SearchResult {
+                snippet: fact
+                    .record
+                    .content_text
+                    .chars()
+                    .take(96)
+                    .collect::<String>(),
+                citation,
+                dsl: Some(fact.dsl),
+                score: ScoreBreakdown {
+                    lexical_raw: 0.0,
+                    lexical_base: 0.5,
+                    keyword_bonus: 0.0,
+                    importance_bonus: 0.0,
+                    recency_bonus: 0.0,
+                    attention_bonus: 0.0,
+                    final_score: 0.5,
+                },
+                trace: ResultTrace {
+                    matched_query: request.query.clone(),
+                    query_strategies: vec![QueryStrategy::Structured],
+                    channel_contribution: ChannelContribution::LexicalOnly,
+                    applied_filters: AppliedFilters {
+                        domain: request.filters.domain.clone(),
+                        topic: request.filters.topic.clone(),
+                        valid_at: request.filters.valid_at.clone(),
+                        ..Default::default()
+                    },
+                    attention: None,
+                },
+                record: fact.record,
+            });
+        }
+        Ok(results)
     }
 }
 

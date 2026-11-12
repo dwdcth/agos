@@ -619,6 +619,19 @@ where
             assembler: WorkingMemoryAssembler::new(conn, self_state_provider),
         }
     }
+
+    /// 按运行时配置装配：`[cognition] world_evolution_query` 开启时世界
+    /// 片段装配并入演化查询（`facts_at`）的事实视图（默认关）。
+    pub fn with_runtime_config(
+        conn: &'db Connection,
+        self_state_provider: P,
+        config: &Config,
+    ) -> Self {
+        Self {
+            assembler: WorkingMemoryAssembler::new(conn, self_state_provider)
+                .with_world_evolution_query(config.cognition.world_evolution_query),
+        }
+    }
 }
 
 impl<P> AssemblyPort for WorkingMemoryAssemblyPort<'_, P>
@@ -887,7 +900,7 @@ where
     ) -> Self {
         Self::new(
             SearchServicePort::with_runtime_config(conn, config),
-            WorkingMemoryAssemblyPort::new(conn, self_state_provider),
+            WorkingMemoryAssemblyPort::with_runtime_config(conn, self_state_provider, config),
             WorkingMemoryScoringPort::new(value_config),
             MetacognitionPort::default(),
         )

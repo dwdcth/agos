@@ -172,7 +172,9 @@ impl KeywordTaxonomyClassifier {
         Ok(self.classify_with_report_sync(input)?.0)
     }
 
-    fn classify_with_report_sync(
+    /// 关键词分类 + 命中报告（统计分类层复用：报告驱动"规则是否命中"的
+    /// 分层决策）。
+    pub fn classify_with_report_sync(
         &self,
         input: &ClassificationInput,
     ) -> Result<(ClassificationOutput, KeywordClassificationReport), ClassificationError> {

@@ -169,7 +169,7 @@ fn malformed_record_without_chunk(
 fn library_search_returns_citations_and_filter_trace() {
     let path = fresh_db_path("library-shape");
     let db = Database::open(&path).expect("database should open");
-    assert_eq!(db.schema_version().expect("schema version"), 10);
+    assert_eq!(db.schema_version().expect("schema version"), 11);
     let ingest = IngestService::new(db.conn());
 
     ingest_record(

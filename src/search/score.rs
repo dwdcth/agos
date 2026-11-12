@@ -373,6 +373,7 @@ fn sorted_strategies(mut strategies: Vec<QueryStrategy>) -> Vec<QueryStrategy> {
         QueryStrategy::Simple => 1,
         QueryStrategy::Structured => 2,
         QueryStrategy::Embedding => 3,
+        QueryStrategy::GraphNeighbor => 4,
     });
     strategies
 }

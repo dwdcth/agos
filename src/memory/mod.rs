@@ -1,7 +1,9 @@
+pub mod calibrated;
 pub mod classifier;
 pub mod dsl;
 pub mod embedding;
 pub mod governance;
+pub mod links;
 pub mod pipeline;
 pub mod record;
 pub mod repository;

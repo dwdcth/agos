@@ -18,6 +18,7 @@ use crate::{
         normalize::{NormalizeError, NormalizedSource, normalize_source},
     },
     memory::{
+        calibrated::CalibratedTaxonomyClassifier,
         classifier::KeywordTaxonomyClassifier,
         embedding::{RemoteHttpEmbeddingGenerator, RigEmbeddingGenerator},
         pipeline::{DefaultMemoryPipeline, MemoryPipelineError},
@@ -26,8 +27,8 @@ use crate::{
             TruthLayer, ValidityWindow,
         },
         repository::{MemoryRepository, RecordEmbedding, RepositoryError},
-        store::FactDslStore,
-        summary::{FactSummaryGenerator, RigSummaryGenerator},
+        store::{FactDslStore, PersistedFactDslRecordV1},
+        summary::{FactSummaryGenerator, RigSummaryGenerator, RuleBasedSummaryGenerator},
     },
 };
 
@@ -70,6 +71,9 @@ pub struct IngestService<'db> {
     memory_config: MemoryConfig,
     llm_config: RootLlmConfig,
     summary_preamble: Option<String>,
+    /// 可校准统计分类层（`[memory] calibrated_classifier = true` 时从库内
+    /// DSL sidecar 训练；训练失败降级为纯关键词分类，ingest 不因它失败）。
+    calibrated_classifier: Option<CalibratedTaxonomyClassifier>,
 }
 
 impl<'db> IngestService<'db> {
@@ -134,13 +138,38 @@ impl<'db> IngestService<'db> {
         summary_preamble: Option<String>,
         vector_table: Option<String>,
     ) -> Self {
+        let repository = MemoryRepository::with_vector_table(conn, vector_table.as_deref());
+        let calibrated_classifier = if memory_config.calibrated_classifier {
+            match CalibratedTaxonomyClassifier::fit_from_repository(&repository) {
+                Ok(classifier) => {
+                    if !classifier.statistical_available() {
+                        warn!(
+                            "calibrated_classifier enabled but labeled DSL records below \
+                             the minimum; keyword rules stay authoritative"
+                        );
+                    }
+                    Some(classifier)
+                }
+                Err(error) => {
+                    warn!(
+                        error = %error,
+                        "calibrated_classifier fit failed; falling back to keyword rules"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Self {
-            repository: MemoryRepository::with_vector_table(conn, vector_table.as_deref()),
+            repository,
             chunk_config,
             embedding_config,
             memory_config,
             llm_config,
             summary_preamble,
+            calibrated_classifier,
         }
     }
 
@@ -234,15 +263,52 @@ impl IngestService<'_> {
     }
 
     fn persist_layered_memory_rule_based(&self, record: &MemoryRecord) -> Result<(), IngestError> {
-        let persisted =
-            DefaultMemoryPipeline::default_v1().build_persisted_sync_from_memory_record(record)?;
-        self.put_persisted_fact_dsl(&persisted)
+        match self.calibrated_classifier.as_ref() {
+            // 默认路径保持逐字节等价：纯关键词分类器 + 规则摘要
+            None => {
+                let persisted = DefaultMemoryPipeline::default_v1()
+                    .build_persisted_sync_from_memory_record(record)?;
+                self.put_persisted_fact_dsl(&persisted)
+            }
+            // 统计层开启：同一管线的分类步换成"关键词优先 + 贝叶斯兜底"
+            Some(calibrated) => {
+                let classification = calibrated
+                    .classify_record_sync(record)
+                    .map_err(MemoryPipelineError::Classification)?;
+                let summary_input = classification
+                    .clone()
+                    .into_summary_input(
+                        record.truth_layer,
+                        &record.source.uri,
+                        &record.content_text,
+                    )
+                    .map_err(MemoryPipelineError::Classification)?;
+                let draft = RuleBasedSummaryGenerator
+                    .summarize_sync(&summary_input)
+                    .map_err(MemoryPipelineError::Summary)?;
+                let built = summary_input
+                    .into_record(draft)
+                    .map_err(MemoryPipelineError::Summary)?;
+                let mut persisted =
+                    PersistedFactDslRecordV1::from_fact_dsl_record(&record.id, &built)
+                        .map_err(MemoryPipelineError::Store)?;
+                persisted.classification_confidence = Some(classification.confidence);
+                persisted.needs_review = classification.needs_review;
+                persisted.validate().map_err(MemoryPipelineError::Store)?;
+                self.put_persisted_fact_dsl(&persisted)
+            }
+        }
     }
 
     fn persist_layered_memory_rig(&self, record: &MemoryRecord) -> Result<(), IngestError> {
-        let classification = KeywordTaxonomyClassifier::default()
-            .classify_record_sync(record)
-            .map_err(MemoryPipelineError::Classification)?;
+        let classification = match self.calibrated_classifier.as_ref() {
+            Some(calibrated) => calibrated
+                .classify_record_sync(record)
+                .map_err(MemoryPipelineError::Classification)?,
+            None => KeywordTaxonomyClassifier::default()
+                .classify_record_sync(record)
+                .map_err(MemoryPipelineError::Classification)?,
+        };
         let summary_input = classification
             .clone()
             .into_summary_input(record.truth_layer, &record.source.uri, &record.content_text)

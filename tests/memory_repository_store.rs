@@ -148,7 +148,7 @@ fn sample_skill_template_candidate(
 fn sqlite_repository_implements_fact_dsl_store_contract() {
     let path = fresh_db_path("dsl-store");
     let db = Database::open(&path).expect("database should open");
-    assert_eq!(db.schema_version().expect("schema version"), 10);
+    assert_eq!(db.schema_version().expect("schema version"), 11);
 
     let repo = MemoryRepository::new(db.conn());
     repo.insert_record(&sample_memory_record())

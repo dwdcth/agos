@@ -133,6 +133,9 @@ pub enum QueryStrategy {
     Simple,
     Structured,
     Embedding,
+    /// 图关系层邻居扩展：结果不是词法/语义命中，而是命中记录的
+    /// `memory_links` 一跳邻居（SearchService 后处理，默认关）。
+    GraphNeighbor,
 }
 
 #[derive(Debug, Clone, PartialEq)]

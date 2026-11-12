@@ -20,6 +20,7 @@ const SELF_MODEL_SNAPSHOTS_SQL: &str =
     include_str!("../../migrations/0009_self_model_snapshots.sql");
 const WORLD_MODEL_SNAPSHOTS_SQL: &str =
     include_str!("../../migrations/0010_world_model_snapshots.sql");
+const MEMORY_LINKS_SQL: &str = include_str!("../../migrations/0011_memory_links.sql");
 
 pub fn apply_migrations(conn: &mut Connection) -> Result<(), rusqlite_migration::Error> {
     migrations().to_latest(conn)
@@ -57,5 +58,8 @@ fn migrations() -> Migrations<'static> {
         M::up(WORLD_MODEL_SNAPSHOTS_SQL)
             .foreign_key_check()
             .comment("world-model snapshots"),
+        M::up(MEMORY_LINKS_SQL)
+            .foreign_key_check()
+            .comment("cross-topic memory links"),
     ])
 }

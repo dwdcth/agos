@@ -41,6 +41,17 @@ similarity = "cosine"                   # cosine | dot | l2
 [cognition]
 auto_rumination = true                  # agent-search 执行后自动进反刍闭环（enqueue 触发 + drain 短周期写回）；
                                         # 夜间长周期走 `agent-memos ruminate`
+world_evolution_query = false           # agent-search 世界片段装配并入世界模型演化查询（facts_at 时间窗事实视图）；
+                                        # 默认关（lexical 检索为主路径）
+
+[graph]
+neighbor_expansion = false              # SearchService 结果后处理：每条命中扩一跳 memory_links 开放邻居
+                                        # （working memory supporting 分支素材，trace 标 graph_neighbor）；默认关
+neighbor_per_result = 2                 # 每条结果最多追加的邻居数
+
+[memory]
+calibrated_classifier = false           # 统计分类层（关键词规则优先，规则未命中时朴素贝叶斯兜底，
+                                        # 训练数据 = 库内 DSL sidecar）；先跑 `agent-memos calibrate` 看报告再开
 
 [logging]
 level = "INFO"                          # DEBUG | INFO | WARNING | ERROR

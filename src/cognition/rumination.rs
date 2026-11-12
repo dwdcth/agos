@@ -20,6 +20,7 @@ use crate::{
             AttachPromotionEvidenceRequest, CreateOntologyCandidateRequest,
             CreatePromotionReviewRequest, TruthGovernanceError, TruthGovernanceService,
         },
+        links::{LinkDiscoveryOptions, MemoryLinkStore},
         repository::{
             LocalAdaptationEntry, LocalAdaptationPayload, LocalAdaptationTargetKind,
             MemoryRepository, PersistedRuminationQueueItem, PersistedRuminationTriggerState,
@@ -32,15 +33,20 @@ use crate::{
 pub use crate::memory::repository::RuminationCandidateKind;
 
 /// Result of one maintenance pass: drain both rumination queues (short cycle
-/// first, then long cycle) and refresh the sqlite-vec index. This is the
-/// long-cycle entry point the daemon calls on its nightly schedule; it is
-/// also exposed as the `agent-memos ruminate` CLI command.
+/// first, then long cycle), run the graph-layer link pass (provenance
+/// backfill + BM25 mutual-hit discovery), and refresh the sqlite-vec index.
+/// This is the long-cycle entry point the daemon calls on its nightly
+/// schedule; it is also exposed as the `agent-memos ruminate` CLI command.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RuminationPassReport {
     pub drained_short_cycle: usize,
     pub short_cycle_writebacks: Vec<ShortCycleWritebackReport>,
     pub drained_long_cycle: usize,
     pub long_cycle_candidates: Vec<LongCycleCandidateReport>,
+    /// 图关系层：`provenance.derived_from` 回填新插入的边数。
+    pub links_backfilled: usize,
+    /// 图关系层：BM25 互相命中新发现的 `relates_to` 边数。
+    pub links_discovered: usize,
     /// First error per tier, if any; draining stops for that tier and the
     /// failed item stays queued with its retry bookkeeping.
     pub errors: Vec<String>,
@@ -51,14 +57,32 @@ pub struct RuminationPassReport {
 /// Upper bound per tier so a poisoned item cannot pin the pass forever.
 const MAINTENANCE_PASS_MAX_PER_TIER: usize = 64;
 
-/// Run one rumination maintenance pass over both queue tiers and refresh the
-/// vector index. Errors never abort the whole pass: a failing item stops its
-/// tier's drain (the service already recorded the retry) and the remaining
-/// work still runs.
+/// 维护 pass 的可调参数（默认 `run_maintenance_pass` 用
+/// `LinkDiscoveryOptions::default()`）。
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct MaintenancePassOptions {
+    pub link_discovery: LinkDiscoveryOptions,
+}
+
+/// Run one rumination maintenance pass over both queue tiers, the graph link
+/// pass, and the vector index refresh. Errors never abort the whole pass: a
+/// failing item stops its tier's drain (the service already recorded the
+/// retry) and the remaining work still runs.
 pub fn run_maintenance_pass(
     conn: &Connection,
     vector_table: Option<&str>,
     now: &str,
+) -> RuminationPassReport {
+    run_maintenance_pass_with_options(conn, vector_table, now, &MaintenancePassOptions::default())
+}
+
+/// 同 [`run_maintenance_pass`]，但暴露图关联发现的参数（记录上限 / top-k /
+/// 分数阈值），供测试与大库调参。
+pub fn run_maintenance_pass_with_options(
+    conn: &Connection,
+    vector_table: Option<&str>,
+    now: &str,
+    options: &MaintenancePassOptions,
 ) -> RuminationPassReport {
     let service = RuminationService::new(conn);
     let mut report = RuminationPassReport {
@@ -66,6 +90,8 @@ pub fn run_maintenance_pass(
         short_cycle_writebacks: Vec::new(),
         drained_long_cycle: 0,
         long_cycle_candidates: Vec::new(),
+        links_backfilled: 0,
+        links_discovered: 0,
         errors: Vec::new(),
         vector_index_backfilled: 0,
         completed_at: now.to_string(),
@@ -97,6 +123,18 @@ pub fn run_maintenance_pass(
                 break;
             }
         }
+    }
+
+    // 图关系层关联 pass：provenance 回填（幂等）+ BM25 互相命中发现。
+    // 失败只记录，不阻断后续 vector 回填。
+    let link_store = MemoryLinkStore::new(conn);
+    match link_store.backfill_from_provenance(now) {
+        Ok(inserted) => report.links_backfilled = inserted,
+        Err(error) => report.errors.push(format!("link backfill: {error}")),
+    }
+    match link_store.discover_related(now, &options.link_discovery) {
+        Ok(inserted) => report.links_discovered = inserted,
+        Err(error) => report.errors.push(format!("link discovery: {error}")),
     }
 
     let repository = MemoryRepository::with_vector_table(conn, vector_table);

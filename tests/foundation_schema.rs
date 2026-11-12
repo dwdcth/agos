@@ -146,7 +146,7 @@ fn foundation_migration_bootstraps_clean_db() {
     let db = Database::open(&path).expect("fresh database should bootstrap");
 
     assert!(parent.exists(), "open should create parent directories");
-    assert_eq!(db.schema_version().expect("schema version"), 10);
+    assert_eq!(db.schema_version().expect("schema version"), 11);
 
     let names = table_names(&path);
     assert!(
@@ -177,11 +177,11 @@ fn foundation_migration_bootstraps_clean_db() {
 fn foundation_migration_reopen_is_idempotent() {
     let path = fresh_db_path("reopen");
     let first = Database::open(&path).expect("first open should succeed");
-    assert_eq!(first.schema_version().expect("first schema version"), 10);
+    assert_eq!(first.schema_version().expect("first schema version"), 11);
     drop(first);
 
     let second = Database::open(&path).expect("second open should succeed");
-    assert_eq!(second.schema_version().expect("second schema version"), 10);
+    assert_eq!(second.schema_version().expect("second schema version"), 11);
     let names = table_names(&path);
     assert!(names.contains(&"memory_records".to_string()));
     assert!(names.contains(&"memory_records_fts".to_string()));
@@ -341,7 +341,7 @@ fn rumination_schema_bootstraps_additive_phase_5_and_later_side_tables() {
     let path = fresh_db_path("rumination-schema");
     let db = Database::open(&path).expect("database should bootstrap");
 
-    assert_eq!(db.schema_version().expect("schema version"), 10);
+    assert_eq!(db.schema_version().expect("schema version"), 11);
 
     let names = table_names(&path);
     assert!(
@@ -495,7 +495,7 @@ fn world_model_snapshot_schema_bootstraps_additive_phase_10_side_table() {
     let path = fresh_db_path("world-model-snapshot-schema");
     let db = Database::open(&path).expect("database should bootstrap");
 
-    assert_eq!(db.schema_version().expect("schema version"), 10);
+    assert_eq!(db.schema_version().expect("schema version"), 11);
 
     let names = table_names(&path);
     assert!(

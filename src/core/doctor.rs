@@ -11,6 +11,8 @@ pub enum CommandPath {
     Search,
     AgentSearch,
     Ruminate,
+    /// Offline classifier calibration (`agent-memos calibrate`).
+    Calibrate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

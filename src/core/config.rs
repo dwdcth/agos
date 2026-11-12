@@ -105,6 +105,9 @@ pub struct PromptsConfig {
 #[serde(default)]
 pub struct MemoryConfig {
     pub summary_backend: MemorySummaryBackend,
+    /// 启用可校准统计分类层（关键词规则优先，规则未命中时朴素贝叶斯
+    /// 兜底，训练数据 = 既有 DSL sidecar）。默认关。
+    pub calibrated_classifier: bool,
 }
 
 impl MemoryConfig {
@@ -124,12 +127,38 @@ pub struct CognitionConfig {
     /// into the rumination loop (enqueue trigger + drain short-cycle) after
     /// execution. On by default; the daemon can disable it to own scheduling.
     pub auto_rumination: bool,
+    /// Whether agent-search world-fragment assembly may use the world-model
+    /// evolution query (`facts_at`) to augment fragments from the DSL fact
+    /// view. Off by default (gate per 理论实现对应.md B 项).
+    pub world_evolution_query: bool,
 }
 
 impl Default for CognitionConfig {
     fn default() -> Self {
         Self {
             auto_rumination: true,
+            world_evolution_query: false,
+        }
+    }
+}
+
+/// 跨主题关联层（`memory_links`）的检索融合门控。默认关：邻居扩展只在
+/// 显式开启后作为 SearchService 结果后处理（一跳邻居追加为 supporting
+/// 结果，trace 标 graph_neighbor）。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct GraphConfig {
+    /// SearchService 结果后处理：为每条结果扩一跳开放邻居。默认 false。
+    pub neighbor_expansion: bool,
+    /// 每条结果最多追加的邻居数。默认 2。
+    pub neighbor_per_result: usize,
+}
+
+impl Default for GraphConfig {
+    fn default() -> Self {
+        Self {
+            neighbor_expansion: false,
+            neighbor_per_result: 2,
         }
     }
 }
@@ -144,6 +173,7 @@ pub struct Config {
     pub llm: RootLlmConfig,
     pub memory: MemoryConfig,
     pub cognition: CognitionConfig,
+    pub graph: GraphConfig,
     pub vector: RootVectorConfig,
     pub prompts: PromptsConfig,
 }
@@ -156,6 +186,7 @@ pub struct RootRuntimeConfig {
     pub embedding: RootEmbeddingRuntimeConfig,
     pub vector: RootVectorConfig,
     pub cognition: CognitionConfig,
+    pub graph: GraphConfig,
     pub prompts: PromptsConfig,
 }
 
@@ -192,6 +223,7 @@ impl RootRuntimeConfig {
             llm: self.llm.clone(),
             memory: MemoryConfig::default(),
             cognition: self.cognition.clone(),
+            graph: self.graph.clone(),
             vector: self.vector.clone(),
             prompts: self.prompts.clone(),
         }
@@ -324,6 +356,7 @@ impl Default for Config {
             llm: RootLlmConfig::default(),
             memory: MemoryConfig::default(),
             cognition: CognitionConfig::default(),
+            graph: GraphConfig::default(),
             vector: RootVectorConfig::default(),
             prompts: PromptsConfig::default(),
         }
@@ -364,7 +397,7 @@ impl Config {
                 value.clone().try_into().map_err(ConfigError::Parse)?;
             let mut config = runtime.to_config();
             // A root-schema file may still carry explicit [retrieval],
-            // [memory] or [cognition] overrides; preserve them.
+            // [memory], [cognition] or [graph] overrides; preserve them.
             if let Ok(legacy) = value.clone().try_into::<Config>() {
                 if contents.contains("[retrieval]") {
                     config.retrieval = legacy.retrieval;
@@ -374,6 +407,9 @@ impl Config {
                 }
                 if contents.contains("[cognition]") {
                     config.cognition = legacy.cognition;
+                }
+                if contents.contains("[graph]") {
+                    config.graph = legacy.graph;
                 }
             }
             return Ok(config);

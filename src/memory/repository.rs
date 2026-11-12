@@ -28,6 +28,13 @@ pub struct LayeredMemoryRecord {
     pub dsl: Option<PersistedFactDslRecordV1>,
 }
 
+/// 世界模型演化查询的一行：记录 + 其 DSL 事实载荷（join 结果）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorldFactRow {
+    pub record: MemoryRecord,
+    pub dsl: FlatFactDslRecordV1,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordEmbedding {
     pub record_id: String,
@@ -683,11 +690,15 @@ impl<'db> MemoryRepository<'db> {
     /// 关闭来源 URI 的全部当前有效版本（`valid_to` 置为给定时刻，连带
     /// `updated_at`）。版本化 upsert 的"旧版下线"半步，也是键删除语义
     /// （不物理删，历史版本仍可追溯）。返回受影响行数。
+    ///
+    /// 图关系层联动：被关闭记录触及的开放 `memory_links` 边同步关闭
+    /// （衰减与记忆版本化一致，`valid_to` 语义照 record）。
     pub fn close_valid_records_by_source(
         &self,
         source_uri: &str,
         valid_to: &str,
     ) -> Result<u64, RepositoryError> {
+        let closing_ids = self.record_ids_closing_by_source(source_uri)?;
         let affected = self.conn.execute(
             r#"
             UPDATE memory_records
@@ -696,7 +707,35 @@ impl<'db> MemoryRepository<'db> {
             "#,
             params![source_uri, valid_to],
         )?;
+
+        if !closing_ids.is_empty() {
+            let mut statement = self.conn.prepare(
+                r#"
+                UPDATE memory_links
+                SET valid_to = ?2, updated_at = ?2
+                WHERE valid_to IS NULL
+                  AND (source_record_id = ?1 OR target_record_id = ?1)
+                "#,
+            )?;
+            for record_id in &closing_ids {
+                statement.execute(params![record_id, valid_to])?;
+            }
+        }
+
         Ok(affected as u64)
+    }
+
+    fn record_ids_closing_by_source(
+        &self,
+        source_uri: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT id FROM memory_records WHERE source_uri = ?1 AND valid_to IS NULL")?;
+        let ids = statement
+            .query_map([source_uri], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ids)
     }
 
     pub fn list_records(&self) -> Result<Vec<MemoryRecord>, RepositoryError> {
@@ -2393,6 +2432,138 @@ impl<'db> MemoryRepository<'db> {
             .map_err(Into::into)
     }
 
+    /// 世界模型演化查询的数据面：`memory_records` ⋈ `fact_dsl_records` 的
+    /// 结构化世界事实（带 taxonomy 标注），按时间窗过滤。
+    ///
+    /// - `as_of = Some(t)`：取有效期窗口包含 t 的版本（valid_from ≤ t ≤
+    ///   valid_to，NULL 端开放）——"某时点有效的事实视图"；
+    /// - `as_of = None`：取当前开放版本（valid_to IS NULL）。
+    ///
+    /// cognition::world_model 的 `facts_at` 在此之上给出演化语义封装。
+    pub fn list_world_facts(
+        &self,
+        domain: Option<&str>,
+        topic: Option<&str>,
+        as_of: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<WorldFactRow>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                mr.id,
+                mr.source_uri,
+                mr.source_kind,
+                mr.source_label,
+                mr.recorded_at,
+                mr.scope,
+                mr.record_type,
+                mr.truth_layer,
+                mr.provenance_json,
+                mr.content_text,
+                mr.chunk_index,
+                mr.chunk_count,
+                mr.chunk_anchor_json,
+                mr.content_hash,
+                mr.valid_from,
+                mr.valid_to,
+                mr.created_at,
+                mr.updated_at,
+                fd.domain,
+                fd.topic,
+                fd.aspect,
+                fd.kind,
+                fd.claim,
+                fd.truth_layer,
+                fd.source_ref,
+                fd.why,
+                fd.time_hint,
+                fd.cond,
+                fd.impact,
+                fd.conf,
+                fd.rel_json,
+                fd.classification_confidence,
+                fd.needs_review
+            FROM memory_records AS mr
+            JOIN fact_dsl_records AS fd ON fd.record_id = mr.id
+            WHERE (?1 IS NULL OR fd.domain = ?1)
+              AND (?2 IS NULL OR fd.topic = ?2)
+              AND (
+                (?3 IS NOT NULL
+                  AND (mr.valid_from IS NULL OR mr.valid_from <= ?3)
+                  AND (mr.valid_to IS NULL OR mr.valid_to >= ?3))
+                OR (?3 IS NULL AND mr.valid_to IS NULL)
+              )
+            ORDER BY mr.recorded_at DESC, mr.id DESC
+            LIMIT ?4
+            "#,
+        )?;
+
+        let rows = statement.query_map(
+            params![domain, topic, as_of, limit as i64],
+            map_world_fact_row,
+        )?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    /// 世界事实的版本时间线（含已关闭版本）：按 valid_from 时间升序
+    /// （同刻按 claim/id 稳定排序）——"过去是怎样变过来的"。
+    pub fn list_world_fact_versions(
+        &self,
+        domain: Option<&str>,
+        topic: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<WorldFactRow>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                mr.id,
+                mr.source_uri,
+                mr.source_kind,
+                mr.source_label,
+                mr.recorded_at,
+                mr.scope,
+                mr.record_type,
+                mr.truth_layer,
+                mr.provenance_json,
+                mr.content_text,
+                mr.chunk_index,
+                mr.chunk_count,
+                mr.chunk_anchor_json,
+                mr.content_hash,
+                mr.valid_from,
+                mr.valid_to,
+                mr.created_at,
+                mr.updated_at,
+                fd.domain,
+                fd.topic,
+                fd.aspect,
+                fd.kind,
+                fd.claim,
+                fd.truth_layer,
+                fd.source_ref,
+                fd.why,
+                fd.time_hint,
+                fd.cond,
+                fd.impact,
+                fd.conf,
+                fd.rel_json,
+                fd.classification_confidence,
+                fd.needs_review
+            FROM memory_records AS mr
+            JOIN fact_dsl_records AS fd ON fd.record_id = mr.id
+            WHERE (?1 IS NULL OR fd.domain = ?1)
+              AND (?2 IS NULL OR fd.topic = ?2)
+            ORDER BY COALESCE(mr.valid_from, '') ASC, fd.claim ASC, mr.id ASC
+            LIMIT ?3
+            "#,
+        )?;
+
+        let rows = statement.query_map(params![domain, topic, limit as i64], map_world_fact_row)?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
     pub fn scope_counts(&self) -> Result<Vec<ScopeCount>, RepositoryError> {
         let mut statement = self.conn.prepare(
             r#"
@@ -3099,6 +3270,49 @@ fn map_fact_dsl_row(row: &rusqlite::Row<'_>) -> Result<PersistedFactDslRecordV1,
         classification_confidence: row.get(14)?,
         needs_review: row.get::<_, i64>(15)? != 0,
     })
+}
+
+/// join 行映射：0-17 为 memory_records 列（与 map_record_row 同序），18-33
+/// 为 fact_dsl_records 列（与 map_fact_dsl_row 同序偏移 +18）。
+fn map_world_fact_row(row: &rusqlite::Row<'_>) -> Result<WorldFactRow, rusqlite::Error> {
+    let record = map_record_row(row).map_err(|error| match error {
+        RepositoryError::Sqlite(source) => source,
+        RepositoryError::Json(source) => rusqlite::Error::FromSqlConversionFailure(
+            8,
+            rusqlite::types::Type::Text,
+            Box::new(source),
+        ),
+        other => rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(
+            other.to_string(),
+        ))),
+    })?;
+    let rel_json = row.get::<_, Option<String>>(30)?;
+    let dsl = crate::memory::dsl::FlatFactDslRecordV1 {
+        domain: row.get(18)?,
+        topic: row.get(19)?,
+        aspect: row.get(20)?,
+        kind: row.get(21)?,
+        claim: row.get(22)?,
+        truth_layer: row.get(23)?,
+        source_ref: row.get(24)?,
+        why: row.get(25)?,
+        time: row.get(26)?,
+        cond: row.get(27)?,
+        impact: row.get(28)?,
+        conf: row.get(29)?,
+        rel: rel_json
+            .map(|value| serde_json::from_str(&value))
+            .transpose()
+            .map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    30,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?,
+    };
+
+    Ok(WorldFactRow { record, dsl })
 }
 
 fn parse_embedding_backend(value: &str) -> Result<EmbeddingBackend, RepositoryError> {

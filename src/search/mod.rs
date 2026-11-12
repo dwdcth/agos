@@ -15,6 +15,7 @@ use crate::{
     memory::{
         dsl::FlatFactDslRecordV1,
         embedding::{RemoteHttpEmbeddingGenerator, RigEmbeddingGenerator},
+        links::{LinkQuery, MemoryLinkStore},
         record::MemoryRecord,
         repository::{MemoryRepository, RepositoryError},
         vector::VectorIndex,
@@ -95,6 +96,28 @@ pub enum SearchError {
     InvalidFilters(String),
     #[error(transparent)]
     Repository(#[from] RepositoryError),
+    #[error(transparent)]
+    LinkStore(#[from] crate::memory::links::LinkStoreError),
+}
+
+/// 图关系层邻居扩展参数（SearchService 结果后处理，默认关）。
+///
+/// 开启后，每条命中记录追加最多 `per_result` 个一跳开放邻居
+/// （`memory_links`，任意关系），作为 working memory 装配的 supporting
+/// 分支素材：邻居结果排在原结果之后，trace 的 `matched_query` 记
+/// `link-neighbor:<parent_id>`、策略标 `graph_neighbor`，分数按
+/// `parent_score × 0.5 × link_weight` 衰减。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkExpansion {
+    pub per_result: usize,
+}
+
+impl LinkExpansion {
+    pub fn new(per_result: usize) -> Self {
+        Self {
+            per_result: per_result.clamp(1, 8),
+        }
+    }
 }
 
 pub struct SearchService<'db> {
@@ -109,6 +132,7 @@ pub struct SearchService<'db> {
     embedding_batch_size: Option<u32>,
     embedding_timeout_seconds: Option<u64>,
     vector_backend: VectorBackend,
+    link_expansion: Option<LinkExpansion>,
 }
 
 impl<'db> SearchService<'db> {
@@ -125,7 +149,15 @@ impl<'db> SearchService<'db> {
             embedding_batch_size: None,
             embedding_timeout_seconds: None,
             vector_backend: VectorBackend::None,
+            link_expansion: None,
         }
+    }
+
+    /// 开启（或关闭）一跳邻居扩展后处理。链式构建器，供宿主按需装配；
+    /// 默认 `None` = 关。
+    pub fn with_link_expansion(mut self, expansion: Option<LinkExpansion>) -> Self {
+        self.link_expansion = expansion;
+        self
     }
 
     pub fn with_variant(conn: &'db Connection, variant: &RetrievalModeVariant) -> Self {
@@ -163,6 +195,7 @@ impl<'db> SearchService<'db> {
                 .as_ref()
                 .and_then(|cfg| cfg.timeout_seconds),
             vector_backend,
+            link_expansion: None,
         }
     }
 
@@ -186,6 +219,10 @@ impl<'db> SearchService<'db> {
             embedding_batch_size: config.embedding.batch_size,
             embedding_timeout_seconds: config.embedding.timeout_seconds,
             vector_backend,
+            link_expansion: config
+                .graph
+                .neighbor_expansion
+                .then(|| LinkExpansion::new(config.graph.neighbor_per_result)),
         }
     }
 
@@ -222,7 +259,97 @@ impl<'db> SearchService<'db> {
         self.attach_dsl_sidecars(&mut response.results)?;
         apply_taxonomy_filters(&mut response.results, &request.filters);
         response.results.truncate(request.bounded_limit());
+        if let Some(expansion) = self.link_expansion {
+            self.expand_link_neighbors(&mut response.results, &request.filters, expansion)?;
+        }
         Ok(response)
+    }
+
+    /// 一跳邻居扩展后处理（见 [`LinkExpansion`]）。追加项遵守与主结果相同
+    /// 的 scope/type/truth/taxonomy/valid_at 过滤语义。
+    fn expand_link_neighbors(
+        &self,
+        results: &mut Vec<SearchResult>,
+        filters: &SearchFilters,
+        expansion: LinkExpansion,
+    ) -> Result<(), SearchError> {
+        if results.is_empty() {
+            return Ok(());
+        }
+
+        let link_store = MemoryLinkStore::new(self.repository.connection());
+        let link_query = LinkQuery::default();
+        let mut seen: BTreeSet<String> = results
+            .iter()
+            .map(|result| result.record.id.clone())
+            .collect();
+        let mut appended = Vec::new();
+
+        for result in results.iter() {
+            let parent_id = result.record.id.clone();
+            let parent_score = result.score.final_score;
+            let mut taken = 0usize;
+            for link in link_store.links_for_record(&parent_id, &link_query)? {
+                if taken >= expansion.per_result {
+                    break;
+                }
+                let Some(other) = link.other_end(&parent_id) else {
+                    continue;
+                };
+                if !seen.insert(other.to_string()) {
+                    continue;
+                }
+                let Some(layered) = self.repository.get_layered_record(other)? else {
+                    continue;
+                };
+                if !matches_search_filters(&layered.record, filters) {
+                    continue;
+                }
+                if has_taxonomy_filters(filters)
+                    && !layered
+                        .dsl
+                        .as_ref()
+                        .is_some_and(|dsl| dsl_matches_filters(&dsl.payload, filters))
+                {
+                    continue;
+                }
+                let citation = match Citation::from_record(&layered.record) {
+                    Ok(citation) => citation,
+                    // 无 chunk 元数据（如宿主状态记录）不可引用，跳过
+                    Err(_) => continue,
+                };
+
+                taken += 1;
+                appended.push(SearchResult {
+                    snippet: snippet(&layered.record.content_text),
+                    citation,
+                    dsl: layered.dsl.map(|dsl| dsl.payload),
+                    score: ScoreBreakdown {
+                        lexical_raw: 0.0,
+                        lexical_base: 0.0,
+                        keyword_bonus: 0.0,
+                        importance_bonus: 0.0,
+                        recency_bonus: 0.0,
+                        attention_bonus: 0.0,
+                        final_score: (parent_score * 0.5 * link.weight).max(0.01),
+                    },
+                    trace: ResultTrace {
+                        matched_query: format!("link-neighbor:{parent_id}"),
+                        query_strategies: vec![QueryStrategy::GraphNeighbor],
+                        channel_contribution: ChannelContribution::LexicalOnly,
+                        applied_filters: AppliedFilters {
+                            valid_at: filters.valid_at.clone(),
+                            ..Default::default()
+                        },
+                        attention: None,
+                    },
+                    record: layered.record,
+                });
+            }
+        }
+
+        results.append(&mut appended);
+        Ok(())
     }
 
     fn embedding_recall(

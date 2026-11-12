@@ -24,7 +24,10 @@ use crate::{
     },
     ingest::{IngestRequest, IngestService},
     memory::{
+        calibrated::{CalibratedTrainingSample, evaluate_calibrated_classifier},
+        links::{LinkQuery, MemoryLinkStore},
         record::{RecordType, Scope, SourceKind, TruthLayer},
+        repository::MemoryRepository,
         taxonomy::{AspectV1, DomainV1, KindV1, TopicV1},
     },
     search::{SearchFilters, SearchRequest, SearchService},
@@ -150,6 +153,18 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Train and evaluate the calibrated statistical taxonomy classifier
+    /// offline. Training data comes from the labeled DSL sidecars already in
+    /// the database; the report covers per-field accuracy and rule vs
+    /// statistical coverage. Does not change ingest behavior (enable with
+    /// [memory] calibrated_classifier = true).
+    Calibrate {
+        /// Fraction of records held out for evaluation (0.1-0.5, default 0.25).
+        #[arg(long = "test-ratio", value_name = "RATIO")]
+        test_ratio: Option<f32>,
+        #[arg(long)]
+        json: bool,
+    },
     Inspect {
         #[command(subcommand)]
         command: InspectCommands,
@@ -159,6 +174,24 @@ pub enum Commands {
 #[derive(Debug, Clone, Subcommand)]
 pub enum InspectCommands {
     Schema,
+    /// Show graph-layer links and neighbors for a record (memory_links).
+    /// Depth 1 = direct neighbors; open links only unless --include-closed.
+    Links {
+        #[arg(value_name = "RECORD_ID")]
+        record_id: String,
+        /// Only traverse links with this relation
+        /// (relates_to/derived_from/supports/contradicts/...).
+        #[arg(long = "relation", value_name = "RELATION")]
+        relation: Option<String>,
+        /// Neighbor traversal depth (1-6, default 1).
+        #[arg(long = "depth", default_value_t = 1)]
+        depth: u32,
+        /// Include links already closed by versioning (valid_to set).
+        #[arg(long = "include-closed")]
+        include_closed: bool,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
@@ -261,6 +294,7 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
             },
         ),
         Commands::Ruminate { json } => ruminate_command(&app, json),
+        Commands::Calibrate { test_ratio, json } => calibrate_command(&app, test_ratio, json),
         Commands::Inspect { command } => inspect_command(&app, command),
     }
 }
@@ -492,6 +526,7 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
                         crate::search::QueryStrategy::Simple => "simple",
                         crate::search::QueryStrategy::Structured => "structured",
                         crate::search::QueryStrategy::Embedding => "embedding",
+                        crate::search::QueryStrategy::GraphNeighbor => "graph_neighbor",
                     })
                     .collect::<Vec<_>>()
                     .join(",")
@@ -673,6 +708,10 @@ fn ruminate_command(app: &AppContext, json: bool) -> Result<ExitCode> {
                 .sum::<usize>()
         );
         println!(
+            "links_backfilled: {} links_discovered: {}",
+            report.links_backfilled, report.links_discovered
+        );
+        println!(
             "vector_index_backfilled: {}",
             report.vector_index_backfilled
         );
@@ -713,7 +752,135 @@ fn override_mode_app(app: &AppContext, mode: Option<RetrievalMode>) -> Result<Ap
 fn inspect_command(app: &AppContext, command: InspectCommands) -> Result<ExitCode> {
     match command {
         InspectCommands::Schema => inspect_schema_command(app),
+        InspectCommands::Links {
+            record_id,
+            relation,
+            depth,
+            include_closed,
+            json,
+        } => inspect_links_command(app, record_id, relation, depth, include_closed, json),
     }
+}
+
+/// `agent-memos inspect links <record_id>`：图关系层检查面——直接边 +
+/// BFS 邻居（按 --relation/--depth/--include-closed 过滤）。
+fn inspect_links_command(
+    app: &AppContext,
+    record_id: String,
+    relation: Option<String>,
+    depth: u32,
+    include_closed: bool,
+    json: bool,
+) -> Result<ExitCode> {
+    let db = Database::open_with_dict(app.db_path(), app.dict_path())?;
+    let store = MemoryLinkStore::new(db.conn());
+
+    let mut query = LinkQuery::default().with_include_closed(include_closed);
+    if let Some(relation) = relation.as_deref() {
+        query = query.with_relation(relation);
+    }
+    let links = store.links_for_record(&record_id, &query)?;
+    let neighbors = store.neighbors(&record_id, depth, &query)?;
+
+    if json {
+        let payload = json!({
+            "record_id": record_id,
+            "depth": depth,
+            "links": links,
+            "neighbors": neighbors
+                .iter()
+                .map(|neighbor| json!({
+                    "record_id": neighbor.record.id,
+                    "source_uri": neighbor.record.source.uri,
+                    "depth": neighbor.depth,
+                    "relation": neighbor.link.relation,
+                    "weight": neighbor.link.weight,
+                    "via": neighbor.link.other_end(&neighbor.record.id)
+                        .unwrap_or(&neighbor.record.id),
+                }))
+                .collect::<Vec<_>>(),
+        });
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!("record: {record_id}");
+        println!("links: {}", links.len());
+        for link in &links {
+            println!(
+                "  {} --{}--> {} (weight={:.3} provenance={} valid_from={} valid_to={})",
+                link.source_record_id,
+                link.relation,
+                link.target_record_id,
+                link.weight,
+                link.provenance,
+                link.validity.valid_from.as_deref().unwrap_or("none"),
+                link.validity.valid_to.as_deref().unwrap_or("open"),
+            );
+        }
+        println!("neighbors (depth<={depth}): {}", neighbors.len());
+        for neighbor in &neighbors {
+            println!(
+                "  [d{}] {} ({}) via --{}--> ... weight={:.3}",
+                neighbor.depth,
+                neighbor.record.id,
+                neighbor.record.source.uri,
+                neighbor.link.relation,
+                neighbor.link.weight,
+            );
+            println!(
+                "       snippet: {}",
+                neighbor
+                    .record
+                    .content_text
+                    .chars()
+                    .take(72)
+                    .collect::<String>()
+            );
+        }
+    }
+
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `agent-memos calibrate`：离线训练统计分类层 + 留出评估（只读，不改
+/// ingest 行为——启用走 `[memory] calibrated_classifier = true`）。
+fn calibrate_command(app: &AppContext, test_ratio: Option<f32>, json: bool) -> Result<ExitCode> {
+    if let Some(exit_code) = operational_gate(app, CommandPath::Calibrate)? {
+        return Ok(exit_code);
+    }
+
+    let db = Database::open_with_dict(app.db_path(), app.dict_path())?;
+    let repository = MemoryRepository::new(db.conn());
+    let records = repository.list_layered_records()?;
+    let samples = records
+        .iter()
+        .filter_map(CalibratedTrainingSample::from_layered_record)
+        .collect::<Vec<_>>();
+
+    if samples.is_empty() {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "error": "no labeled DSL sidecar records found; ingest some records first"
+                }))?
+            );
+        } else {
+            println!("error: no labeled DSL sidecar records found; ingest some records first");
+        }
+        return Ok(ExitCode::FAILURE);
+    }
+
+    let report = evaluate_calibrated_classifier(&samples, test_ratio.unwrap_or(0.25));
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("{}", report.render_text());
+        if report.test_records == 0 {
+            println!("warning: holdout split left no test records; accuracy fields are zero");
+        }
+    }
+
+    Ok(ExitCode::SUCCESS)
 }
 
 fn inspect_schema_command(app: &AppContext) -> Result<ExitCode> {

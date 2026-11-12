@@ -13,7 +13,7 @@ use crate::{
     core::rig_client::{StructuredCompletion, build_completions_client},
     memory::{
         dsl::FlatFactDslRecordV1,
-        record::Provenance,
+        record::{MemoryRecord, Provenance, TruthLayer, ValidityWindow},
         repository::{
             MemoryRepository, PersistedWorldModelAppliedFilters,
             PersistedWorldModelChannelContribution, PersistedWorldModelCitation,
@@ -95,6 +95,151 @@ pub fn load_runtime_current_world_model(
     repository
         .load_world_model_snapshot(subject_ref, CURRENT_WORLD_KEY)
         .map(|snapshot| snapshot.map(|snapshot| ProjectedWorldModel::from_snapshot(&snapshot)))
+}
+
+// ---------------------------------------------------------------------------
+// 世界模型时间演化查询面（0415-世界模型.md §8.2 时间演化接口）
+// ---------------------------------------------------------------------------
+
+/// `State(t) = Query(M_W, t)` 的世界事实视图查询：
+///
+/// - `domain` / `topic`：世界片段的 taxonomy 过滤（DSL sidecar 标注）；
+/// - `as_of = Some(t)`：某时点有效的事实版本（valid_from ≤ t ≤ valid_to，
+///   NULL 端开放）——"世界过去/现在是什么样"；
+/// - `as_of = None`：当前开放版本（valid_to IS NULL）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorldFactQuery {
+    pub domain: Option<String>,
+    pub topic: Option<String>,
+    pub as_of: Option<String>,
+    pub limit: usize,
+}
+
+impl WorldFactQuery {
+    pub const DEFAULT_LIMIT: usize = 25;
+
+    pub fn new() -> Self {
+        Self {
+            domain: None,
+            topic: None,
+            as_of: None,
+            limit: Self::DEFAULT_LIMIT,
+        }
+    }
+
+    pub fn with_domain(mut self, domain: impl Into<String>) -> Self {
+        self.domain = Some(domain.into());
+        self
+    }
+
+    pub fn with_topic(mut self, topic: impl Into<String>) -> Self {
+        self.topic = Some(topic.into());
+        self
+    }
+
+    pub fn with_as_of(mut self, as_of: impl Into<String>) -> Self {
+        self.as_of = Some(as_of.into());
+        self
+    }
+
+    pub fn with_limit(mut self, limit: usize) -> Self {
+        self.limit = limit.clamp(1, 200);
+        self
+    }
+}
+
+impl Default for WorldFactQuery {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 某时点有效的世界事实（DSL 结构化视图 + 完整记录，宿主可直接引用）。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WorldFactAtTime {
+    pub record: MemoryRecord,
+    pub dsl: FlatFactDslRecordV1,
+}
+
+impl WorldFactAtTime {
+    pub fn claim(&self) -> &str {
+        &self.dsl.claim
+    }
+
+    pub fn validity(&self) -> &ValidityWindow {
+        &self.record.validity
+    }
+
+    pub fn truth_layer(&self) -> TruthLayer {
+        self.record.truth_layer
+    }
+
+    pub fn recorded_at(&self) -> &str {
+        self.record.timestamp.recorded_at.as_str()
+    }
+}
+
+/// 世界事实的一个历史版本（时间线元素）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorldFactVersion {
+    pub record_id: String,
+    pub claim: String,
+    pub domain: String,
+    pub topic: String,
+    pub valid_from: Option<String>,
+    pub valid_to: Option<String>,
+    pub recorded_at: String,
+    /// 版本当前是否开放（valid_to IS NULL）。
+    pub open: bool,
+}
+
+/// 时间演化查询：某时点有效的事实视图。世界模型的描述层数据面——
+/// snapshot/projection 面向前台帧，本函数面向"世界如何随时间变化"。
+pub fn facts_at(
+    repository: &MemoryRepository<'_>,
+    query: &WorldFactQuery,
+) -> Result<Vec<WorldFactAtTime>, RepositoryError> {
+    let rows = repository.list_world_facts(
+        query.domain.as_deref(),
+        query.topic.as_deref(),
+        query.as_of.as_deref(),
+        query.limit,
+    )?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| WorldFactAtTime {
+            record: row.record,
+            dsl: row.dsl,
+        })
+        .collect())
+}
+
+/// 时间演化查询：事实版本时间线（含已关闭版本），按 valid_from 时间升序
+/// ——"过去是怎样变过来的"。
+pub fn fact_timeline(
+    repository: &MemoryRepository<'_>,
+    query: &WorldFactQuery,
+) -> Result<Vec<WorldFactVersion>, RepositoryError> {
+    let rows = repository.list_world_fact_versions(
+        query.domain.as_deref(),
+        query.topic.as_deref(),
+        query.limit,
+    )?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| WorldFactVersion {
+            record_id: row.record.id.clone(),
+            claim: row.dsl.claim.clone(),
+            domain: row.dsl.domain.clone(),
+            topic: row.dsl.topic.clone(),
+            valid_from: row.record.validity.valid_from.clone(),
+            valid_to: row.record.validity.valid_to.clone(),
+            recorded_at: row.record.timestamp.recorded_at.clone(),
+            open: row.record.validity.valid_to.is_none(),
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -272,6 +417,9 @@ fn persist_query_strategy(strategy: QueryStrategy) -> PersistedWorldModelQuerySt
         QueryStrategy::Simple => PersistedWorldModelQueryStrategy::Simple,
         QueryStrategy::Structured => PersistedWorldModelQueryStrategy::Structured,
         QueryStrategy::Embedding => PersistedWorldModelQueryStrategy::Embedding,
+        // 快照持久化早于图邻居策略；快照恢复时退化为 Structured（仅 trace
+        // 展示语义，不影响召回正确性）
+        QueryStrategy::GraphNeighbor => PersistedWorldModelQueryStrategy::Structured,
     }
 }
 
