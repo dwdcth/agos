@@ -608,6 +608,69 @@ impl<'db> MemoryRepository<'db> {
         }
     }
 
+    /// 按来源 URI 精确取最新有效记录（`valid_to IS NULL`；同键多版本时取
+    /// `recorded_at` 最新一条）。供"调度器状态"类调用方（如编排骨架
+    /// `plan-skeleton:<family>`）做唯一键检索：普通 ingest 会把
+    /// `provenance.origin` 固定为 "ingest"，来源 URI 才是调用方可控的
+    /// 唯一键，故按键检索走 `source_uri`。
+    pub fn latest_valid_record_by_source(
+        &self,
+        source_uri: &str,
+    ) -> Result<Option<MemoryRecord>, RepositoryError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                id,
+                source_uri,
+                source_kind,
+                source_label,
+                recorded_at,
+                scope,
+                record_type,
+                truth_layer,
+                provenance_json,
+                content_text,
+                chunk_index,
+                chunk_count,
+                chunk_anchor_json,
+                content_hash,
+                valid_from,
+                valid_to,
+                created_at,
+                updated_at
+            FROM memory_records
+            WHERE source_uri = ?1 AND valid_to IS NULL
+            ORDER BY recorded_at DESC, id DESC
+            LIMIT 1
+            "#,
+        )?;
+
+        let mut rows = statement.query([source_uri])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(map_record_row(row)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// 关闭来源 URI 的全部当前有效版本（`valid_to` 置为给定时刻，连带
+    /// `updated_at`）。版本化 upsert 的"旧版下线"半步，也是键删除语义
+    /// （不物理删，历史版本仍可追溯）。返回受影响行数。
+    pub fn close_valid_records_by_source(
+        &self,
+        source_uri: &str,
+        valid_to: &str,
+    ) -> Result<u64, RepositoryError> {
+        let affected = self.conn.execute(
+            r#"
+            UPDATE memory_records
+            SET valid_to = ?2, updated_at = ?2
+            WHERE source_uri = ?1 AND valid_to IS NULL
+            "#,
+            params![source_uri, valid_to],
+        )?;
+        Ok(affected as u64)
+    }
+
     pub fn list_records(&self) -> Result<Vec<MemoryRecord>, RepositoryError> {
         let mut statement = self.conn.prepare(
             r#"
