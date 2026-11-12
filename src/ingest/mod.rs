@@ -512,7 +512,11 @@ impl IngestService<'_> {
     }
 }
 
-fn vector_table_name(vector: &crate::core::config::RootVectorConfig) -> Option<String> {
+/// The vec0 table name for a vector config, or `None` when the config does
+/// not select the sqlite-vec backend (or names an empty table). Host crates
+/// wiring ingest/search/backfill against the same vector config share this
+/// helper so the table-name rule lives in one place.
+pub fn vector_table_name(vector: &crate::core::config::RootVectorConfig) -> Option<String> {
     (vector.backend == VectorBackend::SqliteVec)
         .then(|| vector.table.clone())
         .filter(|table| !table.trim().is_empty())
