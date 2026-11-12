@@ -25,9 +25,9 @@ enable_thinking = false                  # true to enable Qwen/DeepSeek thinking
 
 
 [embedding]
-provider = "remote_http"                # remote_http (OpenAI-compatible /embeddings, 推荐：硅基流动) | builtin | openai
+backend = "remote_http"                # remote_http (OpenAI-compatible /embeddings, 推荐：硅基流动) | builtin | openai
 model = "BAAI/bge-m3"
-api_base = "https://api.siliconflow.cn/v1"   # must include /v1 prefix
+endpoint = "https://api.siliconflow.cn/v1"   # must include /v1 prefix
 api_key = "sk-..."                       # 填入你的硅基流动 API Key（或环境变量 AGENT_MEMOS_EMBEDDING_API_KEY）
 dimensions = 1024                        # bge-m3 输出维度；写入前会校验
 batch_size = 32                          # 单次请求文本条数上限（硅基流动 bge-m3 上限 32，超量自动分批）
