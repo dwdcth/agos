@@ -69,6 +69,11 @@ impl Database {
         #[cfg(not(feature = "chinese-tokenizer"))]
         let _: Option<&str> = dict_path;
 
+        // Statically linked sqlite-vec extension: register before open so the
+        // vec0 module is available on this connection (no-op when already
+        // registered). Callers without vector config simply never use it.
+        crate::memory::vector::register_sqlite_vec_extension();
+
         let mut conn = Connection::open(path).map_err(|source| DbError::Open {
             path: path.to_path_buf(),
             source,

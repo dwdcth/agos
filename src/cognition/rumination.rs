@@ -31,6 +31,85 @@ use crate::{
 
 pub use crate::memory::repository::RuminationCandidateKind;
 
+/// Result of one maintenance pass: drain both rumination queues (short cycle
+/// first, then long cycle) and refresh the sqlite-vec index. This is the
+/// long-cycle entry point the daemon calls on its nightly schedule; it is
+/// also exposed as the `agent-memos ruminate` CLI command.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RuminationPassReport {
+    pub drained_short_cycle: usize,
+    pub short_cycle_writebacks: Vec<ShortCycleWritebackReport>,
+    pub drained_long_cycle: usize,
+    pub long_cycle_candidates: Vec<LongCycleCandidateReport>,
+    /// First error per tier, if any; draining stops for that tier and the
+    /// failed item stays queued with its retry bookkeeping.
+    pub errors: Vec<String>,
+    pub vector_index_backfilled: usize,
+    pub completed_at: String,
+}
+
+/// Upper bound per tier so a poisoned item cannot pin the pass forever.
+const MAINTENANCE_PASS_MAX_PER_TIER: usize = 64;
+
+/// Run one rumination maintenance pass over both queue tiers and refresh the
+/// vector index. Errors never abort the whole pass: a failing item stops its
+/// tier's drain (the service already recorded the retry) and the remaining
+/// work still runs.
+pub fn run_maintenance_pass(
+    conn: &Connection,
+    vector_table: Option<&str>,
+    now: &str,
+) -> RuminationPassReport {
+    let service = RuminationService::new(conn);
+    let mut report = RuminationPassReport {
+        drained_short_cycle: 0,
+        short_cycle_writebacks: Vec::new(),
+        drained_long_cycle: 0,
+        long_cycle_candidates: Vec::new(),
+        errors: Vec::new(),
+        vector_index_backfilled: 0,
+        completed_at: now.to_string(),
+    };
+
+    while report.drained_short_cycle < MAINTENANCE_PASS_MAX_PER_TIER {
+        match service.drain_short_cycle(now) {
+            Ok(Some(writeback)) => {
+                report.drained_short_cycle += 1;
+                report.short_cycle_writebacks.push(writeback);
+            }
+            Ok(None) => break,
+            Err(error) => {
+                report.errors.push(format!("short-cycle drain: {error}"));
+                break;
+            }
+        }
+    }
+
+    while report.drained_long_cycle < MAINTENANCE_PASS_MAX_PER_TIER {
+        match service.drain_long_cycle(now) {
+            Ok(Some(candidate_report)) => {
+                report.drained_long_cycle += 1;
+                report.long_cycle_candidates.push(candidate_report);
+            }
+            Ok(None) => break,
+            Err(error) => {
+                report.errors.push(format!("long-cycle drain: {error}"));
+                break;
+            }
+        }
+    }
+
+    let repository = MemoryRepository::with_vector_table(conn, vector_table);
+    match repository.backfill_vector_index() {
+        Ok(mirrored) => report.vector_index_backfilled = mirrored,
+        Err(error) => report
+            .errors
+            .push(format!("vector index backfill: {error}")),
+    }
+
+    report
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuminationQueueTier {

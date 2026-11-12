@@ -204,10 +204,8 @@ impl CompletionsHandle {
         request.additional_params = params.additional_params;
         request.output_schema = Some(schemars::schema_for!(T));
         if let Some(data_url) = &params.image {
-            use rig_core::completion::message::{
-                DocumentSourceKind, Image, UserContent,
-            };
             use rig_core::completion::Message;
+            use rig_core::completion::message::{DocumentSourceKind, Image, UserContent};
             let message = Message::User {
                 content: vec![
                     UserContent::Image(Image {
@@ -396,8 +394,8 @@ mod parse_tests {
     /// 字符串字面量内的花括号不参与配平。
     #[test]
     fn braces_inside_strings_ignored() {
-        let out = parse_json_output::<Decision>(r#"前缀 {"action":"a}b{c"} 后缀"#)
-            .expect("should parse");
+        let out =
+            parse_json_output::<Decision>(r#"前缀 {"action":"a}b{c"} 后缀"#).expect("should parse");
         assert_eq!(out.action, "a}b{c");
     }
 }

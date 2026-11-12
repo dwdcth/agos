@@ -6,7 +6,8 @@ use std::{
 use agent_memos::{
     core::{
         config::{
-            EmbeddingBackend, EmbeddingConfig, RetrievalMode, RootRuntimeConfig, VectorBackend,
+            EmbeddingBackend, EmbeddingConfig, RetrievalMode, RetrievalModeVariant,
+            RootRuntimeConfig, VectorBackend,
         },
         db::Database,
     },
@@ -24,7 +25,7 @@ fn parses_root_config_into_dual_channel_variants() {
     assert_eq!(config.store.sqlite_path, "~/.memos/memos.db");
     assert_eq!(config.llm.provider, "openai");
     assert_eq!(config.llm.model, "deepseek-ai/DeepSeek-V3.2");
-    assert_eq!(config.embedding.provider, "openai");
+    assert_eq!(config.embedding.provider, "remote_http");
     assert_eq!(config.embedding.model, "BAAI/bge-m3");
     assert_eq!(config.embedding.dimensions, Some(1024));
     assert_eq!(config.vector.backend, VectorBackend::SqliteVec);
@@ -46,7 +47,11 @@ fn generated_mode_matrix_covers_lexical_embedding_and_hybrid() {
 
     assert_eq!(variants[1].name, "embedding_only");
     assert_eq!(variants[1].mode, RetrievalMode::EmbeddingOnly);
-    assert_eq!(variants[1].embedding_backend, EmbeddingBackend::Builtin);
+    assert_eq!(
+        variants[1].embedding_backend,
+        EmbeddingBackend::RemoteHttp,
+        "provider = \"remote_http\" derives the remote_http backend variant"
+    );
     assert_eq!(
         variants[1]
             .embedding
@@ -66,7 +71,17 @@ fn generated_mode_matrix_covers_lexical_embedding_and_hybrid() {
 
     assert_eq!(variants[2].name, "hybrid");
     assert_eq!(variants[2].mode, RetrievalMode::Hybrid);
-    assert_eq!(variants[2].embedding_backend, EmbeddingBackend::Builtin);
+    assert_eq!(variants[2].embedding_backend, EmbeddingBackend::RemoteHttp);
+}
+
+/// Offline twin of a variant: keep mode/model/vector wiring but compute
+/// embeddings with the deterministic builtin hasher so behavioral tests never
+/// touch the network. The remote_http e2e path is covered by
+/// tests/remote_embedding_http.rs against a local mock server.
+fn offline_variant(variant: &RetrievalModeVariant) -> RetrievalModeVariant {
+    let mut offline = variant.clone();
+    offline.embedding_backend = EmbeddingBackend::Builtin;
+    offline
 }
 
 fn fresh_db_path(name: &str) -> PathBuf {
@@ -120,6 +135,7 @@ fn mode_specific_search_behaviors_match_generated_configs() {
             ),
             endpoint: None,
             api_key: None,
+            ..Default::default()
         },
     );
 
@@ -136,6 +152,10 @@ fn mode_specific_search_behaviors_match_generated_configs() {
         "2026-04-16T10:05:00Z",
     );
 
+    let variants: Vec<RetrievalModeVariant> = variants
+        .into_iter()
+        .map(|variant| offline_variant(&variant))
+        .collect();
     let lexical_results = SearchService::with_variant(db.conn(), &variants[0])
         .search(&SearchRequest::new("citations snippets"))
         .expect("lexical-only search should succeed");
@@ -176,11 +196,13 @@ fn mode_specific_search_behaviors_match_generated_configs() {
 fn hybrid_search_merges_lexical_and_embedding_candidates_by_record_identity() {
     let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
         .expect("root config.toml should parse for retrieval tests");
-    let hybrid = config
-        .retrieval_mode_variants()
-        .into_iter()
-        .find(|variant| variant.mode == RetrievalMode::Hybrid)
-        .expect("hybrid variant should exist");
+    let hybrid = offline_variant(
+        &config
+            .retrieval_mode_variants()
+            .into_iter()
+            .find(|variant| variant.mode == RetrievalMode::Hybrid)
+            .expect("hybrid variant should exist"),
+    );
 
     let db_path = fresh_db_path("hybrid-dedupe");
     let db = Database::open(&db_path).expect("database should open");
@@ -199,6 +221,7 @@ fn hybrid_search_merges_lexical_and_embedding_candidates_by_record_identity() {
             ),
             endpoint: None,
             api_key: None,
+            ..Default::default()
         },
     );
 
@@ -255,6 +278,7 @@ fn result_trace_reports_channel_contribution() {
             ),
             endpoint: None,
             api_key: None,
+            ..Default::default()
         },
     );
 
@@ -265,6 +289,10 @@ fn result_trace_reports_channel_contribution() {
         "2026-04-16T12:00:00Z",
     );
 
+    let variants: Vec<RetrievalModeVariant> = variants
+        .into_iter()
+        .map(|variant| offline_variant(&variant))
+        .collect();
     let lexical = SearchService::with_variant(db.conn(), &variants[0])
         .search(&SearchRequest::new("citations"))
         .expect("lexical-only search should succeed");

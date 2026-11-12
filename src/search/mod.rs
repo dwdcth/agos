@@ -14,9 +14,10 @@ use crate::{
     core::config::{Config, EmbeddingBackend, RetrievalMode, RetrievalModeVariant, VectorBackend},
     memory::{
         dsl::FlatFactDslRecordV1,
-        embedding::RigEmbeddingGenerator,
+        embedding::{RemoteHttpEmbeddingGenerator, RigEmbeddingGenerator},
         record::MemoryRecord,
         repository::{MemoryRepository, RepositoryError},
+        vector::VectorIndex,
     },
 };
 
@@ -104,6 +105,9 @@ pub struct SearchService<'db> {
     embedding_model: Option<String>,
     embedding_endpoint: Option<String>,
     embedding_api_key: Option<String>,
+    embedding_dimensions: Option<u32>,
+    embedding_batch_size: Option<u32>,
+    embedding_timeout_seconds: Option<u64>,
     vector_backend: VectorBackend,
 }
 
@@ -117,14 +121,30 @@ impl<'db> SearchService<'db> {
             embedding_model: None,
             embedding_endpoint: None,
             embedding_api_key: None,
+            embedding_dimensions: None,
+            embedding_batch_size: None,
+            embedding_timeout_seconds: None,
             vector_backend: VectorBackend::None,
         }
     }
 
     pub fn with_variant(conn: &'db Connection, variant: &RetrievalModeVariant) -> Self {
+        let vector_backend = variant
+            .vector
+            .as_ref()
+            .map(|cfg| cfg.backend)
+            .unwrap_or(VectorBackend::None);
         Self {
             lexical: lexical::LexicalSearch::new(conn),
-            repository: MemoryRepository::new(conn),
+            repository: MemoryRepository::with_vector_table(
+                conn,
+                match &variant.vector {
+                    Some(cfg) if cfg.backend == VectorBackend::SqliteVec => {
+                        Some(cfg.table.as_str())
+                    }
+                    _ => None,
+                },
+            ),
             mode: variant.mode,
             embedding_backend: variant.embedding_backend,
             embedding_model: variant.embedding.as_ref().map(|cfg| cfg.model.clone()),
@@ -136,11 +156,13 @@ impl<'db> SearchService<'db> {
                 .embedding
                 .as_ref()
                 .and_then(|cfg| cfg.api_key.clone()),
-            vector_backend: variant
-                .vector
+            embedding_dimensions: variant.embedding.as_ref().and_then(|cfg| cfg.dimensions),
+            embedding_batch_size: variant.embedding.as_ref().and_then(|cfg| cfg.batch_size),
+            embedding_timeout_seconds: variant
+                .embedding
                 .as_ref()
-                .map(|cfg| cfg.backend)
-                .unwrap_or(VectorBackend::None),
+                .and_then(|cfg| cfg.timeout_seconds),
+            vector_backend,
         }
     }
 
@@ -149,15 +171,21 @@ impl<'db> SearchService<'db> {
         config: &Config,
         mode_override: Option<RetrievalMode>,
     ) -> Self {
+        let vector_backend = config.vector.backend;
+        let vector_table =
+            (vector_backend == VectorBackend::SqliteVec).then_some(config.vector.table.as_str());
         Self {
             lexical: lexical::LexicalSearch::new(conn),
-            repository: MemoryRepository::new(conn),
+            repository: MemoryRepository::with_vector_table(conn, vector_table),
             mode: mode_override.unwrap_or(config.retrieval.mode),
             embedding_backend: config.embedding.backend,
             embedding_model: config.embedding.model.clone(),
             embedding_endpoint: config.embedding.endpoint.clone(),
             embedding_api_key: config.embedding.api_key.clone(),
-            vector_backend: config.vector.backend,
+            embedding_dimensions: config.embedding.dimensions,
+            embedding_batch_size: config.embedding.batch_size,
+            embedding_timeout_seconds: config.embedding.timeout_seconds,
+            vector_backend,
         }
     }
 
@@ -231,6 +259,29 @@ impl<'db> SearchService<'db> {
                         ))
                     })?
             }
+            EmbeddingBackend::RemoteHttp => {
+                let runtime_config = crate::core::config::RootEmbeddingRuntimeConfig {
+                    provider: "remote_http".to_string(),
+                    model: model.to_string(),
+                    api_base: self.embedding_endpoint.clone(),
+                    api_key: self.embedding_api_key.clone(),
+                    dimensions: self.embedding_dimensions,
+                    batch_size: self.embedding_batch_size,
+                    timeout_seconds: self.embedding_timeout_seconds,
+                };
+                let generator = RemoteHttpEmbeddingGenerator::from_config(&runtime_config)
+                    .map_err(|e| {
+                        SearchError::Repository(RepositoryError::Sqlite(
+                            rusqlite::Error::ToSqlConversionFailure(e.into()),
+                        ))
+                    })?;
+                self.block_on(generator.generate_embedding(request.query.trim()))
+                    .map_err(|e| {
+                        SearchError::Repository(RepositoryError::Sqlite(
+                            rusqlite::Error::ToSqlConversionFailure(e.into()),
+                        ))
+                    })?
+            }
             _ => return Ok(Vec::new()),
         };
 
@@ -238,13 +289,108 @@ impl<'db> SearchService<'db> {
             return Ok(Vec::new());
         }
 
+        // Preferred path: native KNN over the vec0 index (with backend/model
+        // filtering and a k slack so stale-model rows can be filtered out
+        // without losing recall). Falls back to the JSON cosine scan whenever
+        // the index is not usable (extension missing, dimension mismatch...).
+        let knn_candidates = match self.repository.vector_table() {
+            Some(table) => self.embedding_knn_recall(
+                table,
+                &query_embedding,
+                request,
+                self.embedding_backend,
+                model,
+            )?,
+            None => None,
+        };
+        if let Some(candidates) = knn_candidates {
+            return Ok(candidates);
+        }
+
+        self.embedding_scan_recall(&query_embedding, request, self.embedding_backend, model)
+    }
+
+    /// KNN recall over the sqlite-vec vec0 table. `Ok(None)` means "index not
+    /// usable here" and the caller should fall back to the scan.
+    fn embedding_knn_recall(
+        &self,
+        table: &str,
+        query_embedding: &[f32],
+        request: &SearchRequest,
+        backend: EmbeddingBackend,
+        model: &str,
+    ) -> Result<Option<Vec<lexical::LexicalCandidate>>, SearchError> {
+        let index = VectorIndex::new(self.repository.connection(), table);
+        // k slack: KNN neighbors are post-filtered by backend+model, so ask
+        // for more than the limit to survive stale-model rows occupying slots.
+        let k = request.bounded_limit().saturating_mul(3).max(24);
+        let neighbors = match index.knn(query_embedding, k) {
+            Ok(neighbors) => neighbors,
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    table,
+                    "sqlite-vec KNN failed; falling back to the embedding JSON scan"
+                );
+                return Ok(None);
+            }
+        };
+        if neighbors.is_empty() {
+            return Ok(None);
+        }
+
+        let record_ids = neighbors
+            .iter()
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        let matching_ids =
+            self.repository
+                .filter_record_ids_by_backend_model(&record_ids, backend, model)?;
+        let similarity_by_id = neighbors
+            .into_iter()
+            .filter(|(id, _)| matching_ids.contains(id))
+            .collect::<Vec<_>>();
+
+        let mut candidates = Vec::new();
+        for (record_id, similarity) in similarity_by_id {
+            if similarity <= 0.0 {
+                continue;
+            }
+            let Some(record) = self.repository.get_record(&record_id)? else {
+                continue;
+            };
+            candidates.push(lexical::LexicalCandidate {
+                lexical_raw: 1.0 - similarity,
+                snippet: snippet(&record.content_text),
+                dsl: None,
+                query_strategies: vec![QueryStrategy::Embedding],
+                record,
+            });
+        }
+
+        candidates.sort_by(|left, right| {
+            left.lexical_raw
+                .total_cmp(&right.lexical_raw)
+                .then_with(|| left.record.id.cmp(&right.record.id))
+        });
+        candidates.truncate(request.bounded_limit());
+        Ok(Some(candidates))
+    }
+
+    fn embedding_scan_recall(
+        &self,
+        query_embedding: &[f32],
+        request: &SearchRequest,
+        backend: EmbeddingBackend,
+        model: &str,
+    ) -> Result<Vec<lexical::LexicalCandidate>, SearchError> {
         let embeddings = self.repository.list_record_embeddings()?;
         let mut candidates = Vec::new();
         for embedding in embeddings {
-            if embedding.backend != self.embedding_backend || embedding.model != model {
+            if embedding.backend != backend || embedding.model != model {
                 continue;
             }
-            let similarity = cosine_similarity(&query_embedding, &embedding.embedding);
+            let similarity = cosine_similarity(query_embedding, &embedding.embedding);
             if similarity <= 0.0 {
                 continue;
             }

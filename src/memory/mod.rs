@@ -9,3 +9,4 @@ pub mod store;
 pub mod summary;
 pub mod taxonomy;
 pub mod truth;
+pub mod vector;

@@ -113,7 +113,7 @@ impl StatusReport {
         let embedding_index_readiness = match app.config.embedding.backend {
             EmbeddingBackend::Disabled => CapabilityState::NotApplicable,
             EmbeddingBackend::Reserved => CapabilityState::Deferred,
-            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi => {
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp => {
                 inspection.embedding_index_state
             }
         };
@@ -263,7 +263,10 @@ fn gated_channels_label(report: &StatusReport) -> &'static str {
         RetrievalMode::LexicalOnly => {
             if matches!(
                 report.embedding_backend,
-                EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::Reserved
+                EmbeddingBackend::Builtin
+                    | EmbeddingBackend::OpenAi
+                    | EmbeddingBackend::RemoteHttp
+                    | EmbeddingBackend::Reserved
             ) && (!matches!(report.embedding_dependency_state, CapabilityState::Ready)
                 || !matches!(report.embedding_index_readiness, CapabilityState::Ready))
             {
@@ -373,19 +376,19 @@ fn embedding_dependency_state(
         (RetrievalMode::LexicalOnly, EmbeddingBackend::Reserved, _, _) => CapabilityState::Deferred,
         (
             RetrievalMode::LexicalOnly,
-            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
             Some(_),
             VectorBackend::SqliteVec,
         ) => CapabilityState::Ready,
         (
             RetrievalMode::LexicalOnly,
-            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
             Some(_),
             VectorBackend::None,
         ) => CapabilityState::Deferred,
         (
             RetrievalMode::LexicalOnly,
-            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
             None,
             _,
         ) => CapabilityState::Deferred,
@@ -403,19 +406,19 @@ fn embedding_dependency_state(
         ) => CapabilityState::Deferred,
         (
             RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
-            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
             Some(_),
             VectorBackend::SqliteVec,
         ) => CapabilityState::Ready,
         (
             RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
-            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
             Some(_),
             VectorBackend::None,
         ) => CapabilityState::Missing,
         (
             RetrievalMode::EmbeddingOnly | RetrievalMode::Hybrid,
-            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
             None,
             _,
         ) => CapabilityState::Deferred,
@@ -434,7 +437,9 @@ pub fn embedding_backend_label(backend: EmbeddingBackend) -> &'static str {
     match backend {
         EmbeddingBackend::Disabled => "disabled",
         EmbeddingBackend::Reserved => "reserved",
-        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi => "builtin",
+        EmbeddingBackend::Builtin => "builtin",
+        EmbeddingBackend::OpenAi => "openai",
+        EmbeddingBackend::RemoteHttp => "remote_http",
     }
 }
 

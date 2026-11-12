@@ -59,10 +59,20 @@ impl RuntimeReadiness {
                         "embedding foundation remains reserved until the optional semantic substrate is implemented"
                             .to_string(),
                     ),
-                    (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(model)) => notes.push(format!(
+                    (
+                        EmbeddingBackend::Builtin
+                        | EmbeddingBackend::OpenAi
+                        | EmbeddingBackend::RemoteHttp,
+                        Some(model),
+                    ) => notes.push(format!(
                         "embedding backend is configured with model '{model}' as an optional second-channel foundation"
                     )),
-                    (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, None) => notes.push(
+                    (
+                        EmbeddingBackend::Builtin
+                        | EmbeddingBackend::OpenAi
+                        | EmbeddingBackend::RemoteHttp,
+                        None,
+                    ) => notes.push(
                         "embedding backend is configured, but no embedding model is set yet"
                             .to_string(),
                     ),
@@ -85,7 +95,9 @@ impl RuntimeReadiness {
                         config.vector.backend
                     ),
                     (
-                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+                        EmbeddingBackend::Builtin
+                            | EmbeddingBackend::OpenAi
+                            | EmbeddingBackend::RemoteHttp,
                         Some(_),
                         VectorBackend::SqliteVec
                     )
@@ -106,7 +118,9 @@ impl RuntimeReadiness {
                         config.vector.backend
                     ),
                     (
-                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+                        EmbeddingBackend::Builtin
+                            | EmbeddingBackend::OpenAi
+                            | EmbeddingBackend::RemoteHttp,
                         Some(_),
                         VectorBackend::SqliteVec
                     )
@@ -135,13 +149,25 @@ fn embedding_only_note(config: &Config) -> String {
             "embedding_only is configured, but the embedding substrate is still reserved until a later phase"
                 .to_string()
         }
-        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(model), VectorBackend::SqliteVec) => format!(
+        (
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
+            Some(model),
+            VectorBackend::SqliteVec,
+        ) => format!(
             "embedding_only is configured with model '{model}'; operational readiness still depends on the embedding vector backend and sidecar/index state"
         ),
-        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, Some(model), VectorBackend::None) => format!(
+        (
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
+            Some(model),
+            VectorBackend::None,
+        ) => format!(
             "embedding_only is configured with model '{model}', but vector.backend=none leaves the semantic channel unavailable"
         ),
-        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, None, _) => {
+        (
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
+            None,
+            _,
+        ) => {
             "embedding_only is configured for the backend, but no embedding model is set"
                 .to_string()
         }
@@ -163,22 +189,24 @@ fn hybrid_note(config: &Config) -> String {
                 .to_string()
         }
         (
-            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
             Some(model),
             VectorBackend::SqliteVec,
         ) => format!(
             "embedding model '{model}' is configured; operational readiness still depends on the lexical path plus the embedding vector backend and sidecar/index state"
         ),
         (
-            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi,
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
             Some(model),
             VectorBackend::None,
         ) => format!(
             "embedding model '{model}' is configured, but vector.backend=none disables the hybrid secondary path"
         ),
-        (EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi, None, _) => {
-            "hybrid is configured for the backend, but no embedding model is set".to_string()
-        }
+        (
+            EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp,
+            None,
+            _,
+        ) => "hybrid is configured for the backend, but no embedding model is set".to_string(),
     }
 }
 
@@ -212,6 +240,7 @@ mod tests {
                 model: None,
                 endpoint: None,
                 api_key: None,
+                ..Default::default()
             },
             vector: RootVectorConfig {
                 backend: VectorBackend::None,
@@ -253,6 +282,7 @@ mod tests {
                 model: Some("hash-64".to_string()),
                 endpoint: None,
                 api_key: None,
+                ..Default::default()
             },
             vector: RootVectorConfig {
                 backend: VectorBackend::SqliteVec,
@@ -292,6 +322,7 @@ mod tests {
                 model: Some("hash-64".to_string()),
                 endpoint: None,
                 api_key: None,
+                ..Default::default()
             },
             vector: RootVectorConfig {
                 backend: VectorBackend::SqliteVec,

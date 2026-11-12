@@ -26,6 +26,7 @@ pub enum EmbeddingBackend {
     Reserved,
     Builtin,
     OpenAi,
+    RemoteHttp,
 }
 
 impl EmbeddingBackend {
@@ -35,6 +36,7 @@ impl EmbeddingBackend {
             Self::Reserved => "reserved",
             Self::Builtin => "builtin",
             Self::OpenAi => "openai",
+            Self::RemoteHttp => "remote_http",
         }
     }
 }
@@ -45,6 +47,13 @@ pub struct RetrievalConfig {
     pub mode: RetrievalMode,
 }
 
+/// Remote-HTTP embedding defaults sized for the SiliconFlow BAAI/bge-m3
+/// deployment: the provider caps a single /embeddings request at 32 input
+/// texts, answers in ~1024 dimensions, and retries absorb transient 5xx/429.
+pub const REMOTE_EMBEDDING_DEFAULT_BATCH_SIZE: u32 = 32;
+pub const REMOTE_EMBEDDING_DEFAULT_TIMEOUT_SECONDS: u64 = 30;
+pub const REMOTE_EMBEDDING_MAX_RETRIES: u32 = 2;
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct EmbeddingConfig {
@@ -52,6 +61,28 @@ pub struct EmbeddingConfig {
     pub model: Option<String>,
     pub endpoint: Option<String>,
     pub api_key: Option<String>,
+    /// Expected vector dimensions (bge-m3: 1024). When set, generated
+    /// embeddings are validated against it before being persisted.
+    pub dimensions: Option<u32>,
+    /// Max texts per remote /embeddings request (provider cap: 32).
+    pub batch_size: Option<u32>,
+    /// Per-request timeout in seconds for the remote embedding endpoint.
+    pub timeout_seconds: Option<u64>,
+}
+
+impl EmbeddingConfig {
+    /// Flatten into the runtime embedding config used by generators.
+    pub fn to_runtime_config(&self) -> RootEmbeddingRuntimeConfig {
+        RootEmbeddingRuntimeConfig {
+            provider: self.backend.as_str().to_string(),
+            model: self.model.clone().unwrap_or_default(),
+            api_base: self.endpoint.clone(),
+            api_key: self.api_key.clone(),
+            dimensions: self.dimensions,
+            batch_size: self.batch_size,
+            timeout_seconds: self.timeout_seconds,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -86,6 +117,23 @@ impl MemoryConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct CognitionConfig {
+    /// Whether the default `agent-search` path automatically feeds its report
+    /// into the rumination loop (enqueue trigger + drain short-cycle) after
+    /// execution. On by default; the daemon can disable it to own scheduling.
+    pub auto_rumination: bool,
+}
+
+impl Default for CognitionConfig {
+    fn default() -> Self {
+        Self {
+            auto_rumination: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Config {
@@ -95,6 +143,7 @@ pub struct Config {
     pub embedding: EmbeddingConfig,
     pub llm: RootLlmConfig,
     pub memory: MemoryConfig,
+    pub cognition: CognitionConfig,
     pub vector: RootVectorConfig,
     pub prompts: PromptsConfig,
 }
@@ -106,6 +155,7 @@ pub struct RootRuntimeConfig {
     pub llm: RootLlmConfig,
     pub embedding: RootEmbeddingRuntimeConfig,
     pub vector: RootVectorConfig,
+    pub cognition: CognitionConfig,
     pub prompts: PromptsConfig,
 }
 
@@ -129,14 +179,19 @@ impl RootRuntimeConfig {
                 backend: match self.embedding.provider.as_str() {
                     "openai" => EmbeddingBackend::OpenAi,
                     "builtin" => EmbeddingBackend::Builtin,
+                    "remote_http" => EmbeddingBackend::RemoteHttp,
                     _ => EmbeddingBackend::Disabled,
                 },
                 model: Some(self.embedding.model.clone()),
                 endpoint: self.embedding.api_base.clone(),
                 api_key: self.embedding.api_key.clone(),
+                dimensions: self.embedding.dimensions,
+                batch_size: self.embedding.batch_size,
+                timeout_seconds: self.embedding.timeout_seconds,
             },
             llm: self.llm.clone(),
             memory: MemoryConfig::default(),
+            cognition: self.cognition.clone(),
             vector: self.vector.clone(),
             prompts: self.prompts.clone(),
         }
@@ -268,6 +323,7 @@ impl Default for Config {
             embedding: EmbeddingConfig::default(),
             llm: RootLlmConfig::default(),
             memory: MemoryConfig::default(),
+            cognition: CognitionConfig::default(),
             vector: RootVectorConfig::default(),
             prompts: PromptsConfig::default(),
         }
@@ -291,23 +347,39 @@ impl Config {
             }
         };
 
-        // Try parsing as RootRuntimeConfig first (the user's schema)
-        if let Ok(runtime) = toml::from_str::<RootRuntimeConfig>(&contents) {
+        // Two config schemas coexist:
+        // - the root runtime schema (config/agent-memos.toml) keyed by the
+        //   presence of a [store] block, embedding configured as
+        //   `[embedding] provider = "..."`;
+        // - the legacy flat schema (top-level db_path) with
+        //   `[embedding] backend = "..."`.
+        // Because every struct is #[serde(default)], both parse as either
+        // type — the [store] marker decides which interpretation wins, so a
+        // legacy file keeps its db_path/embedding block instead of silently
+        // falling back to root-schema defaults.
+        let value: toml::Value = toml::from_str(&contents).map_err(ConfigError::Parse)?;
+
+        if value.get("store").is_some() {
+            let runtime: RootRuntimeConfig =
+                value.clone().try_into().map_err(ConfigError::Parse)?;
             let mut config = runtime.to_config();
-            // If it also contains a [retrieval] or [memory] block, preserve them
-            if let Ok(legacy) = toml::from_str::<Config>(&contents) {
-                // If legacy.retrieval was actually present in TOML (not just default), preserve it
+            // A root-schema file may still carry explicit [retrieval],
+            // [memory] or [cognition] overrides; preserve them.
+            if let Ok(legacy) = value.clone().try_into::<Config>() {
                 if contents.contains("[retrieval]") {
                     config.retrieval = legacy.retrieval;
                 }
                 if contents.contains("[memory]") {
                     config.memory = legacy.memory;
                 }
+                if contents.contains("[cognition]") {
+                    config.cognition = legacy.cognition;
+                }
             }
             return Ok(config);
         }
 
-        toml::from_str(&contents).map_err(ConfigError::Parse)
+        value.try_into().map_err(ConfigError::Parse)
     }
 }
 
@@ -449,6 +521,92 @@ api_key = "sk-test"
 
     trait ParseMode {
         fn parse_mode(self) -> RetrievalMode;
+    }
+
+    #[test]
+    fn root_config_maps_remote_http_provider_and_cognition_defaults_on() {
+        let runtime = toml::from_str::<RootRuntimeConfig>(
+            r#"
+[store]
+backend = "sqlite"
+sqlite_path = "/tmp/agent-memos.db"
+
+[embedding]
+provider = "remote_http"
+model = "BAAI/bge-m3"
+api_base = "https://api.siliconflow.cn/v1"
+api_key = "sk-test"
+dimensions = 1024
+batch_size = 32
+timeout_seconds = 30
+
+[vector]
+backend = "sqlite_vec"
+table = "object_embeddings_vec"
+similarity = "cosine"
+"#,
+        )
+        .expect("remote_http root config should parse");
+
+        let config = runtime.to_config();
+        assert_eq!(config.embedding.backend, EmbeddingBackend::RemoteHttp);
+        assert_eq!(config.embedding.model.as_deref(), Some("BAAI/bge-m3"));
+        assert_eq!(
+            config.embedding.endpoint.as_deref(),
+            Some("https://api.siliconflow.cn/v1")
+        );
+        assert_eq!(config.embedding.dimensions, Some(1024));
+        assert_eq!(config.embedding.batch_size, Some(32));
+        assert_eq!(config.embedding.timeout_seconds, Some(30));
+        assert_eq!(config.vector.backend, VectorBackend::SqliteVec);
+        assert_eq!(
+            config.vector.table, "object_embeddings_vec",
+            "vector table name should carry through for the vec0 index"
+        );
+        assert!(
+            config.cognition.auto_rumination,
+            "auto_rumination defaults to true when no [cognition] block is present"
+        );
+    }
+
+    #[test]
+    fn cognition_auto_rumination_can_be_disabled_and_preserved_from_legacy_block() {
+        let config = toml::from_str::<Config>(
+            r#"
+db_path = "/tmp/agent-memos.db"
+
+[cognition]
+auto_rumination = false
+"#,
+        )
+        .expect("legacy cognition block should parse");
+
+        assert!(!config.cognition.auto_rumination);
+
+        let runtime_style = Config::load_from(&{
+            let path = std::env::temp_dir().join("agent-memos-cognition-preserve-test.toml");
+            std::fs::write(
+                &path,
+                r#"
+[store]
+backend = "sqlite"
+sqlite_path = "/tmp/agent-memos.db"
+
+[cognition]
+auto_rumination = false
+"#,
+            )
+            .expect("write temp config");
+            path
+        })
+        .expect("runtime config should load");
+        assert!(
+            !runtime_style.cognition.auto_rumination,
+            "explicit [cognition] in a root-schema file must be preserved over the default"
+        );
+        let _ = std::fs::remove_file(
+            std::env::temp_dir().join("agent-memos-cognition-preserve-test.toml"),
+        );
     }
 
     impl ParseMode for &str {

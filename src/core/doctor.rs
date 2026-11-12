@@ -10,6 +10,7 @@ pub enum CommandPath {
     Ingest,
     Search,
     AgentSearch,
+    Ruminate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,10 +59,16 @@ impl DoctorReport {
             failures.extend(doctor_mode_readiness_failures(status));
         }
 
+        // The ruminate maintenance path touches rumination tables only; it
+        // must not be gated on retrieval/embedding readiness.
+        if matches!(command_path, CommandPath::Ruminate) {
+            failures.extend(schema_only_failures(status));
+        }
+
         if matches!(status.configured_mode, RetrievalMode::LexicalOnly)
             && matches!(
                 status.embedding_backend,
-                EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi
+                EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi | EmbeddingBackend::RemoteHttp
             )
             && matches!(status.embedding_dependency_state, CapabilityState::Ready)
             && matches!(status.embedding_index_readiness, CapabilityState::Ready)
@@ -160,7 +167,9 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
                 failures.push(
                     if matches!(
                         status.embedding_backend,
-                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi
+                        EmbeddingBackend::Builtin
+                            | EmbeddingBackend::OpenAi
+                            | EmbeddingBackend::RemoteHttp
                     ) && matches!(
                         status.vector_backend,
                         crate::core::config::VectorBackend::None
@@ -186,7 +195,9 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
                 failures.push(
                     if matches!(
                         status.embedding_backend,
-                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi
+                        EmbeddingBackend::Builtin
+                            | EmbeddingBackend::OpenAi
+                            | EmbeddingBackend::RemoteHttp
                     ) && matches!(
                         status.vector_backend,
                         crate::core::config::VectorBackend::None
@@ -216,6 +227,29 @@ fn operational_readiness_failures(status: &StatusReport) -> Vec<String> {
     failures
 }
 
+fn schema_only_failures(status: &StatusReport) -> Vec<String> {
+    let mut failures = Vec::new();
+
+    if matches!(status.schema_state, CapabilityState::Missing) {
+        failures.push(
+            "database schema is not initialized yet; run `agent-memos init` to create it"
+                .to_string(),
+        );
+    }
+    if matches!(status.base_table_state, CapabilityState::Missing) {
+        failures.push("foundation base tables are incomplete or missing".to_string());
+    }
+    if let Some(note) = status
+        .readiness_notes
+        .iter()
+        .find(|note| note.starts_with("schema inspection failed for existing database file"))
+    {
+        failures.push(note.clone());
+    }
+
+    failures
+}
+
 fn doctor_mode_readiness_failures(status: &StatusReport) -> Vec<String> {
     let mut failures = Vec::new();
 
@@ -225,7 +259,9 @@ fn doctor_mode_readiness_failures(status: &StatusReport) -> Vec<String> {
                 failures.push(
                     if matches!(
                         status.embedding_backend,
-                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi
+                        EmbeddingBackend::Builtin
+                            | EmbeddingBackend::OpenAi
+                            | EmbeddingBackend::RemoteHttp
                     ) && matches!(
                         status.vector_backend,
                         crate::core::config::VectorBackend::None
@@ -248,7 +284,9 @@ fn doctor_mode_readiness_failures(status: &StatusReport) -> Vec<String> {
                 failures.push(
                     if matches!(
                         status.embedding_backend,
-                        EmbeddingBackend::Builtin | EmbeddingBackend::OpenAi
+                        EmbeddingBackend::Builtin
+                            | EmbeddingBackend::OpenAi
+                            | EmbeddingBackend::RemoteHttp
                     ) && matches!(
                         status.vector_backend,
                         crate::core::config::VectorBackend::None

@@ -10,7 +10,7 @@ use tracing::warn;
 use crate::{
     core::config::{
         Config, EmbeddingBackend, EmbeddingConfig, MemoryConfig, MemorySummaryBackend,
-        RootLlmConfig,
+        RootLlmConfig, VectorBackend,
     },
     ingest::{
         chunk::{ChunkConfig, chunk_source, to_chunk_metadata},
@@ -19,7 +19,7 @@ use crate::{
     },
     memory::{
         classifier::KeywordTaxonomyClassifier,
-        embedding::RigEmbeddingGenerator,
+        embedding::{RemoteHttpEmbeddingGenerator, RigEmbeddingGenerator},
         pipeline::{DefaultMemoryPipeline, MemoryPipelineError},
         record::{
             MemoryRecord, Provenance, RecordTimestamp, RecordType, Scope, SourceKind, SourceRef,
@@ -81,6 +81,7 @@ impl<'db> IngestService<'db> {
             MemoryConfig::default(),
             RootLlmConfig::default(),
             None,
+            None,
         )
     }
 
@@ -91,6 +92,7 @@ impl<'db> IngestService<'db> {
             EmbeddingConfig::default(),
             MemoryConfig::default(),
             RootLlmConfig::default(),
+            None,
             None,
         )
     }
@@ -107,6 +109,7 @@ impl<'db> IngestService<'db> {
             MemoryConfig::default(),
             RootLlmConfig::default(),
             None,
+            None,
         )
     }
 
@@ -118,6 +121,7 @@ impl<'db> IngestService<'db> {
             config.memory.clone(),
             config.llm.clone(),
             config.prompts.summary_preamble.clone(),
+            vector_table_name(&config.vector),
         )
     }
 
@@ -128,9 +132,10 @@ impl<'db> IngestService<'db> {
         memory_config: MemoryConfig,
         llm_config: RootLlmConfig,
         summary_preamble: Option<String>,
+        vector_table: Option<String>,
     ) -> Self {
         Self {
-            repository: MemoryRepository::new(conn),
+            repository: MemoryRepository::with_vector_table(conn, vector_table.as_deref()),
             chunk_config,
             embedding_config,
             memory_config,
@@ -144,6 +149,7 @@ impl<'db> IngestService<'db> {
         let normalized_source = normalize_source(&request, detected_format)?;
         let chunks = chunk_source(&normalized_source, self.chunk_config);
         let mut record_ids = Vec::with_capacity(chunks.len());
+        let mut records = Vec::with_capacity(chunks.len());
 
         for draft in &chunks {
             let anchor_fragment = anchor_fragment(&draft.anchor);
@@ -185,9 +191,13 @@ impl<'db> IngestService<'db> {
             record_ids.push(record.id.clone());
             self.repository.insert_record(&record)?;
             self.persist_layered_memory(&record)?;
-            if let Some(embedding) = self.build_embedding(&record) {
-                self.repository.insert_record_embedding(&embedding)?;
-            }
+            records.push(record);
+        }
+
+        // Embedding phase runs after every record is durable: a provider
+        // outage must degrade recall, never lose the ingested memory itself.
+        for embedding in self.generate_record_embeddings(&records) {
+            self.repository.insert_record_embedding(&embedding)?;
         }
 
         Ok(IngestReport {
@@ -303,68 +313,153 @@ impl IngestService<'_> {
         }
     }
 
-    fn build_embedding(&self, record: &MemoryRecord) -> Option<RecordEmbedding> {
+    /// Generate embeddings for a batch of freshly ingested records.
+    ///
+    /// - `builtin` hashes locally (offline);
+    /// - `openai` keeps the historical per-record rig call;
+    /// - `remote_http` batches all chunk texts through the OpenAI-compatible
+    ///   /embeddings endpoint (provider batch cap applied inside the
+    ///   generator, retries and dimension validation included).
+    ///
+    /// Provider failures are non-fatal: the records stay ingested and the
+    /// embedding channel simply has no vectors for them (warned).
+    fn generate_record_embeddings(&self, records: &[MemoryRecord]) -> Vec<RecordEmbedding> {
         match self.embedding_config.backend {
-            EmbeddingBackend::Builtin => {
-                let model = self.embedding_config.model.as_ref()?;
-                let dimensions = parse_builtin_dimensions(model);
-                let embedding = builtin_embedding(&record.content_text, dimensions);
-                let timestamp = record.timestamp.recorded_at.clone();
-                let source_text_hash = record
-                    .chunk
-                    .as_ref()
-                    .map(|chunk| chunk.content_hash.clone())
-                    .unwrap_or_else(|| "inline-text".to_string());
+            EmbeddingBackend::Disabled | EmbeddingBackend::Reserved => Vec::new(),
+            EmbeddingBackend::Builtin => records
+                .iter()
+                .filter_map(|record| self.builtin_record_embedding(record))
+                .collect(),
+            EmbeddingBackend::OpenAi => records
+                .iter()
+                .filter_map(|record| self.remote_record_embedding(record))
+                .collect(),
+            EmbeddingBackend::RemoteHttp => self.remote_batch_record_embeddings(records),
+        }
+    }
 
-                Some(RecordEmbedding {
-                    record_id: record.id.clone(),
-                    backend: EmbeddingBackend::Builtin,
-                    model: model.clone(),
-                    dimensions: dimensions as u32,
-                    embedding,
-                    source_text_hash,
-                    created_at: timestamp.clone(),
-                    updated_at: timestamp,
-                })
+    fn builtin_record_embedding(&self, record: &MemoryRecord) -> Option<RecordEmbedding> {
+        let model = self.embedding_config.model.as_ref()?;
+        let dimensions = parse_builtin_dimensions(model);
+        let embedding = builtin_embedding(&record.content_text, dimensions);
+        let timestamp = record.timestamp.recorded_at.clone();
+        let source_text_hash = record
+            .chunk
+            .as_ref()
+            .map(|chunk| chunk.content_hash.clone())
+            .unwrap_or_else(|| "inline-text".to_string());
+
+        Some(RecordEmbedding {
+            record_id: record.id.clone(),
+            backend: EmbeddingBackend::Builtin,
+            model: model.clone(),
+            dimensions: dimensions as u32,
+            embedding,
+            source_text_hash,
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
+        })
+    }
+
+    /// Per-record remote embedding via the rig OpenAI client (legacy path).
+    fn remote_record_embedding(&self, record: &MemoryRecord) -> Option<RecordEmbedding> {
+        let model = self.embedding_config.model.as_ref()?;
+        let runtime_config = crate::core::config::RootEmbeddingRuntimeConfig {
+            provider: "openai".to_string(),
+            model: model.clone(),
+            api_base: self.embedding_config.endpoint.clone(),
+            api_key: self.embedding_config.api_key.clone(),
+            ..Default::default()
+        };
+
+        let generator = RigEmbeddingGenerator::new(runtime_config);
+        let embedding = self
+            .block_on_embedding(generator.generate_embedding(&record.content_text))
+            .map_err(|e| {
+                warn!(error = %e, record_id = %record.id, "failed to generate openai embedding");
+                e
+            })
+            .ok()?;
+
+        Some(self.build_record_embedding_record(
+            record,
+            EmbeddingBackend::OpenAi,
+            model.clone(),
+            embedding,
+        ))
+    }
+
+    /// Batched remote embeddings for the whole ingest (remote_http backend).
+    fn remote_batch_record_embeddings(&self, records: &[MemoryRecord]) -> Vec<RecordEmbedding> {
+        if records.is_empty() {
+            return Vec::new();
+        }
+        let runtime_config = self.embedding_config.to_runtime_config();
+        let generator = match RemoteHttpEmbeddingGenerator::from_config(&runtime_config) {
+            Ok(generator) => generator,
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    "remote_http embedding backend is misconfigured; skipping embedding phase"
+                );
+                return Vec::new();
             }
-            EmbeddingBackend::OpenAi => {
-                let model = self.embedding_config.model.as_ref()?;
-                let runtime_config = crate::core::config::RootEmbeddingRuntimeConfig {
-                    provider: "openai".to_string(),
-                    model: model.clone(),
-                    api_base: self.embedding_config.endpoint.clone(),
-                    api_key: self.embedding_config.api_key.clone(),
-                    ..Default::default()
-                };
+        };
 
-                let generator = RigEmbeddingGenerator::new(runtime_config);
-                let embedding = self
-                    .block_on_embedding(generator.generate_embedding(&record.content_text))
-                    .map_err(|e| {
-                        warn!(error = %e, record_id = %record.id, "failed to generate openai embedding");
-                        e
-                    })
-                    .ok()?;
+        let texts = records
+            .iter()
+            .map(|record| record.content_text.clone())
+            .collect::<Vec<_>>();
+        let embeddings = self
+            .block_on_embedding_vec(generator.generate_embeddings(texts))
+            .map_err(|error| {
+                warn!(
+                    error = %error,
+                    record_count = records.len(),
+                    "remote embedding generation failed during ingest; records stay ingested without vectors"
+                );
+                error
+            })
+            .ok()
+            .unwrap_or_default();
 
-                let timestamp = record.timestamp.recorded_at.clone();
-                let source_text_hash = record
-                    .chunk
-                    .as_ref()
-                    .map(|chunk| chunk.content_hash.clone())
-                    .unwrap_or_else(|| "inline-text".to_string());
-
-                Some(RecordEmbedding {
-                    record_id: record.id.clone(),
-                    backend: EmbeddingBackend::OpenAi,
-                    model: model.clone(),
-                    dimensions: embedding.len() as u32,
+        records
+            .iter()
+            .zip(embeddings)
+            .map(|(record, embedding)| {
+                self.build_record_embedding_record(
+                    record,
+                    EmbeddingBackend::RemoteHttp,
+                    runtime_config.model.clone(),
                     embedding,
-                    source_text_hash,
-                    created_at: timestamp.clone(),
-                    updated_at: timestamp,
-                })
-            }
-            _ => None,
+                )
+            })
+            .collect()
+    }
+
+    fn build_record_embedding_record(
+        &self,
+        record: &MemoryRecord,
+        backend: EmbeddingBackend,
+        model: String,
+        embedding: Vec<f32>,
+    ) -> RecordEmbedding {
+        let timestamp = record.timestamp.recorded_at.clone();
+        let source_text_hash = record
+            .chunk
+            .as_ref()
+            .map(|chunk| chunk.content_hash.clone())
+            .unwrap_or_else(|| "inline-text".to_string());
+
+        RecordEmbedding {
+            record_id: record.id.clone(),
+            backend,
+            model,
+            dimensions: embedding.len() as u32,
+            embedding,
+            source_text_hash,
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
         }
     }
 
@@ -372,6 +467,23 @@ impl IngestService<'_> {
     where
         F: std::future::Future<Output = Result<Vec<f32>, crate::memory::embedding::EmbeddingError>>
             + Send,
+    {
+        self.block_on_runtime(future)
+    }
+
+    fn block_on_embedding_vec<F>(&self, future: F) -> Result<Vec<Vec<f32>>, IngestError>
+    where
+        F: std::future::Future<
+                Output = Result<Vec<Vec<f32>>, crate::memory::embedding::EmbeddingError>,
+            > + Send,
+    {
+        self.block_on_runtime(future)
+    }
+
+    fn block_on_runtime<F, T>(&self, future: F) -> Result<T, IngestError>
+    where
+        F: std::future::Future<Output = Result<T, crate::memory::embedding::EmbeddingError>> + Send,
+        T: Send,
     {
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             return tokio::task::block_in_place(|| handle.block_on(future)).map_err(|e| {
@@ -386,7 +498,9 @@ impl IngestService<'_> {
             .build()
             .map_err(|e| {
                 IngestError::LayeredMemory(MemoryPipelineError::Summary(
-                    crate::memory::summary::FactSummaryError::Generator(e.to_string()),
+                    crate::memory::summary::FactSummaryError::Generator(format!(
+                        "failed to create runtime for embedding generation: {e}"
+                    )),
                 ))
             })?
             .block_on(future)
@@ -396,6 +510,12 @@ impl IngestService<'_> {
                 ))
             })
     }
+}
+
+fn vector_table_name(vector: &crate::core::config::RootVectorConfig) -> Option<String> {
+    (vector.backend == VectorBackend::SqliteVec)
+        .then(|| vector.table.clone())
+        .filter(|table| !table.trim().is_empty())
 }
 
 fn parse_builtin_dimensions(model: &str) -> usize {

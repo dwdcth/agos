@@ -21,12 +21,13 @@ rig-reqwest = "0.46"
 reqwest = { version = "0.13", features = ["json"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 rusqlite_migration = "2.6"
+sqlite-vec = "0.1.9"
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 toml = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

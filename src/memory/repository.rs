@@ -454,6 +454,8 @@ pub enum RepositoryError {
     IncompleteChunkMetadata { record_id: String },
     #[error("missing t3 governance state for record {record_id}")]
     MissingT3State { record_id: String },
+    #[error("vector index failure: {0}")]
+    VectorIndex(String),
 }
 
 #[derive(Debug, Error)]
@@ -481,11 +483,37 @@ pub enum SkillTemplateCandidateLifecycleError {
 
 pub struct MemoryRepository<'db> {
     conn: &'db Connection,
+    /// vec0 virtual table name when `vector.backend = "sqlite_vec"` is
+    /// configured; `None` keeps this repository JSON-only (scan fallback).
+    vector_table: Option<String>,
 }
 
 impl<'db> MemoryRepository<'db> {
     pub fn new(conn: &'db Connection) -> Self {
-        Self { conn }
+        Self {
+            conn,
+            vector_table: None,
+        }
+    }
+
+    /// Attach a sqlite-vec vec0 table for KNN acceleration; embeddings are
+    /// dual-written to `record_embeddings` (source of truth) and the index.
+    pub fn with_vector_table(conn: &'db Connection, table: Option<&str>) -> Self {
+        Self {
+            conn,
+            vector_table: table
+                .map(str::trim)
+                .filter(|table| !table.is_empty())
+                .map(ToString::to_string),
+        }
+    }
+
+    pub fn vector_table(&self) -> Option<&str> {
+        self.vector_table.as_deref()
+    }
+
+    pub fn connection(&self) -> &'db Connection {
+        self.conn
     }
 
     pub fn insert_record(&self, record: &MemoryRecord) -> Result<(), RepositoryError> {
@@ -789,7 +817,89 @@ impl<'db> MemoryRepository<'db> {
             ],
         )?;
 
+        // Dual-write into the vec0 index. The JSON row above stays the source
+        // of truth, so index failures degrade to the scan fallback, not errors.
+        if let Some(table) = self.vector_table.as_deref() {
+            let index = crate::memory::vector::VectorIndex::new(self.conn, table);
+            if let Err(error) = index.upsert(&embedding.record_id, &embedding.embedding) {
+                tracing::warn!(
+                    error = %error,
+                    table,
+                    record_id = %embedding.record_id,
+                    "failed to mirror record embedding into the sqlite-vec index; keeping JSON row only"
+                );
+            }
+        }
+
         Ok(())
+    }
+
+    /// Re-index `record_embeddings` rows missing from the vec0 table. Returns
+    /// the number of rows mirrored. No-op without a configured vector table
+    /// or when the sqlite-vec extension is unavailable.
+    pub fn backfill_vector_index(&self) -> Result<usize, RepositoryError> {
+        let Some(table) = self.vector_table.as_deref() else {
+            return Ok(0);
+        };
+        let index = crate::memory::vector::VectorIndex::new(self.conn, table);
+        if !index.extension_available() {
+            tracing::warn!(
+                table,
+                "sqlite-vec extension unavailable; skipping vector index backfill"
+            );
+            return Ok(0);
+        }
+
+        let embeddings = self.list_record_embeddings()?;
+        let indexed = index
+            .list_ids()
+            .map_err(|error| RepositoryError::VectorIndex(error.to_string()))?
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        let mut mirrored = 0usize;
+        for embedding in &embeddings {
+            if indexed.contains(&embedding.record_id) {
+                continue;
+            }
+            match index.upsert(&embedding.record_id, &embedding.embedding) {
+                Ok(()) => mirrored += 1,
+                Err(error) => tracing::warn!(
+                    error = %error,
+                    record_id = %embedding.record_id,
+                    "vector index backfill skipped a record"
+                ),
+            }
+        }
+        Ok(mirrored)
+    }
+
+    /// Keep only the record ids whose stored embedding matches the active
+    /// backend + model (stale embeddings from an old model are ignored).
+    pub fn filter_record_ids_by_backend_model(
+        &self,
+        record_ids: &[String],
+        backend: EmbeddingBackend,
+        model: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        if record_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut statement = self.conn.prepare(
+            "SELECT COUNT(*) FROM record_embeddings \
+             WHERE record_id = ?1 AND backend = ?2 AND model = ?3",
+        )?;
+        let mut matched = Vec::new();
+        for record_id in record_ids {
+            let count = statement
+                .query_row(params![record_id, backend.as_str(), model], |row| {
+                    row.get::<_, i64>(0)
+                })?;
+            if count > 0 {
+                matched.push(record_id.clone());
+            }
+        }
+        Ok(matched)
     }
 
     pub fn list_record_embeddings(&self) -> Result<Vec<RecordEmbedding>, RepositoryError> {
@@ -2997,6 +3107,7 @@ fn parse_embedding_backend(value: &str) -> Result<EmbeddingBackend, RepositoryEr
         "reserved" => Ok(EmbeddingBackend::Reserved),
         "builtin" => Ok(EmbeddingBackend::Builtin),
         "openai" => Ok(EmbeddingBackend::OpenAi),
+        "remote_http" => Ok(EmbeddingBackend::RemoteHttp),
         other => Err(RepositoryError::InvalidEnum {
             field: "embedding_backend",
             value: other.to_string(),

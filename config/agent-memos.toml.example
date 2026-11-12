@@ -1,15 +1,32 @@
 db_path = "~/.agent-memos/agent-memos.db"
 
 [retrieval]
-mode = "lexical_only" # lexical_only | embedding_only | hybrid
+mode = "hybrid" # lexical_only | embedding_only | hybrid
 
 [embedding]
-backend = "disabled" # disabled keeps ordinary retrieval lexical-only in Phase 1
-model = ""
-endpoint = ""
+# remote_http: OpenAI-compatible POST {endpoint}/embeddings (SiliconFlow BAAI/bge-m3
+# is the reference deployment). builtin: offline deterministic hasher (tests).
+backend = "remote_http" # disabled | builtin | openai | remote_http
+model = "BAAI/bge-m3"
+endpoint = "https://api.siliconflow.cn/v1" # must include /v1 prefix
+api_key = "" # or env AGENT_MEMOS_EMBEDDING_API_KEY; never hardcoded
+dimensions = 1024 # validated against provider output before persisting
+batch_size = 32 # bge-m3 provider cap: texts per request (auto-split above)
+timeout_seconds = 30
+
+[vector]
+backend = "sqlite_vec" # sqlite_vec | none
+table = "object_embeddings_vec" # sqlite-vec vec0 virtual table (lazily created)
+similarity = "cosine" # record_embeddings JSON stays the source of truth; the
+# vec0 index accelerates KNN and falls back to a JSON cosine scan when unusable
+
+[cognition]
+auto_rumination = true # agent-search feeds its report into the rumination loop
+# automatically (enqueue trigger + short-cycle drain); the nightly long-cycle
+# entry point is `agent-memos ruminate`
 
 # Mode semantics:
 # - lexical_only: precise, source-aware retrieval with strong explainability
-# - embedding_only: reserved semantic-heavy mode for later phases
-# - hybrid: lexical remains the primary explanation channel; embedding is a
-#   secondary expansion or rerank path once implemented
+# - embedding_only: semantic recall through the embedding + vector channel
+# - hybrid: lexical stays the primary explanation channel; embedding is the
+#   secondary semantic recall path (merged, deduped by record identity)

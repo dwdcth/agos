@@ -120,8 +120,12 @@ fn latest_valid_record_roundtrip_and_versioning() {
     assert_eq!(closed_again, 0, "无有效版本可关");
 
     // 键隔离：其它来源 URI 不受影响
-    repo.insert_record(&state_record("plan-skeleton:visual-draw", "B", "2026-11-12T10:00:00Z"))
-        .expect("insert other key");
+    repo.insert_record(&state_record(
+        "plan-skeleton:visual-draw",
+        "B",
+        "2026-11-12T10:00:00Z",
+    ))
+    .expect("insert other key");
     assert!(
         repo.latest_valid_record_by_source("plan-skeleton:visual-draw")
             .expect("query")

@@ -25,18 +25,22 @@ enable_thinking = false                  # true to enable Qwen/DeepSeek thinking
 
 
 [embedding]
-provider = "openai"                     # openai | jina | voyage | ollama
+provider = "remote_http"                # remote_http (OpenAI-compatible /embeddings, 推荐：硅基流动) | builtin | openai
 model = "BAAI/bge-m3"
-api_base = "http://localhost:8000/v1"    # must include /v1 prefix
-api_key = "sk-..."                                                   # 填入你的 API Key
-dimensions = 1024
-batch_size = 64
-timeout_seconds = 60
+api_base = "https://api.siliconflow.cn/v1"   # must include /v1 prefix
+api_key = "sk-..."                       # 填入你的硅基流动 API Key（或环境变量 AGENT_MEMOS_EMBEDDING_API_KEY）
+dimensions = 1024                        # bge-m3 输出维度；写入前会校验
+batch_size = 32                          # 单次请求文本条数上限（硅基流动 bge-m3 上限 32，超量自动分批）
+timeout_seconds = 30                     # 单请求超时
 
 [vector]
 backend = "sqlite_vec"                  # sqlite_vec | none
-table = "object_embeddings_vec"         # sqlite-vec vec0 虚表
+table = "object_embeddings_vec"         # sqlite-vec vec0 虚表（懒创建；record_embeddings JSON 表是事实源）
 similarity = "cosine"                   # cosine | dot | l2
+
+[cognition]
+auto_rumination = true                  # agent-search 执行后自动进反刍闭环（enqueue 触发 + drain 短周期写回）；
+                                        # 夜间长周期走 `agent-memos ruminate`
 
 [logging]
 level = "INFO"                          # DEBUG | INFO | WARNING | ERROR

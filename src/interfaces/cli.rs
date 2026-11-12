@@ -3,13 +3,18 @@ use std::{path::PathBuf, process::ExitCode};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use serde_json::json;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     agent::{
         orchestration::{AgentSearchOrchestrator, AgentSearchReport, AgentSearchRequest},
         rig_adapter::RigAgentSearchAdapter,
     },
-    cognition::{assembly::MinimalSelfStateProvider, value::ValueConfig},
+    cognition::{
+        assembly::{AdaptiveSelfStateProvider, MinimalSelfStateProvider},
+        rumination::run_maintenance_pass,
+        value::ValueConfig,
+    },
     core::{
         app::AppContext,
         config::{Config, RetrievalConfig, RetrievalMode},
@@ -24,6 +29,25 @@ use crate::{
     },
     search::{SearchFilters, SearchRequest, SearchService},
 };
+
+/// Default rumination subject for the CLI agent-search path: the adaptive
+/// overlay (local adaptations) written by its short-cycle writebacks is keyed
+/// by this subject, closing the loop across runs.
+const CLI_RUMINATION_SUBJECT: &str = "task://cli/agent-search";
+
+fn now_rfc3339() -> String {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| {
+            OffsetDateTime::UNIX_EPOCH
+                .format(&Rfc3339)
+                .unwrap_or_default()
+        })
+}
+
+fn budget_bucket_for(now: &str) -> String {
+    now.get(..10).unwrap_or(now).to_string()
+}
 
 #[derive(Debug, Clone, Parser)]
 #[command(name = "agent-memos", about = "Local-first memory kernel for agents")]
@@ -115,6 +139,14 @@ pub enum Commands {
         kind: Option<String>,
         #[arg(long = "max-steps", default_value_t = AgentSearchRequest::DEFAULT_MAX_STEPS)]
         max_steps: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run one rumination maintenance pass: drain the short-cycle queue
+    /// (local-adaptation writebacks), drain the long-cycle queue (promotion /
+    /// skill / value candidates), and refresh the sqlite-vec index. Intended
+    /// as the daemon's nightly long-cycle entry point.
+    Ruminate {
         #[arg(long)]
         json: bool,
     },
@@ -228,6 +260,7 @@ pub fn run(cli: Cli, config: Config) -> Result<ExitCode> {
                 json,
             },
         ),
+        Commands::Ruminate { json } => ruminate_command(&app, json),
         Commands::Inspect { command } => inspect_command(&app, command),
     }
 }
@@ -530,17 +563,127 @@ fn agent_search_command(app: &AppContext, command: AgentSearchCommand) -> Result
         request = request.with_follow_up_query(query);
     }
 
-    let orchestrator = AgentSearchOrchestrator::with_runtime_config(
+    let auto_rumination = gate_app.config.cognition.auto_rumination;
+    let self_state_provider = AdaptiveSelfStateProvider::new(MinimalSelfStateProvider);
+    let mut orchestrator = AgentSearchOrchestrator::with_runtime_config(
         db.conn(),
-        MinimalSelfStateProvider,
+        self_state_provider,
         ValueConfig::default(),
         &gate_app.config,
     );
-    let adapter = RigAgentSearchAdapter::new(orchestrator);
-    let runtime = tokio::runtime::Runtime::new()?;
-    let report = runtime.block_on(adapter.run(&request))?;
+
+    let (report, cycle_result) = if auto_rumination {
+        // Cognitive cycle: execute -> schedule rumination trigger from the
+        // report -> drain one short-cycle writeback (reuses cycle()).
+        request.working_memory = request
+            .working_memory
+            .with_subject_ref(CLI_RUMINATION_SUBJECT);
+        orchestrator = orchestrator.with_rumination(Box::new(
+            crate::agent::orchestration::ServiceRuminationPort::new(db.conn()),
+        ));
+        let now = now_rfc3339();
+        let result = orchestrator.cycle(
+            &request,
+            CLI_RUMINATION_SUBJECT,
+            &now,
+            &budget_bucket_for(&now),
+        )?;
+        let crate::agent::orchestration::CognitiveCycleResult {
+            report,
+            rumination_triggered,
+            short_cycle_writebacks,
+        } = result;
+        (report, Some((rumination_triggered, short_cycle_writebacks)))
+    } else {
+        let adapter = RigAgentSearchAdapter::new(orchestrator);
+        let runtime = tokio::runtime::Runtime::new()?;
+        (runtime.block_on(adapter.run(&request))?, None)
+    };
 
     println!("{}", render_agent_search_report(&report, command.json)?);
+
+    if let Some((rumination_triggered, short_cycle_writebacks)) = cycle_result {
+        let summary = json!({
+            "triggered": rumination_triggered
+                .iter()
+                .map(|trigger| trigger.kind.as_str())
+                .collect::<Vec<_>>(),
+            "trigger_tiers": rumination_triggered
+                .iter()
+                .map(|trigger| trigger.kind.queue_tier().as_str())
+                .collect::<Vec<_>>(),
+            "short_cycle_writebacks": short_cycle_writebacks
+                .iter()
+                .map(|writeback| json!({
+                    "item_id": writeback.item_id,
+                    "trigger_kind": writeback.trigger_kind.as_str(),
+                    "entry_count": writeback.entry_count,
+                }))
+                .collect::<Vec<_>>(),
+            "subject_ref": CLI_RUMINATION_SUBJECT,
+        });
+        if command.json {
+            // stdout must stay a single JSON document (the report); the
+            // rumination outcome rides on stderr for machine consumers.
+            eprintln!("{summary}");
+        } else {
+            println!(
+                "rumination: triggered={} short_cycle_writebacks={}",
+                summary["triggered"].as_array().map(Vec::len).unwrap_or(0),
+                summary["short_cycle_writebacks"]
+                    .as_array()
+                    .map(Vec::len)
+                    .unwrap_or(0),
+            );
+        }
+    }
+
+    Ok(ExitCode::SUCCESS)
+}
+
+fn ruminate_command(app: &AppContext, json: bool) -> Result<ExitCode> {
+    if let Some(exit_code) = operational_gate(app, CommandPath::Ruminate)? {
+        return Ok(exit_code);
+    }
+
+    let db = Database::open_with_dict(app.db_path(), app.dict_path())?;
+    let vector_table = (app.config.vector.backend == crate::core::config::VectorBackend::SqliteVec)
+        .then(|| app.config.vector.table.clone());
+    let report = run_maintenance_pass(db.conn(), vector_table.as_deref(), &now_rfc3339());
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("drained_short_cycle: {}", report.drained_short_cycle);
+        println!(
+            "short_cycle_writeback_entries: {}",
+            report
+                .short_cycle_writebacks
+                .iter()
+                .map(|writeback| writeback.entry_count)
+                .sum::<usize>()
+        );
+        println!("drained_long_cycle: {}", report.drained_long_cycle);
+        println!(
+            "long_cycle_candidates: {}",
+            report
+                .long_cycle_candidates
+                .iter()
+                .map(|candidate| candidate.candidates.len())
+                .sum::<usize>()
+        );
+        println!(
+            "vector_index_backfilled: {}",
+            report.vector_index_backfilled
+        );
+        if !report.errors.is_empty() {
+            println!("errors:");
+            for error in &report.errors {
+                println!("  - {error}");
+            }
+        }
+    }
+
     Ok(ExitCode::SUCCESS)
 }
 

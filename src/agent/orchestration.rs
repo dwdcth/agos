@@ -275,16 +275,18 @@ pub enum AgentSearchError {
     },
 }
 
-pub struct AgentSearchOrchestrator<R, A, S, G> {
+/// `'r` is the lifetime of the optional rumination/simulation service ports
+/// (e.g. `ServiceRuminationPort<'db>` borrows the database connection).
+pub struct AgentSearchOrchestrator<'r, R, A, S, G> {
     retriever: R,
     assembler: A,
     scorer: S,
     gate: G,
-    rumination: Option<Box<dyn RuminationPort>>,
-    simulation: Option<Box<dyn SimulationPort>>,
+    rumination: Option<Box<dyn RuminationPort + 'r>>,
+    simulation: Option<Box<dyn SimulationPort + 'r>>,
 }
 
-impl<R, A, S, G> AgentSearchOrchestrator<R, A, S, G> {
+impl<R, A, S, G> AgentSearchOrchestrator<'_, R, A, S, G> {
     pub fn new(retriever: R, assembler: A, scorer: S, gate: G) -> Self {
         Self {
             retriever,
@@ -295,13 +297,15 @@ impl<R, A, S, G> AgentSearchOrchestrator<R, A, S, G> {
             simulation: None,
         }
     }
+}
 
-    pub fn with_rumination(mut self, rumination: Box<dyn RuminationPort>) -> Self {
+impl<'r, R, A, S, G> AgentSearchOrchestrator<'r, R, A, S, G> {
+    pub fn with_rumination(mut self, rumination: Box<dyn RuminationPort + 'r>) -> Self {
         self.rumination = Some(rumination);
         self
     }
 
-    pub fn with_simulation(mut self, simulation: Box<dyn SimulationPort>) -> Self {
+    pub fn with_simulation(mut self, simulation: Box<dyn SimulationPort + 'r>) -> Self {
         self.simulation = Some(simulation);
         self
     }
@@ -311,7 +315,7 @@ pub trait AgentSearchRunner {
     fn run(&self, request: &AgentSearchRequest) -> Result<AgentSearchReport, AgentSearchError>;
 }
 
-impl<R, A, S, G> AgentSearchOrchestrator<R, A, S, G>
+impl<R, A, S, G> AgentSearchOrchestrator<'_, R, A, S, G>
 where
     R: RetrievalPort,
     A: AssemblyPort,
@@ -566,7 +570,7 @@ fn build_rumination_triggers(
     Ok(triggers)
 }
 
-impl<R, A, S, G> AgentSearchRunner for AgentSearchOrchestrator<R, A, S, G>
+impl<R, A, S, G> AgentSearchRunner for AgentSearchOrchestrator<'_, R, A, S, G>
 where
     R: RetrievalPort,
     A: AssemblyPort,
@@ -853,6 +857,7 @@ fn collect_pending_value_adjustments(
 
 impl<'db, P>
     AgentSearchOrchestrator<
+        '_,
         SearchServicePort<'db>,
         WorkingMemoryAssemblyPort<'db, P>,
         WorkingMemoryScoringPort,
