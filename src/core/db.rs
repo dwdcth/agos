@@ -80,14 +80,7 @@ impl Database {
         })?;
 
         #[cfg(feature = "chinese-tokenizer")]
-        {
-            libsimple::set_jieba_dict(&conn, dict_dir).map_err(|source| {
-                DbError::LexicalDictionary {
-                    source: anyhow::Error::new(source)
-                        .context(format!("dictionary dir: {}", dict_dir.display())),
-                }
-            })?;
-        }
+        configure_jieba_dict_once(&conn, dict_dir)?;
 
         apply_migrations(&mut conn)?;
 
@@ -152,4 +145,37 @@ fn prepare_lexical_support(configured_path: Option<&str>) -> Result<&'static Pat
             message: message.clone(),
         }),
     }
+}
+
+/// Point libsimple's jieba tokenizer at `dict_dir`, exactly once per unique
+/// path per process.
+///
+/// libsimple's `set_jieba_dict` runs `SELECT jieba_dict(?)`, whose C++ side
+/// assigns a process-global `std::string` with no internal synchronization
+/// (`simple_tokenizer.cc`: `jieba_dict_path = tmp`), and the jieba query
+/// tokenizer reads that same global when it first constructs its dictionary.
+/// Calling `set_jieba_dict` on every connection — as the crate docs suggest —
+/// from parallel threads (test harnesses opening one database per test) is a
+/// data race that surfaces as glibc heap-corruption aborts such as
+/// `tcache_thread_shutdown(): unaligned tcache chunk detected`.
+///
+/// The dict path is constant for the lifetime of a process, so we serialize
+/// all callers on a global mutex and only issue the C++ write when the path
+/// actually changes. The one write per process happens during the first
+/// `Database::open`, before that first connection is handed out — so by the
+/// time any FTS/jieba query can run on any agos connection, the global is
+/// already stable and never written again.
+#[cfg(feature = "chinese-tokenizer")]
+fn configure_jieba_dict_once(conn: &Connection, dict_dir: &Path) -> Result<(), DbError> {
+    static CONFIGURED: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+    let mut configured = CONFIGURED.lock().expect("jieba dict config lock poisoned");
+    if configured.as_deref() == Some(dict_dir) {
+        return Ok(());
+    }
+    libsimple::set_jieba_dict(conn, dict_dir).map_err(|source| DbError::LexicalDictionary {
+        source: anyhow::Error::new(source)
+            .context(format!("dictionary dir: {}", dict_dir.display())),
+    })?;
+    *configured = Some(dict_dir.to_path_buf());
+    Ok(())
 }

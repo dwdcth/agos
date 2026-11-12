@@ -231,7 +231,8 @@ impl<'db> SearchService<'db> {
             .filters
             .validate_taxonomy()
             .map_err(SearchError::InvalidFilters)?;
-        let recall_request = if has_taxonomy_filters(&request.filters)
+        let recall_request = if (has_taxonomy_filters(&request.filters)
+            || has_record_filters(&request.filters))
             && request.bounded_limit() < lexical::MAX_RECALL_LIMIT
         {
             request.clone().with_limit(lexical::MAX_RECALL_LIMIT)
@@ -486,6 +487,12 @@ impl<'db> SearchService<'db> {
             let Some(record) = self.repository.get_record(&record_id)? else {
                 continue;
             };
+            // Record-level filters (scope/type/truth/temporal) apply to the
+            // embedding leg too — drop violating neighbors BEFORE truncating
+            // to the recall limit so they cannot occupy semantic quota slots.
+            if !matches_search_filters(&record, &request.filters) {
+                continue;
+            }
             candidates.push(lexical::LexicalCandidate {
                 lexical_raw: 1.0 - similarity,
                 snippet: snippet(&record.content_text),
@@ -524,6 +531,11 @@ impl<'db> SearchService<'db> {
             let Some(record) = self.repository.get_record(&embedding.record_id)? else {
                 continue;
             };
+            // Same record-level filter contract as the KNN leg (see
+            // embedding_knn_recall): filter before truncation.
+            if !matches_search_filters(&record, &request.filters) {
+                continue;
+            }
             candidates.push(lexical::LexicalCandidate {
                 lexical_raw: 1.0 - similarity,
                 snippet: snippet(&record.content_text),
@@ -805,6 +817,20 @@ fn has_taxonomy_filters(filters: &SearchFilters) -> bool {
         || filters.topic.is_some()
         || filters.aspect.is_some()
         || filters.kind.is_some()
+}
+
+/// Record-level filters (scope/type/truth/temporal). The lexical leg pushes
+/// these into SQL; the embedding leg applies them post-recall (see
+/// `embedding_knn_recall`), so their presence must widen the recall window
+/// just like taxonomy filters — otherwise filtered-out embedding neighbors
+/// would silently consume the semantic quota.
+fn has_record_filters(filters: &SearchFilters) -> bool {
+    filters.scope.is_some()
+        || filters.record_type.is_some()
+        || filters.truth_layer.is_some()
+        || filters.valid_at.is_some()
+        || filters.recorded_from.is_some()
+        || filters.recorded_to.is_some()
 }
 
 fn dsl_matches_filters(dsl: &FlatFactDslRecordV1, filters: &SearchFilters) -> bool {

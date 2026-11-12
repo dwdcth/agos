@@ -13,7 +13,7 @@ use agent_memos::{
     },
     ingest::{IngestRequest, IngestService},
     memory::record::{RecordType, Scope, TruthLayer},
-    search::{ChannelContribution, QueryStrategy, SearchRequest, SearchService},
+    search::{ChannelContribution, QueryStrategy, SearchFilters, SearchRequest, SearchService},
 };
 
 #[test]
@@ -314,5 +314,141 @@ fn result_trace_reports_channel_contribution() {
     assert_eq!(
         hybrid.results[0].trace.channel_contribution,
         ChannelContribution::Hybrid
+    );
+}
+
+/// Regression (host-reported): the embedding recall leg used to bypass
+/// SearchFilters entirely — a semantically-matching record from another scope
+/// surfaced in filtered hybrid results and consumed a top-k slot that an
+/// in-scope record should have taken.
+#[test]
+fn hybrid_search_scope_filter_bounds_the_embedding_leg() {
+    let config = RootRuntimeConfig::load_from(&PathBuf::from("config.toml"))
+        .expect("root config.toml should parse for retrieval tests");
+    let variants: Vec<RetrievalModeVariant> = config
+        .retrieval_mode_variants()
+        .into_iter()
+        .map(|variant| offline_variant(&variant))
+        .collect();
+    let hybrid = variants
+        .iter()
+        .find(|variant| variant.mode == RetrievalMode::Hybrid)
+        .expect("hybrid variant should exist");
+    let embedding_only = variants
+        .iter()
+        .find(|variant| variant.mode == RetrievalMode::EmbeddingOnly)
+        .expect("embedding-only variant should exist");
+
+    let db_path = fresh_db_path("hybrid-scope-filter");
+    let db = Database::open(&db_path).expect("database should open");
+    let model = hybrid
+        .embedding
+        .as_ref()
+        .expect("embedding config")
+        .model
+        .clone();
+    let ingest = IngestService::with_embedding_config(
+        db.conn(),
+        Default::default(),
+        EmbeddingConfig {
+            backend: EmbeddingBackend::Builtin,
+            model: Some(model),
+            endpoint: None,
+            api_key: None,
+            ..Default::default()
+        },
+    );
+
+    let ingest_scoped = |service: &IngestService<'_>, uri: &str, content: &str, scope: Scope| {
+        service
+            .ingest(IngestRequest {
+                source_uri: uri.to_string(),
+                source_label: Some(uri.to_string()),
+                source_kind: None,
+                content: content.to_string(),
+                scope,
+                record_type: RecordType::Observation,
+                truth_layer: TruthLayer::T2,
+                recorded_at: "2026-04-16T13:00:00Z".to_string(),
+                valid_from: None,
+                valid_to: None,
+            })
+            .expect("ingest should succeed");
+    };
+
+    let query = "alpha beta gamma delta epsilon";
+    // Out-of-scope record is the TOP semantic hit: verbatim query text gives
+    // similarity 1.0 under the builtin embedding, ahead of every in-scope
+    // record (same words plus a differing suffix).
+    ingest_scoped(&ingest, "memo://user/top-hit", query, Scope::User);
+    ingest_scoped(
+        &ingest,
+        "memo://project/one",
+        "alpha beta gamma delta epsilon zeta one",
+        Scope::Project,
+    );
+    ingest_scoped(
+        &ingest,
+        "memo://project/two",
+        "alpha beta gamma delta epsilon zeta two",
+        Scope::Project,
+    );
+    ingest_scoped(
+        &ingest,
+        "memo://project/three",
+        "alpha beta gamma delta epsilon zeta three",
+        Scope::Project,
+    );
+
+    let filters = SearchFilters {
+        scope: Some(Scope::Project),
+        ..Default::default()
+    };
+    let request = SearchRequest::new(query)
+        .with_limit(2)
+        .with_filters(filters.clone());
+
+    let hybrid_results = SearchService::with_variant(db.conn(), hybrid)
+        .search(&request)
+        .expect("hybrid search should succeed");
+    assert!(
+        hybrid_results
+            .results
+            .iter()
+            .all(|result| result.record.scope == Scope::Project),
+        "scope filter must hold on the embedding leg: {:?}",
+        hybrid_results
+            .results
+            .iter()
+            .map(|result| result.record.source.uri.clone())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        hybrid_results.results.len(),
+        2,
+        "the out-of-scope top semantic hit must be dropped at recall time, not occupy a quota slot"
+    );
+    assert!(
+        hybrid_results.results.iter().all(|result| result
+            .trace
+            .query_strategies
+            .contains(&QueryStrategy::Embedding)),
+        "quota slots should be filled by semantic-leg candidates"
+    );
+
+    let embedding_results = SearchService::with_variant(db.conn(), embedding_only)
+        .search(&request)
+        .expect("embedding-only search should succeed");
+    assert!(
+        embedding_results
+            .results
+            .iter()
+            .all(|result| result.record.scope == Scope::Project),
+        "embedding-only mode must respect record filters too"
+    );
+    assert_eq!(
+        embedding_results.results.len(),
+        2,
+        "embedding-only quota should stay filled with in-scope neighbors"
     );
 }
