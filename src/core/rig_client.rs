@@ -195,14 +195,43 @@ impl CompletionsHandle {
     where
         T: DeserializeOwned + JsonSchema,
     {
+        let (text, usage) = self
+            .complete_request(&params, Some(schemars::schema_for!(T)))
+            .await?;
+        let value = parse_lenient_json(&text)?;
+        Ok((value, usage))
+    }
+
+    /// Raw-text completion with usage: same transport as
+    /// [`Self::complete_json_with_usage`] but returns the reply text
+    /// unparsed (no output_schema attached). For callers that own their
+    /// parsing — e.g. a chat tool-loop whose model may emit native
+    /// `<tool_call>` pseudo-XML instead of the requested JSON; such
+    /// salvage is schema-aware and belongs to the caller, not this
+    /// generic client (they should reuse [`parse_lenient_json`] for the
+    /// JSON dialect).
+    pub async fn complete_text_with_usage(
+        &self,
+        params: StructuredCompletion,
+    ) -> Result<(String, CallUsage), String> {
+        self.complete_request(&params, None).await
+    }
+
+    /// 补全请求的公共管线（request 组装 → rig 调用 → 文本聚合）。
+    /// `output_schema` 为 None 时不约束输出（文本模式）。
+    async fn complete_request(
+        &self,
+        params: &StructuredCompletion,
+        output_schema: Option<schemars::Schema>,
+    ) -> Result<(String, CallUsage), String> {
         let model = self.client.chat(&params.model);
 
         let mut request =
             CompletionRequest::new(params.prompt.clone()).preamble(params.preamble.clone());
         request.temperature = params.temperature;
         request.max_tokens = params.max_tokens;
-        request.additional_params = params.additional_params;
-        request.output_schema = Some(schemars::schema_for!(T));
+        request.additional_params = params.additional_params.clone();
+        request.output_schema = output_schema;
         if let Some(data_url) = &params.image {
             use rig_core::completion::Message;
             use rig_core::completion::message::{DocumentSourceKind, Image, UserContent};
@@ -240,7 +269,7 @@ impl CompletionsHandle {
             .collect::<Vec<_>>()
             .join("");
 
-        parse_json_output(&text).map(|v| (v, usage))
+        Ok((text, usage))
     }
 
     /// Take the reasoning_content captured by the custom transport.
@@ -249,8 +278,12 @@ impl CompletionsHandle {
     }
 }
 
-/// Parse a model reply into `T`, tolerating markdown code fences.
-fn parse_json_output<T: DeserializeOwned>(text: &str) -> Result<T, String> {
+/// Parse a model reply into `T`, tolerating markdown code fences. Public:
+/// callers fetching raw text via
+/// [`CompletionsHandle::complete_text_with_usage`] and parsing locally
+/// (with their own dialect salvage) should reuse this lenient extraction
+/// rather than re-implement it.
+pub fn parse_lenient_json<T: DeserializeOwned>(text: &str) -> Result<T, String> {
     let trimmed = text.trim();
     if let Ok(value) = serde_json::from_str(trimmed) {
         return Ok(value);
@@ -362,7 +395,7 @@ pub fn build_embedding_client(api_key: &str, api_base: Option<&str>) -> Result<O
 
 #[cfg(test)]
 mod parse_tests {
-    use super::parse_json_output;
+    use super::parse_lenient_json;
     use serde::Deserialize;
 
     #[derive(Debug, Deserialize, PartialEq)]
@@ -374,7 +407,7 @@ mod parse_tests {
     /// </think> 与原生 <tool_call> 伪 XML）。
     #[test]
     fn tolerates_thinking_residue() {
-        let out = parse_json_output::<Decision>(
+        let out = parse_lenient_json::<Decision>(
             r#"{"action":"tool"}</think><tool_call>memory_search</tool_call>"#,
         )
         .expect("should parse");
@@ -384,7 +417,7 @@ mod parse_tests {
     /// 前后散文（含围栏外的说明文字与泄漏的 }{ 片段）。
     #[test]
     fn tolerates_surrounding_prose() {
-        let out = parse_json_output::<Decision>(
+        let out = parse_lenient_json::<Decision>(
             "好的，我的判断如下：}{\n{\"action\":\"reply\"}\n以上就是全部。",
         )
         .expect("should parse");
@@ -395,7 +428,7 @@ mod parse_tests {
     #[test]
     fn braces_inside_strings_ignored() {
         let out =
-            parse_json_output::<Decision>(r#"前缀 {"action":"a}b{c"} 后缀"#).expect("should parse");
+            parse_lenient_json::<Decision>(r#"前缀 {"action":"a}b{c"} 后缀"#).expect("should parse");
         assert_eq!(out.action, "a}b{c");
     }
 }
