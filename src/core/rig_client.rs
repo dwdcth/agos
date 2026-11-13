@@ -311,6 +311,16 @@ pub fn parse_lenient_json<T: DeserializeOwned>(text: &str) -> Result<T, String> 
             }
         }
     }
+    // 长尾畸形兜底（jsonrepair）：未转义引号/截断/单引号/尾逗号/Python
+    // 关键字等 30+ 种 LLM 输出病——生产实证（spark reply 信封内嵌围栏
+    // +未转义引号、max_tokens 截断）前三级全救不回的形态。修复后仍不
+    // 合法则落到如实报错。一次性整体修复（非流式）——LLM 回复本就整
+    // 段到达。
+    if let Ok(repaired) = jsonrepair_rs::jsonrepair(stripped) {
+        if let Ok(value) = serde_json::from_str::<T>(&repaired) {
+            return Ok(value);
+        }
+    }
     let snippet: String = trimmed.chars().take(200).collect();
     Err(format!(
         "failed to parse structured completion output: output head: {snippet}"
@@ -431,4 +441,30 @@ mod parse_tests {
             parse_lenient_json::<Decision>(r#"前缀 {"action":"a}b{c"} 后缀"#).expect("should parse");
         assert_eq!(out.action, "a}b{c");
     }
+    /// jsonrepair 兜底（宽容链第四级）：前三级救不回的长尾畸形——
+    /// 未转义引号 / max_tokens 截断 / 单引号 / 尾逗号（生产实证样本形态）。
+    #[test]
+    fn jsonrepair_backstop_longtail_malformed() {
+        // 未转义引号（spark reply 信封实证形态：值内裸引号）
+        let out = parse_lenient_json::<Decision>(
+            "{\"action\":\"reply\",\"text\":\"他说\"好的\"就走了\"}",
+        )
+        .expect("未转义引号应被修复");
+        assert_eq!(out.action, "reply");
+        // max_tokens 截断（结构未闭合）
+        let out = parse_lenient_json::<Decision>("{\"action\":\"tool\",\"tool\":\"run_comma")
+            .expect("截断应被修复");
+        assert_eq!(out.action, "tool");
+        // 单引号键值
+        let out =
+            parse_lenient_json::<Decision>("{'action': 'reply'}").expect("单引号应被修复");
+        assert_eq!(out.action, "reply");
+        // 尾逗号
+        let out = parse_lenient_json::<Decision>("{\"action\":\"reply\",}")
+            .expect("尾逗号应被修复");
+        assert_eq!(out.action, "reply");
+        // 垃圾文本修复成字符串后仍非 T 形状 → 如实报错（不臆造结构）
+        assert!(parse_lenient_json::<Decision>("随便聊聊天气不错").is_err());
+    }
+
 }
