@@ -707,22 +707,94 @@ impl<'db> MemoryRepository<'db> {
             "#,
             params![source_uri, valid_to],
         )?;
-
-        if !closing_ids.is_empty() {
-            let mut statement = self.conn.prepare(
-                r#"
-                UPDATE memory_links
-                SET valid_to = ?2, updated_at = ?2
-                WHERE valid_to IS NULL
-                  AND (source_record_id = ?1 OR target_record_id = ?1)
-                "#,
-            )?;
-            for record_id in &closing_ids {
-                statement.execute(params![record_id, valid_to])?;
-            }
-        }
-
+        self.close_links_for_records(&closing_ids, valid_to)?;
         Ok(affected as u64)
+    }
+
+    /// 关闭指定记录 id 的当前有效版本（幂等：已关闭或不存在返 Ok(false)），
+    /// 并同步关闭触及该记录的开放 `memory_links` 边。
+    pub fn close_valid_record_by_id(
+        &self,
+        record_id: &str,
+        valid_to: &str,
+    ) -> Result<bool, RepositoryError> {
+        let affected = self.conn.execute(
+            r#"
+            UPDATE memory_records
+            SET valid_to = ?2, updated_at = ?2
+            WHERE id = ?1 AND valid_to IS NULL
+            "#,
+            params![record_id, valid_to],
+        )?;
+        if affected > 0 {
+            self.close_links_for_records(&[record_id.to_string()], valid_to)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// 真值替代（Belief Revision）：把矛盾/过时的旧记录 `old_record_ids` 置
+    /// `valid_to` 关闭、关闭其关联的开放边，并建 `new_record_id --supersedes--> old_id`
+    /// 有向溯源边。返回实际新关闭的旧记录数。
+    pub fn supersede_records(
+        &self,
+        old_record_ids: &[String],
+        new_record_id: &str,
+        valid_to: &str,
+        provenance: &str,
+    ) -> Result<u64, RepositoryError> {
+        use crate::memory::links::{LinkStoreError, MemoryLink, MemoryLinkStore, RELATION_SUPERSEDES};
+
+        let store = MemoryLinkStore::new(self.conn);
+        let mut closed = 0u64;
+        for old_id in old_record_ids {
+            if old_id == new_record_id {
+                continue;
+            }
+            if self.close_valid_record_by_id(old_id, valid_to)? {
+                closed += 1;
+            }
+            let link = MemoryLink::new(
+                new_record_id,
+                old_id,
+                RELATION_SUPERSEDES,
+                1.0,
+                provenance,
+                valid_to,
+            );
+            store.insert_link_if_absent(&link).map_err(|e| match e {
+                LinkStoreError::Sqlite(err) => RepositoryError::Sqlite(err),
+                LinkStoreError::Repository(err) => err,
+                LinkStoreError::InvalidRelation => RepositoryError::InvalidEnum {
+                    field: "relation",
+                    value: RELATION_SUPERSEDES.to_string(),
+                },
+            })?;
+        }
+        Ok(closed)
+    }
+
+    fn close_links_for_records(
+        &self,
+        record_ids: &[String],
+        valid_to: &str,
+    ) -> Result<(), RepositoryError> {
+        if record_ids.is_empty() {
+            return Ok(());
+        }
+        let mut statement = self.conn.prepare(
+            r#"
+            UPDATE memory_links
+            SET valid_to = ?2, updated_at = ?2
+            WHERE valid_to IS NULL
+              AND (source_record_id = ?1 OR target_record_id = ?1)
+            "#,
+        )?;
+        for record_id in record_ids {
+            statement.execute(params![record_id, valid_to])?;
+        }
+        Ok(())
     }
 
     fn record_ids_closing_by_source(

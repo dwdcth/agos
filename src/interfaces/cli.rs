@@ -443,6 +443,7 @@ fn search_command(app: &AppContext, command: SearchCommand) -> Result<ExitCode> 
         valid_at: command.valid_at,
         recorded_from: command.from,
         recorded_to: command.to,
+        ..Default::default()
     };
     validate_taxonomy_filter_combination(&filters)?;
     if let Some(exit_code) = operational_gate(&gate_app, CommandPath::Search)? {

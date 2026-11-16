@@ -750,6 +750,9 @@ fn structured_query_terms(query: &str) -> Vec<String> {
 }
 
 fn matches_search_filters(record: &MemoryRecord, filters: &SearchFilters) -> bool {
+    if filters.only_open && record.validity.valid_to.is_some() {
+        return false;
+    }
     if let Some(scope) = filters.scope
         && record.scope != scope
     {

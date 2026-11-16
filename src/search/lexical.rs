@@ -49,6 +49,7 @@ const JIEBA_SQL: &str = r#"
       AND (?6 IS NULL OR mr.valid_to IS NULL OR mr.valid_to >= ?6)
       AND (?7 IS NULL OR mr.recorded_at >= ?7)
       AND (?8 IS NULL OR mr.recorded_at <= ?8)
+      AND (?9 = 0 OR mr.valid_to IS NULL)
     ORDER BY bm25(memory_records_fts), mr.recorded_at DESC, mr.id ASC
     LIMIT ?2
 "#;
@@ -86,6 +87,7 @@ const SIMPLE_SQL: &str = r#"
       AND (?6 IS NULL OR mr.valid_to IS NULL OR mr.valid_to >= ?6)
       AND (?7 IS NULL OR mr.recorded_at >= ?7)
       AND (?8 IS NULL OR mr.recorded_at <= ?8)
+      AND (?9 = 0 OR mr.valid_to IS NULL)
     ORDER BY bm25(memory_records_fts), mr.recorded_at DESC, mr.id ASC
     LIMIT ?2
 "#;
@@ -123,6 +125,7 @@ const PLAIN_SQL: &str = r#"
       AND (?6 IS NULL OR mr.valid_to IS NULL OR mr.valid_to >= ?6)
       AND (?7 IS NULL OR mr.recorded_at >= ?7)
       AND (?8 IS NULL OR mr.recorded_at <= ?8)
+      AND (?9 = 0 OR mr.valid_to IS NULL)
     ORDER BY bm25(memory_records_fts), mr.recorded_at DESC, mr.id ASC
     LIMIT ?2
 "#;
@@ -171,6 +174,7 @@ struct RecallFilters<'a> {
     valid_at: Option<&'a str>,
     recorded_from: Option<&'a str>,
     recorded_to: Option<&'a str>,
+    only_open: i64,
 }
 
 impl<'db> LexicalSearch<'db> {
@@ -214,6 +218,7 @@ impl<'db> LexicalSearch<'db> {
             } else {
                 request.filters.recorded_to.as_deref()
             },
+            only_open: i64::from(request.filters.only_open),
         };
 
         #[cfg(not(feature = "chinese-tokenizer"))]
@@ -283,7 +288,8 @@ impl<'db> LexicalSearch<'db> {
             filters.truth_layer,
             filters.valid_at,
             filters.recorded_from,
-            filters.recorded_to
+            filters.recorded_to,
+            filters.only_open
         ])?;
 
         while let Some(row) = rows.next()? {
@@ -327,6 +333,9 @@ fn has_temporal_filters(request: &SearchRequest) -> bool {
 }
 
 fn matches_temporal_filters(record: &MemoryRecord, request: &SearchRequest) -> bool {
+    if request.filters.only_open && record.validity.valid_to.is_some() {
+        return false;
+    }
     if let Some(valid_at) = request.filters.valid_at.as_deref()
         && !matches_optional_timestamp(
             record.validity.valid_from.as_deref(),

@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::memory::{
@@ -6,7 +6,7 @@ use crate::memory::{
     taxonomy::{AspectV1, DomainV1, KindV1, TopicV1},
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchFilters {
     pub scope: Option<Scope>,
     pub record_type: Option<RecordType>,
@@ -18,6 +18,9 @@ pub struct SearchFilters {
     pub valid_at: Option<String>,
     pub recorded_from: Option<String>,
     pub recorded_to: Option<String>,
+    /// Filter out closed/superseded records (`valid_to IS NOT NULL`).
+    #[serde(default)]
+    pub only_open: bool,
 }
 
 pub type AppliedFilters = SearchFilters;

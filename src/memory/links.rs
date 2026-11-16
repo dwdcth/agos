@@ -39,8 +39,10 @@ pub const RELATION_RELATES_TO: &str = "relates_to";
 pub const RELATION_DERIVED_FROM: &str = "derived_from";
 /// 方向关系：source 支持 target。
 pub const RELATION_SUPPORTS: &str = "supports";
-/// 方向关系：source 与 target 冲突（检测留给后续，先占关系名）。
+/// 方向关系：source 冲突/替代 target。
 pub const RELATION_CONTRADICTS: &str = "contradicts";
+/// 方向关系：source（新记录）替代并关闭 target（旧记录）。
+pub const RELATION_SUPERSEDES: &str = "supersedes";
 
 /// 已知关系名（存储层不强制封闭词表，查询侧可传任意非空字符串）。
 pub const KNOWN_RELATIONS: &[&str] = &[
@@ -48,6 +50,7 @@ pub const KNOWN_RELATIONS: &[&str] = &[
     RELATION_DERIVED_FROM,
     RELATION_SUPPORTS,
     RELATION_CONTRADICTS,
+    RELATION_SUPERSEDES,
 ];
 
 /// 关联发现 pass 的回填来源标记。

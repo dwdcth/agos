@@ -479,6 +479,7 @@ fn restore_applied_filters(filters: &PersistedWorldModelAppliedFilters) -> Appli
         valid_at: filters.valid_at.clone(),
         recorded_from: filters.recorded_from.clone(),
         recorded_to: filters.recorded_to.clone(),
+        ..Default::default()
     }
 }
 

@@ -1,13 +1,114 @@
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::{
+    cmp::Ordering,
+    collections::BTreeMap,
+    sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
+};
 
 use crate::{
     cognition::working_memory::{SelfStateFact, SelfStateSnapshot},
     memory::repository::{
-        LocalAdaptationEntry, LocalAdaptationTargetKind, MemoryRepository,
+        LocalAdaptationEntry, LocalAdaptationPayload, LocalAdaptationTargetKind, MemoryRepository,
         PersistedSelfModelSnapshot, PersistedSelfModelSnapshotEntry, RepositoryError,
         SelfModelGovernanceMetadata, SelfModelResolutionState,
     },
 };
+
+pub const DEFAULT_USER_SUBJECT: &str = "user:primary";
+
+static SUBJECT_ADAPT_SEQ: AtomicU64 = AtomicU64::new(1);
+
+pub fn target_kind_for_profile_key(key: &str) -> LocalAdaptationTargetKind {
+    if key.starts_with("taboo.") {
+        LocalAdaptationTargetKind::RiskBoundary
+    } else {
+        LocalAdaptationTargetKind::SelfState
+    }
+}
+
+fn next_subject_entry_id(subject_ref: &str, key: &str) -> String {
+    let seq = SUBJECT_ADAPT_SEQ.fetch_add(1, AtomicOrdering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("adapt-{nanos:026}-{seq:010}-{subject_ref}-{key}")
+}
+
+/// Upsert a structured profile/self-model attribute for `subject_ref`
+/// (`taboo.*` maps to `RiskBoundary`, other keys map to `SelfState`).
+pub fn upsert_subject_entry(
+    repository: &MemoryRepository<'_>,
+    subject_ref: &str,
+    key: &str,
+    value: &str,
+    evidence_refs: Vec<String>,
+    now_rfc3339: &str,
+) -> Result<LocalAdaptationEntry, RepositoryError> {
+    let entry = LocalAdaptationEntry {
+        entry_id: next_subject_entry_id(subject_ref, key),
+        subject_ref: subject_ref.to_string(),
+        target_kind: target_kind_for_profile_key(key),
+        key: key.to_string(),
+        payload: LocalAdaptationPayload {
+            value: serde_json::Value::String(value.to_string()),
+            trigger_kind: "profile_upsert".to_string(),
+            evidence_refs,
+        },
+        source_queue_item_id: None,
+        created_at: now_rfc3339.to_string(),
+        updated_at: now_rfc3339.to_string(),
+    };
+    repository.insert_local_adaptation_entry(&entry)?;
+    Ok(entry)
+}
+
+/// Deactivate an active profile key for `subject_ref` by appending a null tombstone.
+pub fn remove_subject_entry(
+    repository: &MemoryRepository<'_>,
+    subject_ref: &str,
+    key: &str,
+    now_rfc3339: &str,
+) -> Result<bool, RepositoryError> {
+    let active = list_active_subject_entries(repository, subject_ref)?;
+    let Some(existing) = active.into_iter().find(|e| e.key == key) else {
+        return Ok(false);
+    };
+    let entry = LocalAdaptationEntry {
+        entry_id: next_subject_entry_id(subject_ref, key),
+        subject_ref: subject_ref.to_string(),
+        target_kind: existing.target_kind,
+        key: key.to_string(),
+        payload: LocalAdaptationPayload {
+            value: serde_json::Value::Null,
+            trigger_kind: "profile_remove".to_string(),
+            evidence_refs: Vec::new(),
+        },
+        source_queue_item_id: None,
+        created_at: now_rfc3339.to_string(),
+        updated_at: now_rfc3339.to_string(),
+    };
+    repository.insert_local_adaptation_entry(&entry)?;
+    Ok(true)
+}
+
+/// Resolve and return all currently active entries for `subject_ref`.
+pub fn list_active_subject_entries(
+    repository: &MemoryRepository<'_>,
+    subject_ref: &str,
+) -> Result<Vec<ResolvedSelfModelEntry>, RepositoryError> {
+    let state = repository.load_self_model_state(subject_ref)?;
+    let model = SelfModelReadModel::from_persisted_state(
+        state.snapshot.as_ref(),
+        &state.tail_entries,
+        &[],
+    );
+    Ok(model
+        .entries()
+        .iter()
+        .filter(|entry| entry.active)
+        .cloned()
+        .collect())
+}
 
 pub use crate::memory::repository::{
     PersistedSelfModelSnapshot as SelfModelSnapshot,
