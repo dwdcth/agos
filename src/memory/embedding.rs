@@ -96,6 +96,7 @@ struct RemoteEmbeddingData {
 ///   twice with linear backoff; other 4xx fail fast;
 /// - every batch is validated: one vector per input text, dimension
 ///   consistency across the batch, and against `dimensions` when configured.
+#[derive(Clone)]
 pub struct RemoteHttpEmbeddingGenerator {
     client: reqwest::Client,
     base_url: String,
