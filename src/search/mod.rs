@@ -250,7 +250,16 @@ impl<'db> SearchService<'db> {
                     self.lexical.recall(&recall_request)?,
                     self.structured_recall(&recall_request)?,
                 );
-                let embedding = self.embedding_recall(&recall_request)?;
+                let embedding = match self.embedding_recall(&recall_request) {
+                    Ok(candidates) => candidates,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            "hybrid search embedding channel failed; degrading to lexical candidates"
+                        );
+                        Vec::new()
+                    }
+                };
                 merge_candidates(lexical, embedding)
             }
         };

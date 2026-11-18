@@ -457,3 +457,71 @@ fn remote_http_backend_end_to_end_ingest_to_hybrid_semantic_recall() {
         requests.len()
     );
 }
+
+#[test]
+fn remote_generator_allows_keyless_loopback_and_rejects_keyless_public_endpoint() {
+    let server = MockEmbeddingServer::start(Arc::new(|_, request| {
+        (200, embeddings_response(&request.input_texts(), None))
+    }));
+
+    let mut local_cfg = generator_config(&server.base_url);
+    local_cfg.api_key = None;
+    let generator = RemoteHttpEmbeddingGenerator::from_config(&local_cfg)
+        .expect("loopback endpoint should not require api_key");
+    let embeddings = runtime()
+        .block_on(generator.generate_embeddings(vec!["feline local".into()]))
+        .expect("keyless loopback embedding should succeed");
+    assert_eq!(embeddings.len(), 1);
+    let requests = server.recorded();
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0].authorization.is_none(),
+        "keyless loopback request must omit Authorization header"
+    );
+
+    // Public endpoints still require api_key when env var is absent.
+    if std::env::var(agent_memos::memory::embedding::REMOTE_EMBEDDING_API_KEY_ENV)
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+    {
+        let public_cfg = RootEmbeddingRuntimeConfig {
+            provider: "remote_http".to_string(),
+            model: "BAAI/bge-m3".to_string(),
+            api_base: Some("https://api.siliconflow.cn/v1".to_string()),
+            api_key: None,
+            ..Default::default()
+        };
+        let err = match RemoteHttpEmbeddingGenerator::from_config(&public_cfg) {
+            Ok(_) => panic!("public remote_http without api_key must fail fast"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("api_key is missing"));
+    }
+}
+
+#[test]
+fn hybrid_search_degrades_to_lexical_when_remote_embedding_fails() {
+    let server = MockEmbeddingServer::start(Arc::new(|_, _| {
+        (401, json!({"error": "upstream auth down"}).to_string())
+    }));
+    let db_path = fresh_db_path("hybrid-lexical-fallback");
+    let db = Database::open(&db_path).expect("database should open");
+    let ingest_service = IngestService::new(db.conn());
+    ingest(
+        &ingest_service,
+        "memo://project/fallback",
+        "rust axum memory service degrades cleanly",
+    );
+
+    let config = remote_test_config(&db_path, &server.base_url, RetrievalMode::Hybrid);
+    let response = SearchService::with_runtime_config(db.conn(), &config, None)
+        .search(&SearchRequest::new("axum memory"))
+        .expect("hybrid search must degrade to lexical instead of failing");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].record.source.uri,
+        "memo://project/fallback"
+    );
+}

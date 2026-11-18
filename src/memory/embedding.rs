@@ -100,11 +100,30 @@ struct RemoteEmbeddingData {
 pub struct RemoteHttpEmbeddingGenerator {
     client: reqwest::Client,
     base_url: String,
-    api_key: String,
+    api_key: Option<String>,
     model: String,
     expected_dimensions: Option<usize>,
     batch_size: usize,
     max_retries: u32,
+}
+
+fn is_loopback_base_url(base_url: &str) -> bool {
+    let rest = base_url
+        .trim()
+        .strip_prefix("http://")
+        .or_else(|| base_url.trim().strip_prefix("https://"))
+        .unwrap_or(base_url.trim());
+    let authority = rest.split(['/', '?']).next().unwrap_or("");
+    let host = if let Some(stripped) = authority.strip_prefix('[') {
+        stripped.split(']').next().unwrap_or("")
+    } else {
+        authority.split(':').next().unwrap_or("")
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host.starts_with("127.")
+        || host == "::1"
+        || host == "0.0.0.0"
 }
 
 impl RemoteHttpEmbeddingGenerator {
@@ -135,12 +154,12 @@ impl RemoteHttpEmbeddingGenerator {
                         let key = key.trim().to_string();
                         (!key.is_empty()).then_some(key)
                     })
-            })
-            .ok_or_else(|| {
-                EmbeddingError::RequestBuild(format!(
-                    "api_key is missing: set [embedding] api_key or the {REMOTE_EMBEDDING_API_KEY_ENV} environment variable"
-                ))
-            })?;
+            });
+        if api_key.is_none() && !is_loopback_base_url(&base_url) {
+            return Err(EmbeddingError::RequestBuild(format!(
+                "api_key is missing: set [embedding] api_key or the {REMOTE_EMBEDDING_API_KEY_ENV} environment variable"
+            )));
+        }
 
         let timeout_seconds = config
             .timeout_seconds
@@ -221,10 +240,11 @@ impl RemoteHttpEmbeddingGenerator {
             input: batch,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .bearer_auth(&self.api_key)
+        let mut req = self.client.post(&url);
+        if let Some(api_key) = &self.api_key {
+            req = req.bearer_auth(api_key);
+        }
+        let response = req
             .json(&body)
             .send()
             .await
